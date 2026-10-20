@@ -4,23 +4,28 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-run by hand after adding or changing the Google key: config.js is written at build time.
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Pull requests: a newer push cancels the older run. main: runs queue and a deploy is never cut off.
 concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22 # node --test with globs needs Node 21+
+          package-manager-cache: false
       - run: npm test
 
   deploy:
@@ -28,34 +33,51 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
 
-      - name: Write config.js from repository secrets
+      - name: Write config.js and stamp the service worker
         env:
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-          GOOGLE_MAP_ID: ${{ vars.GOOGLE_MAP_ID }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }} # empty when the secret isn't set
+          GOOGLE_MAP_ID: ${{ vars.GOOGLE_MAP_ID }} # empty when the variable isn't set
+          BUILD_ID: ${{ github.sha }}
         run: |
-          node -e '
-            const fs = require("fs");
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const build = process.env.BUILD_ID.slice(0, 12);
             const config = {
-              googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
-              googleMapId: process.env.GOOGLE_MAP_ID || "",
+              googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
+              googleMapId: (process.env.GOOGLE_MAP_ID || "").trim(),
+              build,
             };
-            fs.writeFileSync("site/config.js",
-              "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n");
-            console.log(config.googleMapsApiKey ? "Google key: set" : "Google key: not set (OpenStreetMap only)");
+            writeFileSync("site/config.js", "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n");
+            const sw = readFileSync("site/sw.js", "utf8");
+            if (!sw.includes("__BUILD__")) throw new Error("site/sw.js has no __BUILD__ placeholder");
+            writeFileSync("site/sw.js", sw.replaceAll("__BUILD__", build));
+            console.log(config.googleMapsApiKey
+              ? "Google Maps key: set"
+              : "::warning title=No Google key::GOOGLE_MAPS_API_KEY is not set, deploying the OpenStreetMap-only version");
           '
-          sed -i "s/__BUILD__/${GITHUB_SHA::12}/" site/sw.js
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

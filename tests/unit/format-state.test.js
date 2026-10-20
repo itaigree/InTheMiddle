@@ -57,3 +57,14 @@ test('encodeState omits empty parts', () => {
     'b=x',
   );
 });
+
+test('guessAreaName picks the most common town among the top places', async () => {
+  // results.js touches `document` only inside render functions, so it imports fine in Node.
+  const { guessAreaName } = await import('../../site/js/ui/results.js');
+  const p = (address) => ({ address });
+  assert.equal(guessAreaName([p('הרצל 5, חדרה'), p('הנשיא 2, חדרה'), p('הים 1, קיסריה')]), 'חדרה');
+  assert.equal(guessAreaName([p('הרצל 5, חדרה'), p('הים 1, קיסריה')]), null);
+  assert.equal(guessAreaName([p('חדרה'), p('חדרה'), p(undefined)]), null);
+  assert.equal(guessAreaName([p('כביש 4, 3800000'), p('כביש 2, 3800000')]), null);
+  assert.equal(guessAreaName([]), null);
+});

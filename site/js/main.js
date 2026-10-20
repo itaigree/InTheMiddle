@@ -538,7 +538,10 @@ function init() {
     updateProviderNote({ id: 'osm', attributionHtml: '' });
   }
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker', err));
+    // Never awaited: registration can stay pending (e.g. when service workers are blocked).
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker', err));
+    });
   }
 }
 

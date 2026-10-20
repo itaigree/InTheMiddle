@@ -17,14 +17,38 @@ function el(tag, className, text) {
   return node;
 }
 
-/** "באמצע: כ-35 דק׳ לכל צד" etc. */
+/**
+ * The town the midpoint is in, guessed from the places' addresses ("רחוב 5, חדרה"):
+ * the most common last part among the best places, if it appears at least twice.
+ */
+export function guessAreaName(places, sample = 10) {
+  const counts = new Map();
+  for (const p of places.slice(0, sample)) {
+    const parts = (p.address || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    const town = parts[parts.length - 1];
+    if (/\d/.test(town) || town === 'ישראל' || town === 'Israel') continue;
+    counts.set(town, (counts.get(town) || 0) + 1);
+  }
+  let best = null;
+  for (const [town, n] of counts) if (n >= 2 && (!best || n > best[1])) best = [town, n];
+  return best ? best[0] : null;
+}
+
+/** "נקודת האמצע נמצאת באזור חדרה, בערך 34 דק׳ נסיעה מכל צד." */
 export function renderSummary(container, result) {
   container.replaceChildren();
   const time = result.balance?.time;
-  if (Number.isFinite(time)) {
-    container.append('נקודת האמצע נמצאת בערך ');
-    container.append(el('strong', null, formatDuration(time)));
-    container.append(' נסיעה מכל צד. ');
+  const area = guessAreaName(result.places);
+  if (area || Number.isFinite(time)) {
+    container.append('נקודת האמצע נמצאת ');
+    if (area) {
+      container.append('באזור ', el('strong', null, area));
+      container.append(Number.isFinite(time) ? ', ' : '. ');
+    }
+    if (Number.isFinite(time)) {
+      container.append('בערך ', el('strong', null, formatDuration(time)), ' נסיעה מכל צד. ');
+    }
   }
   container.append(
     result.places.length
