@@ -9,7 +9,7 @@ const CENTER = { lat: 32.4, lng: 34.9 };
 test('buildOverpassQuery: one capped block per known category', () => {
   const q = buildOverpassQuery(CENTER, 2500.4, ['park', 'nope', 'mall']);
   assert.match(q, /^\[out:json\]\[timeout:25\];/);
-  assert.equal(q.match(/out tags center 150;/g).length, 2);
+  assert.equal(q.match(/out tags center qt 150;/g).length, 2);
   assert.match(q, /nwr\["leisure"="park"\]\["name"\]\(around:2500,32\.400000,34\.900000\);/);
   assert.match(q, /nwr\["shop"="mall"\]/);
 });
@@ -110,4 +110,14 @@ test('classifyGoogleError maps quota, auth, bad requests and outages', () => {
 
   const already = new ProviderRequestError('x');
   assert.equal(classifyGoogleError(already), already);
+});
+
+test('parseOneToMany takes the fastest of transit options and walking', async () => {
+  const { parseOneToMany } = await import('../../site/js/providers/osm.js');
+  const data = {
+    transit_durations: [[{ duration: 1800, transfers: 0 }, { duration: 1500, transfers: 2 }], [], []],
+    street_durations: [{ duration: 4000 }, { duration: 600 }, {}],
+  };
+  assert.deepEqual(parseOneToMany(data, 3), [1500, 600, null]);
+  assert.deepEqual(parseOneToMany({}, 2), [null, null]);
 });

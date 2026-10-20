@@ -262,7 +262,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
             // Essentials-only fields end the session at the cheapest tier.
             await call(() => place.fetchFields({ fields: ['location'] }));
             sessionToken = null; // the next search starts a new session
-            return place.location ? { label: title, ...toLatLng(place.location) } : null;
+            return place.location ? { label: title, ...toLatLng(place.location), source: 'google' } : null;
           },
         };
       });
@@ -284,7 +284,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     const place = found?.[0];
     if (!place) return null;
     await call(() => place.fetchFields({ fields: ['location'] }));
-    return place.location ? { label: text, ...toLatLng(place.location) } : null;
+    return place.location ? { label: text, ...toLatLng(place.location), source: 'google' } : null;
   }
 
   async function route(a, b) {

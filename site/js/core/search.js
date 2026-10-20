@@ -10,7 +10,7 @@
 import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadiusFor } from './midpoint.js';
 import { samplePath, pointAtFraction, straightPath, pathLength, valuesAlongPath } from './geo.js';
 import { rankPlaces, dedupePlaces } from './ranking.js';
-import { ProviderUnavailableError } from '../providers/errors.js';
+import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
 
 /**
  * At most this many candidates get their travel times checked, unless the provider
@@ -65,44 +65,83 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
   // (A drives forward along it, B drives it in reverse). Only sides without a
   // timeline – transit, or a provider that gave none – need a travel-time query.
   const timeline = route && hasTimeline(path, route.timeline) ? route.timeline : null;
-  const sampleTimes = async (fractions) => {
-    const samples = samplePath(path, fractions);
-    const along = timeline ? valuesAlongPath(path, timeline, fractions) : null;
-    const total = timeline ? timeline[timeline.length - 1] : null;
-    const fromTimeline = { a: along, b: along && along.map((t) => total - t) };
-    const queries = [];
+  const addNotice = (n) => {
+    if (!notices.includes(n)) notices.push(n);
+  };
+
+  /**
+   * Travel times (seconds) from each side to `dests`. Driving sides use
+   * `fromTimeline` when given. A transit query that fails outright (as opposed to
+   * finding no service) yields nulls and is listed in `failed`.
+   */
+  async function timesTo(dests, fromTimeline = null) {
+    const out = { a: null, b: null, failed: [] };
+    const pending = [];
     for (const [key, origin, mode] of [
       ['a', a, modeA],
       ['b', b, modeB],
     ]) {
-      if (mode !== 'car' || !timeline) queries.push({ key, origin, mode });
+      if (mode === 'car' && fromTimeline) out[key] = fromTimeline[key];
+      else pending.push({ key, origin, mode });
     }
-    const out = { a: fromTimeline.a, b: fromTimeline.b };
-    if (queries.length === 2 && queries[0].mode === queries[1].mode) {
-      const m = await provider.travelTimes([a, b], samples, queries[0].mode, opts);
-      out.a = m[0];
-      out.b = m[1];
-    } else {
-      const results = await Promise.all(queries.map((q) => provider.travelTimes([q.origin], samples, q.mode, opts)));
-      queries.forEach((q, i) => {
-        out[q.key] = results[i][0];
-      });
-    }
+    // Same mode on both sides: one request with two origins.
+    const groups = pending.length === 2 && pending[0].mode === pending[1].mode ? [pending] : pending.map((p) => [p]);
+    await Promise.all(
+      groups.map(async (group) => {
+        const { mode } = group[0];
+        try {
+          const m = await provider.travelTimes(
+            group.map((g) => g.origin),
+            dests,
+            mode,
+            opts,
+          );
+          group.forEach((g, i) => {
+            out[g.key] = m[i];
+          });
+        } catch (err) {
+          if (mode !== 'transit' || err instanceof ProviderUnavailableError || isAbortError(err)) throw err;
+          console.warn('transit routing failed; that side will drive', err);
+          for (const g of group) {
+            out[g.key] = dests.map(() => null);
+            out.failed.push(g.key);
+          }
+        }
+      }),
+    );
     return out;
+  }
+
+  /** Switch transit sides that failed or found no service at all (Shabbat, night) to driving. */
+  function dropUnusableTransit(times) {
+    let changed = false;
+    for (const key of ['a', 'b']) {
+      if ((key === 'a' ? modeA : modeB) !== 'transit') continue;
+      if (times.failed.includes(key)) addNotice('transit-error');
+      else if (!times[key].some(isTime)) addNotice('transit-no-service');
+      else continue;
+      if (key === 'a') modeA = 'car';
+      else modeB = 'car';
+      changed = true;
+    }
+    return changed;
+  }
+
+  const fractionsFor = () => (timeline && modeA === 'car' && modeB === 'car' ? TIMELINE_FRACTIONS : SAMPLE_FRACTIONS);
+  const sampleTimes = (fractions) => {
+    let fromTimeline = null;
+    if (timeline) {
+      const along = valuesAlongPath(path, timeline, fractions);
+      const total = timeline[timeline.length - 1];
+      fromTimeline = { a: along, b: along.map((t) => total - t) };
+    }
+    return timesTo(samplePath(path, fractions), fromTimeline);
   };
 
-  let fractions = timeline && modeA === 'car' && modeB === 'car' ? TIMELINE_FRACTIONS : SAMPLE_FRACTIONS;
+  let fractions = fractionsFor();
   let times = await sampleTimes(fractions);
-
-  // No transit at all (Shabbat, night, or no service): fall back to driving for that side.
-  const noTransit = [];
-  if (modeA === 'transit' && !times.a.some(isTime)) noTransit.push('a');
-  if (modeB === 'transit' && !times.b.some(isTime)) noTransit.push('b');
-  if (noTransit.length) {
-    notices.push('transit-no-service');
-    if (noTransit.includes('a')) modeA = 'car';
-    if (noTransit.includes('b')) modeB = 'car';
-    fractions = timeline && modeA === 'car' && modeB === 'car' ? TIMELINE_FRACTIONS : SAMPLE_FRACTIONS;
+  if (dropUnusableTransit(times)) {
+    fractions = fractionsFor();
     times = await sampleTimes(fractions);
   }
 
@@ -121,8 +160,9 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
   onProgress('times');
   let ranked = [];
   if (candidates.length) {
-    const [placeTimesA, placeTimesB] = await timesFromBoth(provider, a, b, candidates, modeA, modeB, opts);
-    ranked = rankPlaces(candidates, placeTimesA, placeTimesB, { preferOpen: !departure });
+    let placeTimes = await timesTo(candidates);
+    if (dropUnusableTransit(placeTimes)) placeTimes = await timesTo(candidates);
+    ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, { preferOpen: !departure });
   }
 
   return {
@@ -150,19 +190,6 @@ function hasTimeline(path, timeline) {
     timeline.every((t, i) => Number.isFinite(t) && (i === 0 || t >= timeline[i - 1])) &&
     timeline[timeline.length - 1] > 0
   );
-}
-
-/** Travel times from A and from B to each destination, batching when the modes match. */
-async function timesFromBoth(provider, a, b, destinations, modeA, modeB, opts) {
-  if (modeA === modeB) {
-    const m = await provider.travelTimes([a, b], destinations, modeA, opts);
-    return [m[0], m[1]];
-  }
-  const [ma, mb] = await Promise.all([
-    provider.travelTimes([a], destinations, modeA, opts),
-    provider.travelTimes([b], destinations, modeB, opts),
-  ]);
-  return [ma[0], mb[0]];
 }
 
 /**

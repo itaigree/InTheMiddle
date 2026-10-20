@@ -48,15 +48,20 @@ const TINY_PNG = Buffer.from(
 
 /**
  * Install OSM mocks on a Playwright page/context. Returns a log of requests per service.
- * `failOverpass: true` makes every Overpass mirror answer 504.
+ * `failOverpass: true` makes every Overpass mirror answer 504; `failTransit: true`
+ * makes Transitous answer 500; `noTransitService: true` returns no connections.
  */
-export async function mockOsm(target, { failOverpass = false } = {}) {
-  const log = { photon: [], osrmRoute: [], osrmTable: [], overpass: [] };
+export async function mockOsm(target, { failOverpass = false, failTransit = false, noTransitService = false } = {}) {
+  const log = { photon: [], osrmRoute: [], osrmTable: [], overpass: [], transit: [] };
 
   await target.route('https://photon.komoot.io/**', (route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams.get('q') || '';
     log.photon.push(q);
+    if (url.searchParams.get('lang') !== 'default') {
+      route.fulfill(json({ message: 'test mock: expected lang=default' }, 400));
+      return;
+    }
     const hit = lookup(q);
     const features = hit
       ? [
@@ -143,6 +148,32 @@ export async function mockOsm(target, { failOverpass = false } = {}) {
   };
   await target.route('https://overpass-api.de/**', overpass);
   await target.route('https://overpass.private.coffee/**', overpass);
+
+  await target.route('https://api.transitous.org/**', (route) => {
+    const url = new URL(route.request().url());
+    log.transit.push(url.searchParams.toString());
+    if (failTransit) {
+      route.fulfill(json({ error: 'internal error' }, 500));
+      return;
+    }
+    const [lat, lng] = url.searchParams.get('one').split(';').map(Number);
+    const many = url.searchParams
+      .get('many')
+      .split(',')
+      .map((p) => {
+        const [mlat, mlng] = p.split(';').map(Number);
+        return { lat: mlat, lng: mlng };
+      });
+    const TRANSIT_SPEED = 12;
+    route.fulfill(
+      json({
+        street_durations: many.map(() => ({})),
+        transit_durations: many.map((m) =>
+          noTransitService ? [] : [{ duration: Math.round(haversine({ lat, lng }, m) / TRANSIT_SPEED / 60) * 60, transfers: 1 }],
+        ),
+      }),
+    );
+  });
 
   await target.route('https://tile.openstreetmap.org/**', (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG }),

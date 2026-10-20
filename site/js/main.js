@@ -29,6 +29,7 @@ const NOTICE_TEXT = {
     'במפות החינמיות אין חישוב של תחבורה ציבורית, ולכן חישבנו את זמני ההגעה לפי נסיעה ברכב.',
   'transit-no-service':
     'לא מצאנו תחבורה ציבורית בזמן היציאה שנבחר (אולי שבת, חג או שעת לילה), ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
+  'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
 };
 
 const SWITCH_REASON_TEXT = {
@@ -44,6 +45,9 @@ const forcedProvider = decodeState(location.search).provider;
 let providerPromise = null;
 let switchReason = null;
 let currentMap = null;
+/** The last search as the user asked for it (texts, modes…), to re-run after a provider switch. */
+let lastRequest = null;
+/** The last search with resolved coordinates, for sharing. */
 let lastQuery = null;
 /** Attribution line under autocomplete suggestions, for the provider that served them. */
 let suggestFooter = '';
@@ -115,7 +119,7 @@ function handleGoogleUnavailable(err) {
   providerPromise = null;
   getProvider().then((p) => {
     updateProviderNote(p);
-    if (lastQuery) runSearch({ reuse: lastQuery });
+    if (lastRequest) runSearch({ request: lastRequest });
   });
 }
 
@@ -209,7 +213,12 @@ document.querySelectorAll('.locate').forEach((button) => {
       (pos) => {
         button.classList.remove('is-busy');
         sides[key].ac.cancel();
-        setSideLocation(key, { label: MY_LOCATION_LABEL, lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setSideLocation(key, {
+          label: MY_LOCATION_LABEL,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          source: 'device',
+        });
         hideStatus();
       },
       () => {
@@ -313,14 +322,31 @@ let searchSeq = 0;
 let lastResult = null;
 let activeFilter = 'all';
 
-async function resolveSide(key, provider) {
-  const side = sides[key];
-  const text = side.input.value.trim();
-  if (side.location && Number.isFinite(side.location.lat) && side.location.label === text) return side.location;
-  const found = await provider.geocode(text);
-  if (!found) return null;
-  side.location = { ...found, label: text };
-  return side.location;
+/** What the user asked for, independent of any provider. */
+function readForm() {
+  const endpoint = (key) => ({ text: sides[key].input.value.trim(), location: sides[key].location });
+  return {
+    a: endpoint('a'),
+    b: endpoint('b'),
+    modeA: getMode('a'),
+    modeB: getMode('b'),
+    categories: selectedCategories(),
+    departure: departureValue(),
+  };
+}
+
+/**
+ * Coordinates for an endpoint with `provider`. Known coordinates are reused,
+ * except Google-derived ones on another provider: Google's terms keep its data
+ * off non-Google maps, so those are looked up again.
+ */
+async function resolveEndpoint(endpoint, provider) {
+  const loc = endpoint.location;
+  if (loc && Number.isFinite(loc.lat) && (loc.source !== 'google' || provider.id === 'google')) {
+    return { ...loc, label: endpoint.text || loc.label };
+  }
+  const found = await provider.geocode(endpoint.text);
+  return found ? { ...found, label: endpoint.text } : null;
 }
 
 function validateForm() {
@@ -345,18 +371,20 @@ function setBusy(busy) {
 }
 
 /**
- * Run a search from the form, or re-run `reuse` (a previous query) after the
+ * Run a search from the form, or re-run `request` (an earlier one) after the
  * provider changed.
  */
-async function runSearch({ reuse = null } = {}) {
+async function runSearch({ request = null } = {}) {
   const seq = ++searchSeq;
-  if (!reuse) {
+  if (!request) {
     const problems = validateForm();
     if (problems.length) {
       showStatus('error', problems.join(' '));
       return;
     }
+    request = readForm();
   }
+  lastRequest = request;
   setBusy(true);
   showStatus('progress', PROGRESS_TEXT.geocode);
   const progress = (step) => {
@@ -365,28 +393,31 @@ async function runSearch({ reuse = null } = {}) {
 
   try {
     const result = await withProvider(async (provider) => {
-      let query = reuse;
-      if (!query) {
-        const [a, b] = await Promise.all([resolveSide('a', provider), resolveSide('b', provider)]);
-        const missing = [];
-        if (!a) missing.push(['a', sides.a.input.value.trim()]);
-        if (!b) missing.push(['b', sides.b.input.value.trim()]);
-        if (missing.length) {
-          for (const [key] of missing) sides[key].input.setAttribute('aria-invalid', 'true');
-          const err = new Error('not found');
-          err.userMessage = `לא הצלחנו למצוא את ${missing.map(([, t]) => `„${t}”`).join(' ואת ')}. אפשר לנסות לכתוב אחרת או לבחור מהרשימה שנפתחת בזמן ההקלדה.`;
-          throw err;
-        }
-        query = {
-          a,
-          b,
-          modeA: getMode('a'),
-          modeB: getMode('b'),
-          categories: selectedCategories(),
-          departure: departureValue(),
-        };
-      }
+      const [a, b] = await Promise.all([resolveEndpoint(request.a, provider), resolveEndpoint(request.b, provider)]);
       if (seq !== searchSeq) return null;
+      const missing = [];
+      for (const [key, loc] of [
+        ['a', a],
+        ['b', b],
+      ]) {
+        if (!loc) missing.push([key, request[key].text]);
+        // Remember the coordinates while the field still says the same thing.
+        else if (sides[key].input.value.trim() === request[key].text) sides[key].location = loc;
+      }
+      if (missing.length) {
+        for (const [key] of missing) sides[key].input.setAttribute('aria-invalid', 'true');
+        const err = new Error('not found');
+        err.userMessage = `לא הצלחנו למצוא את ${missing.map(([, t]) => `„${t}”`).join(' ואת ')}. אפשר לנסות לכתוב אחרת או לבחור מהרשימה שנפתחת בזמן ההקלדה.`;
+        throw err;
+      }
+      const query = {
+        a,
+        b,
+        modeA: request.modeA,
+        modeB: request.modeB,
+        categories: request.categories,
+        departure: request.departure,
+      };
       lastQuery = query;
       updateUrl(query);
       const res = await findMiddle(query, provider, { onProgress: progress });
@@ -404,9 +435,11 @@ async function runSearch({ reuse = null } = {}) {
 }
 
 function updateUrl(query) {
+  // Google-derived coordinates stay out of shared links (they'd end up on other maps).
+  const forLink = (loc) => (loc.source === 'google' ? { label: loc.label } : loc);
   const qs = encodeState({
-    a: query.a,
-    b: query.b,
+    a: forLink(query.a),
+    b: forLink(query.b),
     modeA: query.modeA,
     modeB: query.modeB,
     categories: query.categories,
@@ -523,7 +556,7 @@ function init() {
     const loc = state[key];
     if (!loc) continue;
     sides[key].input.value = loc.label;
-    sides[key].location = Number.isFinite(loc.lat) ? loc : null;
+    sides[key].location = Number.isFinite(loc.lat) ? { ...loc, source: 'link' } : null;
   }
   setMode('a', state.modeA);
   setMode('b', state.modeB);

@@ -1,22 +1,31 @@
 // Free provider built on OpenStreetMap data and public services:
 //   Photon (komoot) – search-as-you-type and free-text lookup
-//   OSRM            – driving routes and travel-time tables
-//   Overpass API    – meeting places around the midpoint
-// No key, no billing. These are community-run servers, so requests are kept small.
+//   OSRM (FOSSGIS)  – driving routes and travel-time tables (max 1 request/second)
+//   Transitous      – public transit travel times (open-source, non-commercial use)
+//   Overpass API    – meeting places around the midpoint (cached, one query per search)
+// No key, no billing. These are community-run servers, so requests are kept few and
+// small. Nominatim is deliberately not used: its policy forbids autocomplete.
 
 import { ProviderRequestError, isAbortError } from './errors.js';
 import { haversine } from '../core/geo.js';
 
 const PHOTON_URL = 'https://photon.komoot.io/api/';
-const OSRM_URLS = ['https://router.project-osrm.org', 'https://routing.openstreetmap.de/routed-car'];
-const OVERPASS_URLS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const OSRM_URLS = ['https://routing.openstreetmap.de/routed-car', 'https://router.project-osrm.org'];
+const TRANSITOUS_URL = 'https://api.transitous.org/api/experimental/one-to-many-intermodal';
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
 
 /** Israel (and the West Bank), as west,south,east,north. */
 const BBOX = [34.2, 29.45, 35.95, 33.35];
-const CENTER = { lat: 31.8, lng: 35.0 };
 /** OSRM's demo server allows up to 100 coordinates per table request. */
 const MAX_TABLE_COORDS = 100;
+/** Transitous answers at most 128 destinations per one-to-many request. */
+const MAX_TRANSIT_DESTINATIONS = 100;
 const PLACES_PER_CATEGORY = 15;
+const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
 
 /**
  * Overpass selectors per category, and a Hebrew label per tag value.
@@ -97,6 +106,27 @@ async function fetchJson(url, { signal, timeoutMs = 20000, ...init } = {}) {
   }
 }
 
+/**
+ * Serialises calls and keeps at least `gapMs` between their starts, for servers
+ * whose policy caps the request rate (OSRM: 1 request/second).
+ */
+function rateLimited(gapMs) {
+  let last = 0;
+  let queue = Promise.resolve();
+  return (fn) => {
+    const run = queue.then(async () => {
+      const wait = last + gapMs - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      last = Date.now();
+      return fn();
+    });
+    queue = run.catch(() => {});
+    return run;
+  };
+}
+
+const osrmGate = rateLimited(1000);
+
 /** Try each mirror in turn; give up with a Hebrew message for the user. */
 async function withMirrors(urls, fn, userMessage) {
   let lastError;
@@ -128,15 +158,21 @@ function photonLabel(props) {
   return parts.filter((p) => p !== props.name).join(', ');
 }
 
+const photonCache = new Map();
+
 async function photonSearch(query, { limit, signal }) {
-  const params = new URLSearchParams({
-    q: query,
-    limit: String(limit),
-    lat: String(CENTER.lat),
-    lon: String(CENTER.lng),
-    bbox: BBOX.join(','),
-  });
-  const data = await fetchJson(`${PHOTON_URL}?${params}`, { signal, timeoutMs: 10000 });
+  // lang=default returns OSM's local `name` (Hebrew in Israel). Without it Photon
+  // follows Accept-Language and a he-IL browser gets English names; 'he' itself is
+  // rejected (HTTP 400). Unknown parameters are rejected too, so keep to these.
+  const params = new URLSearchParams({ q: query, limit: String(limit), lang: 'default', bbox: BBOX.join(',') });
+  const url = `${PHOTON_URL}?${params}`;
+  if (photonCache.size > 200) photonCache.clear();
+  if (!photonCache.has(url)) {
+    const pending = fetchJson(url, { signal, timeoutMs: 10000 });
+    photonCache.set(url, pending);
+    pending.catch(() => photonCache.delete(url));
+  }
+  const data = await photonCache.get(url);
   return (data.features || [])
     .filter((f) => f.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates))
     .map((f) => {
@@ -157,7 +193,7 @@ async function osrmRoute(a, b) {
     OSRM_URLS,
     async (base) => {
       const url = `${base}/route/v1/driving/${lngLat(a)};${lngLat(b)}?overview=full&geometries=geojson&annotations=duration`;
-      const data = await fetchJson(url);
+      const data = await osrmGate(() => fetchJson(url));
       if (data.code !== 'Ok' || !data.routes?.length) return null;
       const r = data.routes[0];
       const path = r.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
@@ -183,7 +219,8 @@ async function osrmTable(origins, destinations) {
     const targets = dests.map((_, j) => origins.length + j).join(';');
     const data = await withMirrors(
       OSRM_URLS,
-      (base) => fetchJson(`${base}/table/v1/driving/${coords}?sources=${sources}&destinations=${targets}&annotations=duration`),
+      (base) =>
+        osrmGate(() => fetchJson(`${base}/table/v1/driving/${coords}?sources=${sources}&destinations=${targets}&annotations=duration`)),
       'לא הצלחנו לחשב זמני נסיעה כרגע. כדאי לנסות שוב בעוד דקה.',
     );
     if (data.code !== 'Ok') throw new ProviderRequestError(`OSRM table: ${data.code}`);
@@ -192,6 +229,48 @@ async function osrmTable(origins, destinations) {
         result[i][start + j] = Number.isFinite(sec) ? sec : null;
       });
     });
+  }
+  return result;
+}
+
+// -------------------------------------------------------------------- transit
+
+const latSemiLng = (p) => `${p.lat.toFixed(6)};${p.lng.toFixed(6)}`;
+
+/**
+ * Public transit times from Transitous (MOTIS one-to-many-intermodal): the
+ * fastest of the transit options and walking, or null when neither exists.
+ */
+export function parseOneToMany(data, count) {
+  return Array.from({ length: count }, (_, i) => {
+    const options = (data.transit_durations?.[i] || []).map((o) => o?.duration).filter(Number.isFinite);
+    const walk = data.street_durations?.[i]?.duration;
+    if (Number.isFinite(walk)) options.push(walk);
+    return options.length ? Math.min(...options) : null;
+  });
+}
+
+async function transitTimes(origins, destinations, departure) {
+  const result = [];
+  for (const origin of origins) {
+    const row = new Array(destinations.length).fill(null);
+    for (let start = 0; start < destinations.length; start += MAX_TRANSIT_DESTINATIONS) {
+      const chunk = destinations.slice(start, start + MAX_TRANSIT_DESTINATIONS);
+      const params = new URLSearchParams({
+        one: latSemiLng(origin),
+        many: chunk.map(latSemiLng).join(','),
+        time: (departure || new Date()).toISOString(),
+        maxTravelTime: '240', // minutes
+        maxPreTransitTime: '1200', // seconds of walking to the first stop
+        maxPostTransitTime: '1200',
+        maxDirectTime: '1800', // walking the whole way, up to 30 minutes
+      });
+      const data = await fetchJson(`${TRANSITOUS_URL}?${params}`, { timeoutMs: 45000 });
+      parseOneToMany(data, chunk.length).forEach((t, i) => {
+        row[start + i] = t;
+      });
+    }
+    result.push(row);
   }
   return result;
 }
@@ -206,7 +285,7 @@ export function buildOverpassQuery(center, radius, categoryIds) {
   const around = `(around:${Math.round(radius)},${center.lat.toFixed(6)},${center.lng.toFixed(6)})`;
   const blocks = categoryIds
     .filter((id) => CATEGORY_QUERIES[id])
-    .map((id) => `(${CATEGORY_QUERIES[id].map((sel) => `${sel}["name"]${around};`).join('')});out tags center 150;`);
+    .map((id) => `(${CATEGORY_QUERIES[id].map((sel) => `${sel}["name"]${around};`).join('')});out tags center qt 150;`);
   return `[out:json][timeout:25];${blocks.join('')}`;
 }
 
@@ -289,19 +368,47 @@ export function parseOverpass(data, center, categoryIds) {
   return out;
 }
 
+function cacheGet(key) {
+  try {
+    const hit = JSON.parse(sessionStorage.getItem(key));
+    return hit && Date.now() - hit.t < OVERPASS_CACHE_TTL_MS ? hit.v : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheSet(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), v: value }));
+  } catch {
+    // Storage full or disabled: just don't cache.
+  }
+}
+
 async function overpassPlaces(center, radius, categoryIds) {
-  const query = buildOverpassQuery(center, radius, categoryIds);
-  const data = await withMirrors(
-    OVERPASS_URLS,
-    (url) =>
-      fetchJson(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-        body: new URLSearchParams({ data: query }).toString(),
-        timeoutMs: 35000,
-      }),
-    'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.',
-  );
+  // Round the center (~100 m) so repeating a search reuses the cached answer:
+  // Overpass asks apps to keep their load on the public servers small.
+  const rounded = { lat: Math.round(center.lat * 1000) / 1000, lng: Math.round(center.lng * 1000) / 1000 };
+  const query = buildOverpassQuery(rounded, radius, categoryIds);
+  const cacheKey = `inthemiddle.overpass:${query}`;
+  let data = cacheGet(cacheKey);
+  if (!data) {
+    data = await withMirrors(
+      OVERPASS_URLS,
+      async (url) => {
+        const json = await fetchJson(url, {
+          method: 'POST',
+          body: new URLSearchParams({ data: query }),
+          timeoutMs: 35000,
+        });
+        // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
+        if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
+        return json;
+      },
+      'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.',
+    );
+    cacheSet(cacheKey, { elements: data.elements || [] });
+  }
   return parseOverpass(data, center, categoryIds);
 }
 
@@ -310,13 +417,15 @@ async function overpassPlaces(center, radius, categoryIds) {
 export function createOsmProvider() {
   return {
     id: 'osm',
-    supportsTransit: false,
+    supportsTransit: true,
     maxCandidates: 40,
     attributionHtml:
       '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · ' +
       'חיפוש: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> · ' +
-      'ניתוב: <a href="https://project-osrm.org" target="_blank" rel="noopener">OSRM</a> · ' +
-      'מקומות: <a href="https://overpass-api.de" target="_blank" rel="noopener">Overpass API</a>',
+      'ניתוב: <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noopener">OSRM (FOSSGIS)</a> · ' +
+      'תחבורה ציבורית: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous ומקורותיו</a> · ' +
+      'מקומות: <a href="https://overpass-api.de" target="_blank" rel="noopener">Overpass API</a> · ' +
+      '<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">דיווח על טעות במפה</a>',
     suggestFooter: '© OpenStreetMap',
 
     async ready() {},
@@ -326,14 +435,14 @@ export function createOsmProvider() {
       return results.map((r) => ({
         title: r.title,
         subtitle: r.subtitle,
-        resolve: async () => ({ label: r.title, lat: r.lat, lng: r.lng }),
+        resolve: async () => ({ label: r.title, lat: r.lat, lng: r.lng, source: 'osm' }),
       }));
     },
 
     async geocode(text) {
       try {
         const [first] = await photonSearch(text, { limit: 1 });
-        return first ? { label: text, lat: first.lat, lng: first.lng } : null;
+        return first ? { label: text, lat: first.lat, lng: first.lng, source: 'osm' } : null;
       } catch (err) {
         err.userMessage = 'שירות החיפוש החינמי לא זמין כרגע. כדאי לנסות שוב בעוד דקה.';
         throw err;
@@ -342,9 +451,9 @@ export function createOsmProvider() {
 
     route: (a, b) => osrmRoute(a, b),
 
-    async travelTimes(origins, destinations, mode) {
-      if (mode !== 'car') throw new ProviderRequestError('The OpenStreetMap provider has no transit routing');
-      return osrmTable(origins, destinations);
+    async travelTimes(origins, destinations, mode, { departure } = {}) {
+      if (!destinations.length) return origins.map(() => []);
+      return mode === 'transit' ? transitTimes(origins, destinations, departure) : osrmTable(origins, destinations);
     },
 
     searchPlaces: (center, radius, categoryIds) => overpassPlaces(center, radius, categoryIds),

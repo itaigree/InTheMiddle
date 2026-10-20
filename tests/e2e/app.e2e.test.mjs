@@ -116,13 +116,40 @@ test('free mode: autocomplete, search, results and Leaflet map', async () => {
   await context.close();
 });
 
-test('free mode: transit falls back to driving with a notice', async () => {
-  const { page, context } = await openApp();
+test('free mode: public transit through Transitous', async () => {
+  const { page, context, osmLog, errors } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'באר שבע');
   await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
   await search(page);
-  assert.match(await page.locator('#status').textContent(), /אין חישוב של תחבורה ציבורית/);
+  // One Transitous call for sampling the route and one for the candidates, from B only.
+  assert.equal(osmLog.transit.length, 2);
+  assert.ok(osmLog.transit.every((q) => new URLSearchParams(q).get('one').startsWith('31.2518')));
+  assert.match(await page.locator('#place-list .time-b .time-value').first().textContent(), /🚌/);
+  assert.equal(await page.locator('#status').isVisible(), false);
+  assert.match(await page.locator('#attribution').innerHTML(), /transitous\.org\/sources/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('free mode: Transitous down → that side drives, with a notice', async () => {
+  const { page, context } = await openApp({ osm: { failTransit: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
+  await search(page);
+  assert.match(await page.locator('#status').textContent(), /לא הצלחנו לחשב כרגע זמני תחבורה ציבורית/);
+  assert.match(await page.locator('#place-list .time-b .time-value').first().textContent(), /🚗/);
+  await context.close();
+});
+
+test('free mode: no transit service (Shabbat) → that side drives, with a notice', async () => {
+  const { page, context } = await openApp({ osm: { noTransitService: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('input[name="mode-a"][value="transit"]').check({ force: true });
+  await search(page);
+  assert.match(await page.locator('#status').textContent(), /לא מצאנו תחבורה ציבורית/);
   await context.close();
 });
 
@@ -210,6 +237,11 @@ test('Google mode: Google data on a Google map, with ratings and photos', async 
   assert.match(await page.locator('#provider-note').textContent(), /Google Maps/);
   const gmapsHref = await page.locator('#place-list .gmaps').first().getAttribute('href');
   assert.match(gmapsHref, /^https:\/\/maps\.google\.com\/\?cid=/);
+  // Google-derived coordinates are not put in the shared link; labels are.
+  const params = new URL(page.url()).searchParams;
+  assert.equal(params.get('a'), 'חיפה');
+  assert.equal(params.get('all'), null);
+  assert.equal(params.get('bll'), null);
   // Clicking a marker highlights the matching card.
   await page.locator('#map .fake-marker:has(.pin-place)').first().dispatchEvent('click');
   assert.equal(await page.locator('#place-list .place-card.is-active').count(), 1);
@@ -251,6 +283,8 @@ test('Google quota exhausted mid-search: switches to OpenStreetMap and remembers
   assert.match(await page.locator('#status').textContent(), /המכסה החינמית היומית של Google נגמרה/);
   assert.ok(await page.locator('#map.leaflet-container').count());
   assert.equal(osmLog.overpass.length, 1);
+  // Start points picked from Google were looked up again on OpenStreetMap.
+  assert.deepEqual(osmLog.photon, ['חיפה', 'תל אביב-יפו']);
   assert.match(await page.locator('#provider-note').textContent(), /OpenStreetMap/);
   const block = await page.evaluate(() => JSON.parse(localStorage.getItem('inthemiddle.googleBlocked')));
   assert.equal(block.reason, 'quota');

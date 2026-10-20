@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findMiddle, selectCandidates, MAX_CANDIDATES } from '../../site/js/core/search.js';
 import { haversine } from '../../site/js/core/geo.js';
-import { ProviderUnavailableError } from '../../site/js/providers/errors.js';
+import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
 const HAIFA = { label: 'חיפה', lat: 32.794, lng: 34.9896 };
 const TLV = { label: 'תל אביב', lat: 32.0853, lng: 34.7818 };
@@ -20,6 +20,7 @@ function fakeProvider({
   placesPerCategory = 5,
   timeline = null,
   maxCandidates,
+  transitThrows = null, // 'always' | 'candidates'
 } = {}) {
   const calls = { route: 0, travelTimes: [], searchPlaces: [] };
   return {
@@ -39,6 +40,9 @@ function fakeProvider({
     },
     async travelTimes(origins, destinations, mode) {
       calls.travelTimes.push({ origins: origins.length, destinations: destinations.length, mode });
+      if (mode === 'transit' && (transitThrows === 'always' || (transitThrows === 'candidates' && destinations.length !== 8))) {
+        throw new ProviderRequestError('transit server down');
+      }
       return origins.map((o) =>
         destinations.map((d) => {
           if (mode === 'transit' && !transitWorks) return null;
@@ -181,4 +185,29 @@ test('provider maxCandidates limits the travel-time query', async () => {
   const result = await findMiddle(baseQuery, provider);
   assert.equal(result.places.length, 6);
   assert.equal(provider.calls.travelTimes.at(-1).destinations, 6);
+});
+
+test('a failing transit service makes that side drive, with its own notice', async () => {
+  const provider = fakeProvider({ transitThrows: 'always' });
+  const result = await findMiddle({ ...baseQuery, modeB: 'transit' }, provider);
+  assert.equal(result.modeB, 'car');
+  assert.deepEqual(result.notices, ['transit-error']);
+  assert.ok(result.places.length > 0);
+});
+
+test('transit failing only for the candidates still produces results by car', async () => {
+  const provider = fakeProvider({ transitThrows: 'candidates' });
+  const result = await findMiddle({ ...baseQuery, modeA: 'transit' }, provider);
+  assert.equal(result.modeA, 'car');
+  assert.ok(result.notices.includes('transit-error'));
+  assert.ok(result.places.length > 0);
+  assert.ok(result.places.every((p) => Number.isFinite(p.timeA)));
+});
+
+test('provider unavailability during transit queries still propagates', async () => {
+  const provider = fakeProvider();
+  provider.travelTimes = async () => {
+    throw new ProviderUnavailableError('quota', { reason: 'quota' });
+  };
+  await assert.rejects(findMiddle({ ...baseQuery, modeA: 'transit' }, provider), ProviderUnavailableError);
 });
