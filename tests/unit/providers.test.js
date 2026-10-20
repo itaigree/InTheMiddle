@@ -95,6 +95,19 @@ test('classifyGoogleError maps quota, auth, bad requests and outages', () => {
   assert.ok(outage instanceof ProviderUnavailableError);
   assert.equal(outage.reason, 'load-failed');
 
+  // Autocomplete reports gRPC numbers on an RpcError, e.g. invalid key / quota.
+  const rpc = (code, message) => Object.assign(new Error(message), { name: 'RpcError', code });
+  assert.equal(classifyGoogleError(rpc(3, 'API key not valid. Please pass a valid API key.')).reason, 'auth');
+  assert.equal(classifyGoogleError(rpc(8, 'Too many requests')).reason, 'quota');
+  assert.equal(classifyGoogleError(rpc(7, 'denied')).reason, 'auth');
+  assert.ok(classifyGoogleError(rpc(3, 'Invalid included_primary_types')) instanceof ProviderRequestError);
+  // The real invalid-key error from Places/Routes uses INVALID_ARGUMENT, but it's a key problem.
+  const invalidKey = Object.assign(
+    new Error('ROUTES_COMPUTE_ROUTE_MATRIX: INVALID_ARGUMENT: API key not valid. Please pass a valid API key.'),
+    { code: 'INVALID_ARGUMENT', endpoint: 'ROUTES_COMPUTE_ROUTE_MATRIX' },
+  );
+  assert.equal(classifyGoogleError(invalidKey).reason, 'auth');
+
   const already = new ProviderRequestError('x');
   assert.equal(classifyGoogleError(already), already);
 });

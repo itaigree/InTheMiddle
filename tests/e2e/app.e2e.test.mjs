@@ -284,3 +284,23 @@ test('?p=osm forces the free maps even with a key', async () => {
   assert.ok(new URL(page.url()).searchParams.get('p') === 'osm');
   await context.close();
 });
+
+// Talks to the real maps.googleapis.com with an invalid key; opt in with E2E_REAL_GOOGLE=1.
+test('real Google SDK with an invalid key falls back to OpenStreetMap', { skip: !process.env.E2E_REAL_GOOGLE }, async () => {
+  const server = await startServer({ overrides: { '/config.js': configJs('AIzaSyD-invalid-key-for-testing-000000000') } });
+  servers.push(server);
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'he-IL' });
+  await blockExternal(context, [server.url, 'data:', 'https://maps.googleapis.com', 'https://maps.gstatic.com', 'https://places.googleapis.com', 'https://routes.googleapis.com']);
+  const osmLog = await mockOsm(context);
+  const page = await context.newPage();
+  await page.goto(server.url);
+  await page.locator('#input-a').fill('חיפה');
+  await page.locator('#input-b').fill('תל אביב');
+  await search(page);
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  assert.ok(osmLog.overpass.length >= 1);
+  assert.match(await page.locator('#status').textContent(), /בעיה בהגדרות המפתח של Google/);
+  const block = await page.evaluate(() => JSON.parse(localStorage.getItem('inthemiddle.googleBlocked')));
+  assert.equal(block.reason, 'auth');
+  await context.close();
+});

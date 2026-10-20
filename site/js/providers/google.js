@@ -121,11 +121,27 @@ function loadGoogle(apiKey) {
 
 // ------------------------------------------------------------------- errors
 
+/**
+ * gRPC status numbers, which some Places calls (autocomplete) report as `code`
+ * on an RpcError instead of a MapsRequestError with a string code.
+ */
+const GRPC_CODES = {
+  3: 'INVALID_ARGUMENT',
+  4: 'DEADLINE_EXCEEDED',
+  7: 'PERMISSION_DENIED',
+  8: 'RESOURCE_EXHAUSTED',
+  13: 'INTERNAL',
+  14: 'UNAVAILABLE',
+  16: 'UNAUTHENTICATED',
+};
+
 /** Map any Google error to ProviderUnavailableError (switch to OSM) or ProviderRequestError. */
 export function classifyGoogleError(err) {
   if (err instanceof ProviderUnavailableError || err instanceof ProviderRequestError) return err;
+  // After gm_authFailure the SDK disables itself and later calls fail in odd ways.
   if (authFailed) return new ProviderUnavailableError('Google Maps rejected the API key', { reason: 'auth', cause: err });
-  const text = `${err?.code ?? ''} ${err?.message ?? err ?? ''}`;
+  const code = typeof err?.code === 'number' ? GRPC_CODES[err.code] || err.code : err?.code;
+  const text = `${code ?? ''} ${err?.message ?? err ?? ''}`;
   if (/RESOURCE_EXHAUSTED|OVER_QUERY_LIMIT|OVER_DAILY_LIMIT|quota|rate.?limit|\b429\b/i.test(text)) {
     return new ProviderUnavailableError('Google quota exhausted', { reason: 'quota', cause: err });
   }
