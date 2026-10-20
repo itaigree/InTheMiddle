@@ -1,0 +1,61 @@
+name: Test and deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config.js from repository secrets
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GOOGLE_MAP_ID: ${{ vars.GOOGLE_MAP_ID }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const config = {
+              googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
+              googleMapId: process.env.GOOGLE_MAP_ID || "",
+            };
+            fs.writeFileSync("site/config.js",
+              "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n");
+            console.log(config.googleMapsApiKey ? "Google key: set" : "Google key: not set (OpenStreetMap only)");
+          '
+          sed -i "s/__BUILD__/${GITHUB_SHA::12}/" site/sw.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

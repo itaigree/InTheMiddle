@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>מקום באמצע</title>
+    <meta
+      name="description"
+      content="מכניסים שתי נקודות יציאה, ומקבלים בתי קפה, קניונים, פארקים ומקומות יפים שנמצאים באותו זמן נסיעה משני הצדדים."
+    />
+    <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1f1d" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+    <script type="module" src="js/main.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <img class="app-logo" src="icons/icon.svg" alt="" width="40" height="40" />
+      <div>
+        <h1>מקום באמצע</h1>
+        <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div class="panel">
+        <form id="search-form" class="card search-form" novalidate>
+          <div class="endpoints">
+            <div class="endpoint" data-side="a">
+              <label class="endpoint-label" for="input-a">
+                <span class="side-badge side-a" aria-hidden="true">א</span>
+                נקודת יציאה א׳
+              </label>
+              <div class="combo">
+                <input
+                  id="input-a"
+                  name="a"
+                  type="text"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="list-a"
+                  autocomplete="off"
+                  enterkeyhint="next"
+                  placeholder="למשל: חיפה"
+                  required
+                />
+                <button type="button" class="icon-button locate" data-side="a" title="המיקום שלי" aria-label="שימוש במיקום שלי">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /><circle cx="12" cy="12" r="7" fill="none" /></svg>
+                </button>
+                <ul id="list-a" class="suggestions" role="listbox" aria-label="הצעות לנקודה א׳" hidden></ul>
+              </div>
+              <div class="mode-toggle" role="radiogroup" aria-label="איך מגיעים מנקודה א׳">
+                <label><input type="radio" name="mode-a" value="car" checked /><span>🚗 רכב</span></label>
+                <label><input type="radio" name="mode-a" value="transit" /><span>🚌 תחבורה ציבורית</span></label>
+              </div>
+            </div>
+
+            <button type="button" id="swap" class="icon-button swap" title="החלפה" aria-label="החלפה בין נקודה א׳ לנקודה ב׳">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v14M7 4 3.5 7.5M7 4l3.5 3.5M17 20V6M17 20l-3.5-3.5M17 20l3.5-3.5" /></svg>
+            </button>
+
+            <div class="endpoint" data-side="b">
+              <label class="endpoint-label" for="input-b">
+                <span class="side-badge side-b" aria-hidden="true">ב</span>
+                נקודת יציאה ב׳
+              </label>
+              <div class="combo">
+                <input
+                  id="input-b"
+                  name="b"
+                  type="text"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="list-b"
+                  autocomplete="off"
+                  enterkeyhint="search"
+                  placeholder="למשל: תל אביב"
+                  required
+                />
+                <button type="button" class="icon-button locate" data-side="b" title="המיקום שלי" aria-label="שימוש במיקום שלי">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /><circle cx="12" cy="12" r="7" fill="none" /></svg>
+                </button>
+                <ul id="list-b" class="suggestions" role="listbox" aria-label="הצעות לנקודה ב׳" hidden></ul>
+              </div>
+              <div class="mode-toggle" role="radiogroup" aria-label="איך מגיעים מנקודה ב׳">
+                <label><input type="radio" name="mode-b" value="car" checked /><span>🚗 רכב</span></label>
+                <label><input type="radio" name="mode-b" value="transit" /><span>🚌 תחבורה ציבורית</span></label>
+              </div>
+            </div>
+          </div>
+
+          <fieldset class="categories">
+            <legend>מה מחפשים?</legend>
+            <div id="category-chips" class="chips"></div>
+          </fieldset>
+
+          <div class="when">
+            <label for="departure">מתי יוצאים?</label>
+            <div class="when-row">
+              <select id="departure-choice" aria-label="זמן יציאה">
+                <option value="now">עכשיו</option>
+                <option value="later">בזמן אחר…</option>
+              </select>
+              <input id="departure" type="datetime-local" hidden />
+            </div>
+          </div>
+
+          <button type="submit" id="submit" class="primary-button">מצאו לנו מקום באמצע</button>
+        </form>
+
+        <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+        <section id="results" class="results" hidden aria-labelledby="results-title">
+          <div class="results-head">
+            <h2 id="results-title">מקומות באמצע</h2>
+            <button type="button" id="share-search" class="ghost-button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="m8.2 10.8 7.6-4.6M8.2 13.2l7.6 4.6" /></svg>
+              שיתוף החיפוש
+            </button>
+          </div>
+          <p id="results-summary" class="results-summary"></p>
+          <div id="result-filters" class="chips result-filters" role="group" aria-label="סינון התוצאות"></div>
+          <ol id="place-list" class="place-list"></ol>
+        </section>
+      </div>
+
+      <section class="map-wrap" aria-label="מפה">
+        <div id="map" class="map" dir="ltr"></div>
+        <div id="map-placeholder" class="map-placeholder">
+          <img src="icons/icon.svg" alt="" width="72" height="72" />
+          <p>המפה תופיע כאן אחרי החיפוש</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <footer class="app-footer">
+      <p id="provider-note" class="provider-note"></p>
+      <p id="attribution" class="attribution"></p>
+    </footer>
+
+    <template id="place-card-template">
+      <li class="place-card">
+        <button type="button" class="place-main">
+          <span class="place-rank" aria-hidden="true"></span>
+          <span class="place-photo" aria-hidden="true"></span>
+          <span class="place-body">
+            <span class="place-name"></span>
+            <span class="place-meta"></span>
+            <span class="place-times">
+              <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-value"></span></span>
+              <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-value"></span></span>
+              <span class="fairness"></span>
+            </span>
+          </span>
+        </button>
+        <div class="place-actions">
+          <a class="action waze" target="_blank" rel="noopener">Waze</a>
+          <a class="action gmaps" target="_blank" rel="noopener">Google Maps</a>
+          <button type="button" class="action share-place">שיתוף</button>
+        </div>
+      </li>
+    </template>
+  </body>
+</html>
