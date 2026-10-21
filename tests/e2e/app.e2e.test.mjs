@@ -206,8 +206,19 @@ test('empty form shows validation errors', async () => {
   await context.close();
 });
 
-test('Overpass outage shows a friendly error', async () => {
-  const { page, context } = await openApp({ osm: { failOverpass: true } });
+test('Overpass busy: the places come from Photon instead', async () => {
+  const { page, context, osmLog } = await openApp({ osm: { failOverpass: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.ok(osmLog.photonPlaces.length >= 1);
+  assert.ok((await page.locator('#place-list .place-card').count()) > 0);
+  assert.match(await page.locator('#place-list').textContent(), /cafe 1|park 1/);
+  await context.close();
+});
+
+test('Overpass and Photon both down shows a friendly error', async () => {
+  const { page, context } = await openApp({ osm: { failOverpass: true, failPhotonPlaces: true } });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
   await page.locator('#submit').click();

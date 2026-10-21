@@ -48,14 +48,39 @@ const TINY_PNG = Buffer.from(
 
 /**
  * Install OSM mocks on a Playwright page/context. Returns a log of requests per service.
- * `failOverpass: true` makes every Overpass mirror answer 504; `failTransit: true`
- * makes Transitous answer 500; `noTransitService: true` returns no connections.
+ * `failOverpass: true` makes every Overpass mirror answer 504; `failPhotonPlaces: true`
+ * makes Photon's nearest-places lookup answer 503; `failTransit: true` makes
+ * Transitous answer 500; `noTransitService: true` returns no connections.
  */
-export async function mockOsm(target, { failOverpass = false, failTransit = false, noTransitService = false } = {}) {
-  const log = { photon: [], osrmRoute: [], osrmTable: [], overpass: [], transit: [] };
+export async function mockOsm(
+  target,
+  { failOverpass = false, failPhotonPlaces = false, failTransit = false, noTransitService = false } = {},
+) {
+  const log = { photon: [], photonPlaces: [], osrmRoute: [], osrmTable: [], overpass: [], transit: [] };
 
   await target.route('https://photon.komoot.io/**', (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/reverse')) {
+      // Nearest places of the asked OSM tags around lat/lon.
+      const tags = url.searchParams.getAll('osm_tag');
+      log.photonPlaces.push(tags.join(','));
+      if (failPhotonPlaces) {
+        route.fulfill(json({ message: 'unavailable' }, 503));
+        return;
+      }
+      const lat = Number(url.searchParams.get('lat'));
+      const lng = Number(url.searchParams.get('lon'));
+      const features = tags.slice(0, 1).flatMap((tag, t) => {
+        const [key, value] = tag.split(':');
+        return [0, 1, 2].map((k) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lng + (k - 1) * 0.003, lat + t * 0.002 + 0.001] },
+          properties: { osm_type: 'N', osm_id: 5000 + k + 10 * t, osm_key: key, osm_value: value, name: `${value} ${k + 1}` },
+        }));
+      });
+      route.fulfill(json({ type: 'FeatureCollection', features }));
+      return;
+    }
     const q = url.searchParams.get('q') || '';
     log.photon.push(q);
     if (url.searchParams.get('lang') !== 'default') {

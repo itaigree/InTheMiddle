@@ -2,7 +2,8 @@
 //   Photon (komoot) – search-as-you-type and free-text lookup
 //   OSRM (FOSSGIS)  – driving routes and travel-time tables (max 1 request/second)
 //   Transitous      – public transit travel times (open-source, non-commercial use)
-//   Overpass API    – meeting places around the midpoint (cached, one query per search)
+//   Overpass API    – meeting places around the midpoint (cached, one query per search);
+//                     when it is busy (often), Photon lists the places nearest the midpoint
 // No key, no billing. These are community-run servers, so requests are kept few and
 // small. Nominatim is deliberately not used: its policy forbids autocomplete.
 
@@ -10,13 +11,13 @@ import { ProviderRequestError, isAbortError } from './errors.js';
 import { haversine } from '../core/geo.js';
 
 const PHOTON_URL = 'https://photon.komoot.io/api/';
+const PHOTON_REVERSE_URL = 'https://photon.komoot.io/reverse';
 const OSRM_URLS = ['https://routing.openstreetmap.de/routed-car', 'https://router.project-osrm.org'];
 const TRANSITOUS_URL = 'https://api.transitous.org/api/experimental/one-to-many-intermodal';
-const OVERPASS_URLS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-];
+// The public Overpass servers are often at capacity: one short try, then Photon
+// (trying other Overpass mirrors in turn kept people waiting for minutes).
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_TIMEOUT_MS = 12000;
 
 /** Israel (and the West Bank), as west,south,east,north. */
 const BBOX = [34.2, 29.45, 35.95, 33.35];
@@ -46,6 +47,23 @@ const CATEGORY_QUERIES = {
   ],
   food: [['nwr["amenity"="restaurant"]']],
   attraction: [['nwr["tourism"~"^(attraction|museum|zoo|theme_park|aquarium)$"]']],
+};
+
+/** The same categories as OSM tags, for Photon's nearest-places lookup. */
+const PHOTON_TAGS = {
+  cafe: ['amenity:cafe', 'amenity:ice_cream'],
+  mall: ['shop:mall'],
+  park: ['leisure:park'],
+  nature: [
+    'tourism:viewpoint',
+    'natural:spring',
+    'tourism:picnic_site',
+    'leisure:nature_reserve',
+    'boundary:national_park',
+    'natural:beach',
+  ],
+  food: ['amenity:restaurant'],
+  attraction: ['tourism:attraction', 'tourism:museum', 'tourism:zoo', 'tourism:theme_park', 'tourism:aquarium'],
 };
 
 /** Which category a place belongs to, in priority order (first match wins). */
@@ -414,24 +432,68 @@ async function overpassPlaces(center, radius, categoryIds) {
   const cacheKey = `inthemiddle.overpass:${query}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
-  const data = await withMirrors(
-    OVERPASS_URLS,
-    async (url) => {
-      const json = await fetchJson(url, {
-        method: 'POST',
-        body: new URLSearchParams({ data: query }),
-        timeoutMs: 35000,
-      });
-      // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
-      if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
-      return json;
-    },
-    'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.',
-  );
+  let places;
+  try {
+    const json = await fetchJson(OVERPASS_URL, {
+      method: 'POST',
+      body: new URLSearchParams({ data: query }),
+      timeoutMs: OVERPASS_TIMEOUT_MS,
+    });
+    // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
+    if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
+    places = parseOverpass(json, rounded, categoryIds);
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.warn('Overpass failed, asking Photon for the nearest places', err);
+    try {
+      places = await photonPlaces(rounded, radius, categoryIds);
+    } catch (photonErr) {
+      const failed = new ProviderRequestError(`Overpass and Photon failed: ${photonErr.message}`, { cause: photonErr });
+      failed.userMessage = 'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.';
+      throw failed;
+    }
+  }
   // Only the few places kept are cached: raw answers can be large.
-  const places = parseOverpass(data, rounded, categoryIds);
   cacheSet(cacheKey, places);
   return places;
+}
+
+const OSM_TYPES = { N: 'node', W: 'way', R: 'relation' };
+
+/**
+ * The places of each category nearest the center, from Photon (one request per
+ * category). Photon only gives a place's main tag, so they are shaped as Overpass
+ * elements and ranked by parseOverpass, by distance.
+ */
+async function photonPlaces(center, radius, categoryIds) {
+  const lists = await Promise.all(
+    categoryIds
+      .filter((id) => PHOTON_TAGS[id])
+      .map(async (id) => {
+        const params = new URLSearchParams({
+          lat: center.lat.toFixed(5),
+          lon: center.lng.toFixed(5),
+          radius: String(Math.max(1, Math.ceil(radius / 1000))), // km
+          limit: '30',
+          lang: 'default', // OSM's local names (Hebrew), as in photonSearch
+        });
+        for (const tag of PHOTON_TAGS[id]) params.append('osm_tag', tag);
+        const data = await fetchJson(`${PHOTON_REVERSE_URL}?${params}`, { timeoutMs: 12000 });
+        return data.features || [];
+      }),
+  );
+  const elements = lists.flat().map((f) => {
+    const p = f.properties || {};
+    const [lon, lat] = f.geometry?.coordinates || [];
+    return {
+      type: OSM_TYPES[p.osm_type] || p.osm_type,
+      id: p.osm_id,
+      lat,
+      lon,
+      tags: { name: p.name, [p.osm_key]: p.osm_value, 'addr:street': p.street, 'addr:housenumber': p.housenumber, 'addr:city': p.city },
+    };
+  });
+  return parseOverpass({ elements }, center, categoryIds);
 }
 
 // ------------------------------------------------------------------- provider
@@ -446,7 +508,7 @@ export function createOsmProvider() {
       'חיפוש: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> · ' +
       'ניתוב: <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noopener">OSRM (FOSSGIS)</a> · ' +
       'תחבורה ציבורית: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous ומקורותיו</a> · ' +
-      'מקומות: <a href="https://overpass-api.de" target="_blank" rel="noopener">Overpass API</a> · ' +
+      'מקומות: <a href="https://overpass-api.de" target="_blank" rel="noopener">Overpass API</a> או Photon · ' +
       '<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">דיווח על טעות במפה</a>',
     suggestFooter: '© OpenStreetMap',
 
