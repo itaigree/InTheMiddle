@@ -306,13 +306,14 @@ async function transitTimes(origins, destinations, departure) {
 export function buildOverpassQuery(center, radius, categoryIds) {
   const at = `${center.lat.toFixed(6)},${center.lng.toFixed(6)}`;
   const outer = Math.round(radius);
-  const inner = Math.round(Math.min(radius, Math.max(800, radius / 3)));
+  // A fixed small ring always holds the very nearest places, a middle ring
+  // scales with the trip, and the whole circle catches notable places further out.
+  const rings = [...new Set([Math.min(radius, 600), Math.min(radius, Math.max(800, radius / 3)), radius].map(Math.round))];
   const blocks = [];
   for (const id of categoryIds) {
     for (const group of CATEGORY_QUERIES[id] || []) {
       const union = (r) => `(${group.map((sel) => `${sel}["name"](around:${r},${at});`).join('')})`;
-      if (inner < outer) blocks.push(`${union(inner)};out tags center qt 100;`);
-      blocks.push(`${union(outer)};out tags center qt 150;`);
+      for (const r of rings) blocks.push(`${union(r)};out tags center qt ${r === outer ? 150 : 100};`);
     }
   }
   return `[out:json][timeout:25];${blocks.join('')}`;

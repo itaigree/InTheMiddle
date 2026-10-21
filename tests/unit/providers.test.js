@@ -124,12 +124,16 @@ test('parseOneToMany takes the fastest of transit options and walking', async ()
 
 test('buildOverpassQuery adds a capped inner ring and splits nature into points and areas', () => {
   const q = buildOverpassQuery(CENTER, 6000, ['nature']);
-  assert.equal(q.match(/out tags center qt 100;/g).length, 2);
+  // Two groups (points, areas) × three rings (600 m, 2 km, 6 km).
+  assert.equal(q.match(/out tags center qt 100;/g).length, 4);
   assert.equal(q.match(/out tags center qt 150;/g).length, 2);
+  assert.match(q, /around:600,/);
   assert.match(q, /around:2000,/);
-  // A small radius needs no separate inner ring.
-  const small = buildOverpassQuery(CENTER, 800, ['cafe']);
+  // Rings that coincide are not repeated.
+  const small = buildOverpassQuery(CENTER, 500, ['cafe']);
   assert.equal((small.match(/out tags center qt/g) || []).length, 1);
+  const mid = buildOverpassQuery(CENTER, 800, ['cafe']);
+  assert.equal((mid.match(/out tags center qt/g) || []).length, 2);
 });
 
 test('parseOverpass: inner/outer duplicates once; categories follow the selection', () => {

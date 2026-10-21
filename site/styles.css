@@ -601,6 +601,12 @@ body.has-map .map-placeholder {
 
 /* Status */
 
+/* The live region stays rendered (for announcements) even when its box is hidden;
+   cancel the flex gap it would otherwise add. */
+.status-region:has(> .status[hidden]) {
+  margin-top: -12px;
+}
+
 .status {
   border-radius: var(--radius-sm);
   padding: 10px 14px;
