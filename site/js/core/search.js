@@ -37,6 +37,13 @@ const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
  */
 export async function findMiddle(query, provider, { onProgress = () => {} } = {}) {
   const { a, b, categories, departure } = query;
+  // query.placeFilter (optional) keeps a place or not; `filtered` says whether it dropped any.
+  let filtered = false;
+  const keep = (place) => {
+    if (!query.placeFilter || query.placeFilter(place)) return true;
+    filtered = true;
+    return false;
+  };
   const notices = [];
   const opts = { departure };
   let modeA = query.modeA;
@@ -170,10 +177,10 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
 
     onProgress('places');
     radius = searchRadiusFor(routeMeters);
-    let places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
+    let places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories)).filter(keep);
     if (places.length < MIN_PLACES) {
       radius *= 2;
-      places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
+      places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories)).filter(keep);
     }
     const candidates = selectCandidates(places, Math.min(MAX_CANDIDATES, provider.maxCandidates || MAX_CANDIDATES));
     if (!candidates.length) break;
@@ -210,6 +217,7 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     radius,
     balance,
     places: ranked,
+    filtered,
     notices,
   };
 }

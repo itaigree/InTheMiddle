@@ -252,3 +252,12 @@ test('transit lost at the candidate stage keeps the places when the midpoint bar
   );
   assert.ok(result.places.length > 0);
 });
+
+test('a place filter drops places before travel times are asked for', async () => {
+  const provider = fakeProvider();
+  // The fake places alternate west/east of the midpoint by their index: keep the even ones.
+  const result = await findMiddle({ ...baseQuery, placeFilter: (p) => Number(p.id.split('-')[1]) % 2 === 0 }, provider);
+  assert.ok(result.places.length > 0);
+  assert.ok(result.places.every((p) => Number(p.id.split('-')[1]) % 2 === 0));
+  assert.equal(provider.calls.travelTimes.at(-1).destinations, result.places.length);
+});

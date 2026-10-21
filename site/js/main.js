@@ -2,6 +2,7 @@
 
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY_IDS } from './core/categories.js';
 import { encodeState, decodeState } from './core/state.js';
+import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
 import { pickTop } from './core/ranking.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
@@ -34,6 +35,7 @@ const NOTICE_TEXT = {
     'לא מצאנו תחבורה ציבורית בזמן היציאה שנבחר (אולי שבת, חג או שעת לילה), ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'departure-past': 'זמן היציאה שנבחר כבר עבר, אז חיפשנו לפי יציאה עכשיו.',
+  'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
 };
 
 const SWITCH_REASON_TEXT = {
@@ -66,6 +68,8 @@ let shownProvider = null;
 let shownNeedsRedo = false;
 /** The search whose results are on screen, with resolved coordinates, for sharing. */
 let lastQuery = null;
+/** A link to that search (the share button's; the address bar stays the plain site). */
+let shownLink = null;
 /** Attribution line under autocomplete suggestions, for the provider that served them. */
 let suggestFooter = '';
 
@@ -485,6 +489,7 @@ function readForm() {
     categories: selectedCategories(),
     departure: departure.date,
     departurePast: departure.past,
+    greenLine: $('only-green-line').checked,
   };
 }
 
@@ -563,6 +568,8 @@ async function runSearch({ request = null, redo = false, background = false } = 
       // reports a rejected Maps key – before the billed place searches run.
       const mapReady = provider.id === 'google' ? ensureMap(provider) : null;
       mapReady?.catch(() => {});
+      const greenLineAreas = request.greenLine ? loadGreenLine().catch(greenLineFailed) : null;
+      greenLineAreas?.catch(() => {});
       const [a, b] = await Promise.all([resolveEndpoint(request.a, provider), resolveEndpoint(request.b, provider)]);
       if (seq !== searchSeq) return null;
       const missing = [];
@@ -590,7 +597,12 @@ async function runSearch({ request = null, redo = false, background = false } = 
         modeB: request.modeB,
         categories: request.categories,
         departure: request.departure,
+        greenLine: request.greenLine,
       };
+      if (request.greenLine) {
+        const areas = await greenLineAreas;
+        query.placeFilter = (place) => !beyondGreenLine(areas, place);
+      }
       const res = await findMiddle(query, provider, { onProgress: progress });
       // Google results need a Google map; if it can't load, redo the search on OSM.
       if (mapReady) await mapReady;
@@ -604,10 +616,12 @@ async function runSearch({ request = null, redo = false, background = false } = 
       return await runSearch({ request, redo: true, background });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
+    // Say why there are few places when the filter took some away.
+    if (result.res.filtered && request.greenLine && result.res.places.length < 5) result.res.notices.push('green-line');
     lastQuery = result.query;
     shownRequest = request;
     shownNeedsRedo = false;
-    updateUrl(result.query);
+    shownLink = searchLink(result.query);
     // A re-run doesn't scroll away from a field the user is typing in.
     const typing = [sides.a.input, sides.b.input].includes(document.activeElement);
     await showResult(result.res, result.provider, { scroll: !(background && typing), status: !quiet() });
@@ -626,6 +640,13 @@ async function runSearch({ request = null, redo = false, background = false } = 
   }
 }
 
+function greenLineFailed(err) {
+  console.error(err);
+  const failed = new Error('Green Line data failed to load');
+  failed.userMessage = 'לא הצלחנו לטעון את גבולות הקו הירוק. כדאי לנסות שוב, או לחפש בלי הסינון.';
+  throw failed;
+}
+
 /** How an endpoint appears in a shared link. */
 function forLink(loc) {
   // Google-derived coordinates stay out of links (they'd end up on other maps).
@@ -638,7 +659,7 @@ function forLink(loc) {
   return loc;
 }
 
-function updateUrl(query) {
+function searchLink(query) {
   const qs = encodeState({
     a: forLink(query.a),
     b: forLink(query.b),
@@ -646,9 +667,15 @@ function updateUrl(query) {
     modeB: query.modeB,
     categories: query.categories,
     departure: query.departure ? toLocalInputValue(query.departure) : null,
+    greenLine: query.greenLine,
     provider: forcedProvider,
   });
-  history.replaceState(null, '', `${location.pathname}?${qs}`);
+  return `${location.origin}${location.pathname}?${qs}`;
+}
+
+/** The address of the site itself, without a search (sharing it shares the app). */
+function plainAddress() {
+  return forcedProvider ? `${location.pathname}?p=${forcedProvider}` : location.pathname;
 }
 
 /** The map view for `provider`'s kind, created once (concurrent callers share it). */
@@ -809,7 +836,7 @@ $('share-search').addEventListener('click', async () => {
   const outcome = await shareOrCopy({
     title: 'מקום באמצע',
     text: lastQuery ? `מקומות באמצע הדרך בין ${label(lastQuery.a)} לבין ${label(lastQuery.b)}` : 'מקום באמצע',
-    url: location.href,
+    url: shownLink || `${location.origin}${plainAddress()}`,
   });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
@@ -845,12 +872,16 @@ function init() {
   }
   setMode('a', state.modeA);
   setMode('b', state.modeB);
+  $('only-green-line').checked = state.greenLine;
   if (state.departure) {
     // A time that has passed is reset to "now" by the search, with a notice.
     departureChoice.value = 'later';
     departureInput.hidden = false;
     departureInput.value = state.departure;
   }
+  // A search link was opened: its search runs below, and the address bar goes back
+  // to the plain site, so sharing the page from the browser shares the app itself.
+  if (location.search !== new URL(plainAddress(), location.href).search) history.replaceState(null, '', plainAddress());
   if (state.a && state.b && !isFramed()) {
     // A shared link: show its results right away. (Not inside a frame, where
     // another site could run billed searches on visitors' behalf.)

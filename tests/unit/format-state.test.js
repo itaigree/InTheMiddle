@@ -30,14 +30,17 @@ test('state round-trips through the query string', () => {
     modeB: 'transit',
     categories: ['cafe', 'park'],
     departure: '2026-10-21T18:30',
+    greenLine: true,
     provider: null,
   };
   const decoded = decodeState(encodeState(state));
   assert.deepEqual(decoded, state);
+  assert.match(encodeState(state), /(^|&)g=1(&|$)/);
+  assert.doesNotMatch(encodeState({ ...state, greenLine: false }), /(^|&)g=/);
 });
 
 test('decodeState drops malformed values', () => {
-  const d = decodeState('a=%D7%97&all=999,1&am=plane&b=&c=cafe,,bogus&t=tomorrow&p=bing', {
+  const d = decodeState('a=%D7%97&all=999,1&am=plane&b=&c=cafe,,bogus&t=tomorrow&g=yes&p=bing', {
     knownCategories: ['cafe', 'park'],
   });
   assert.deepEqual(d, {
@@ -47,6 +50,7 @@ test('decodeState drops malformed values', () => {
     modeB: 'car',
     categories: ['cafe'],
     departure: null,
+    greenLine: false,
     provider: null,
   });
 });

@@ -38,8 +38,8 @@ after(async () => {
   await Promise.all(servers.map((s) => s.close()));
 });
 
-async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {} } = {}) {
-  const server = await startServer({ overrides: { '/config.js': configJs(key) } });
+async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {} } = {}) {
+  const server = await startServer({ overrides: { '/config.js': configJs(key), ...files } });
   servers.push(server);
   const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', ...contextOptions });
   // Registered first = lowest priority: anything not mocked below is blocked.
@@ -68,6 +68,20 @@ async function search(page) {
   await page.locator('#map .pin-a').first().waitFor({ timeout: 20000 });
 }
 
+/** The link the "share this search" button gives (copied, as there is no share sheet here). */
+async function sharedLink(page) {
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await page.locator('#share-search').click();
+  await page.waitForFunction(() => window.copied !== null);
+  return new URL((await page.evaluate(() => window.copied)).split('\n').pop());
+}
+
 async function shot(page, name) {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true });
 }
@@ -93,10 +107,11 @@ test('free mode: autocomplete, search, results and Leaflet map', async () => {
   assert.equal(await page.locator('#map .pin-a').count(), 1);
   // Footer names the free data sources.
   assert.match(await page.locator('#provider-note').textContent(), /OpenStreetMap/);
-  // The search is in the URL, ready to share.
-  const url = new URL(page.url());
+  // The share button gives a link to this search; the address bar stays the plain site.
+  const url = await sharedLink(page);
   assert.equal(url.searchParams.get('a'), 'חיפה');
   assert.equal(url.searchParams.get('b'), 'תל אביב-יפו');
+  assert.equal(new URL(page.url()).search, '');
   // The midpoint came from the route timeline: only one OSRM table call (for candidates).
   assert.equal(osmLog.osrmRoute.length, 1);
   assert.equal(osmLog.osrmTable.length, 1);
@@ -166,6 +181,8 @@ test('shared link runs the search on load (mobile layout)', async () => {
   assert.ok(!osmLog.overpass[0].includes('shop'));
   const chips = await page.locator('#category-chips input:checked').evaluateAll((els) => els.map((e) => e.value));
   assert.deepEqual(chips, ['cafe', 'park']);
+  // The address bar went back to the plain site (sharing the page shares the app).
+  assert.equal(new URL(page.url()).search, '');
   // No horizontal scrolling on a phone.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(overflow <= 0, `horizontal overflow ${overflow}px`);
@@ -251,7 +268,7 @@ test('Google mode: Google data on a Google map, with ratings and photos', async 
   const gmapsHref = await page.locator('#place-list .gmaps').first().getAttribute('href');
   assert.match(gmapsHref, /^https:\/\/maps\.google\.com\/\?cid=/);
   // Google-derived coordinates are not put in the shared link; labels are.
-  const params = new URL(page.url()).searchParams;
+  const params = (await sharedLink(page)).searchParams;
   assert.equal(params.get('a'), 'חיפה');
   assert.equal(params.get('all'), null);
   assert.equal(params.get('bll'), null);
@@ -449,7 +466,7 @@ test('"my location" is shared with a neutral label and rounded coordinates', asy
   await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
   await pickSuggestion(page, 'b', 'תל אביב');
   await search(page);
-  const params = new URL(page.url()).searchParams;
+  const params = (await sharedLink(page)).searchParams;
   assert.equal(params.get('a'), 'נקודת יציאה ששותפה');
   assert.equal(params.get('all'), '32.79400,34.99000');
   await context.close();
@@ -467,16 +484,16 @@ test('phones: a transit fallback notice is scrolled into view, not hidden above 
   await context.close();
 });
 
-test('a failed search keeps the URL of the results on screen', async () => {
+test('a failed search keeps the share link of the results on screen', async () => {
   const { page, context } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
   await search(page);
-  const shownUrl = page.url();
+  const shown = (await sharedLink(page)).href;
   await page.locator('#input-b').fill('מקום שלא קיים');
   await page.locator('#submit').click();
   await page.locator('#status[data-kind="error"]').waitFor();
-  assert.equal(page.url(), shownUrl);
+  assert.equal((await sharedLink(page)).href, shown);
   await context.close();
 });
 
@@ -815,9 +832,9 @@ test('a re-run after the Google map broke does not block the search the user is 
   // …and the user's own search still runs, and wins.
   await option.click();
   await page.locator('#submit').click();
-  await page.waitForFunction(() => new URLSearchParams(location.search).get('a') === 'באר שבע', null, { timeout: 20000 });
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000 });
   await page.locator('#map.leaflet-container .pin-a').first().waitFor();
-  assert.equal(await page.locator('#input-a').inputValue(), 'באר שבע');
+  assert.equal((await sharedLink(page)).searchParams.get('a'), 'באר שבע');
   await context.close();
 });
 
@@ -911,4 +928,29 @@ test('a Google search that fails leaves the OpenStreetMap results on screen on t
   await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
   assert.equal(await page.locator('#map .fake-google-map').count(), 0);
   await context.close();
+});
+
+test('Green Line filter: places beyond the line are left out, and the link keeps the filter', async () => {
+  const { page, context } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#only-green-line').check({ force: true });
+  await search(page);
+  // Hadera, the midpoint, is well inside the line: all places stay, no notice.
+  assert.ok((await page.locator('#place-list .place-card').count()) >= 5);
+  assert.equal(await page.locator('#status').isVisible(), false);
+  const link = await sharedLink(page);
+  assert.equal(link.searchParams.get('g'), '1');
+  await context.close();
+
+  // The same link, with every place around the midpoint beyond the line (test data).
+  const square = [[34.5, 32.2], [35.3, 32.2], [35.3, 32.7], [34.5, 32.7], [34.5, 32.2]];
+  const opened = await openApp({
+    query: link.search,
+    files: { '/data/green-line.json': JSON.stringify({ areas: { test: [[square]] } }) },
+  });
+  await opened.page.locator('#place-list .empty-results').waitFor({ timeout: 20000 });
+  assert.equal(await opened.page.locator('#only-green-line').isChecked(), true);
+  assert.match(await opened.page.locator('#status').textContent(), /קו הירוק/);
+  await opened.context.close();
 });
