@@ -60,6 +60,10 @@ let mapPromise = null;
 let mapKind = null;
 /** The search whose results are on screen, as asked (texts, modes…), to re-run after a provider switch. */
 let shownRequest = null;
+/** …and the provider they came from. */
+let shownProvider = null;
+/** The Google results on screen sit on a broken map, and no re-run of them has finished yet. */
+let shownNeedsRedo = false;
 /** The search whose results are on screen, with resolved coordinates, for sharing. */
 let lastQuery = null;
 /** Attribution line under autocomplete suggestions, for the provider that served them. */
@@ -175,10 +179,22 @@ function handleGoogleUnavailable(err) {
 /**
  * Google results on screen sit on a Google map that no longer works: show them
  * again with the current provider. (A search in progress falls back by itself.)
- * The user may be typing a new search meanwhile: don't hold it up, scroll, or mark fields.
+ * The user may be typing a new search meanwhile: don't hold it up, scroll away
+ * from their field, mark fields, or replace an error they're reading.
  */
 function redoShownSearch() {
-  if (shownRequest && !searching && lastResult?.providerId === 'google') runSearch({ request: shownRequest, background: true });
+  if (!shownRequest || lastResult?.providerId !== 'google') return;
+  shownNeedsRedo = true;
+  // A search in progress either shows new results or, if it fails, does this when it ends.
+  if (!searching) runSearch({ request: shownRequest, background: true });
+}
+
+/**
+ * A failed search may have swapped the map under the results on screen (Google's
+ * map loads early): put them back on their own map.
+ */
+function restoreShownMap() {
+  if (lastResult && !resultMap() && shownProvider && shownProvider.id !== 'google') drawOnMap(lastResult, shownProvider);
 }
 
 function updateProviderNote(provider) {
@@ -431,6 +447,11 @@ function hideStatus() {
   $('status').hidden = true;
 }
 
+/** An error on screen (e.g. the user's own failed search), which a re-run they didn't ask for leaves alone. */
+function showingError() {
+  return !$('status').hidden && $('status').dataset.kind === 'error';
+}
+
 let toastTimer = 0;
 function toast(message) {
   const t = $('toast');
@@ -530,9 +551,10 @@ async function runSearch({ request = null, redo = false, background = false } = 
   }
   const failuresBefore = googleFailures;
   setBusy(true, { background });
-  showStatus('progress', PROGRESS_TEXT.geocode);
+  const quiet = () => background && showingError();
+  if (!quiet()) showStatus('progress', PROGRESS_TEXT.geocode);
   const progress = (step) => {
-    if (seq === searchSeq && PROGRESS_TEXT[step]) showStatus('progress', PROGRESS_TEXT[step]);
+    if (seq === searchSeq && PROGRESS_TEXT[step] && !quiet()) showStatus('progress', PROGRESS_TEXT[step]);
   };
 
   try {
@@ -584,14 +606,23 @@ async function runSearch({ request = null, redo = false, background = false } = 
     if (request.departurePast) result.res.notices.unshift('departure-past');
     lastQuery = result.query;
     shownRequest = request;
+    shownNeedsRedo = false;
     updateUrl(result.query);
-    await showResult(result.res, result.provider, { scroll: !background });
+    // A re-run doesn't scroll away from a field the user is typing in.
+    const typing = [sides.a.input, sides.b.input].includes(document.activeElement);
+    await showResult(result.res, result.provider, { scroll: !(background && typing), status: !quiet() });
   } catch (err) {
     if (seq !== searchSeq) return;
     console.error(err);
-    showStatus('error', err.userMessage || 'משהו השתבש בחיפוש. כדאי לנסות שוב בעוד רגע.');
+    if (!quiet()) showStatus('error', err.userMessage || 'משהו השתבש בחיפוש. כדאי לנסות שוב בעוד רגע.');
+    restoreShownMap();
   } finally {
-    if (seq === searchSeq) setBusy(false);
+    if (seq === searchSeq) {
+      setBusy(false);
+      // A re-run that failed isn't retried; a search that took its place and failed does it again.
+      if (background) shownNeedsRedo = false;
+      else if (shownNeedsRedo) redoShownSearch();
+    }
   }
 }
 
@@ -704,8 +735,9 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
-async function showResult(result, provider, { scroll = true } = {}) {
+async function showResult(result, provider, { scroll = true, status = true } = {}) {
   lastResult = result;
+  shownProvider = provider;
   activeFilter = 'all';
   // Photos are billed per image: allow them for the first few places of this
   // result only, however the list is filtered later.
@@ -716,7 +748,9 @@ async function showResult(result, provider, { scroll = true } = {}) {
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
     notices.unshift(SWITCH_REASON_TEXT[switchBlock.reason]);
   }
-  if (notices.length === 1) showStatus('info', notices[0]);
+  if (!status) {
+    // Leave what the status says (an error the user is reading).
+  } else if (notices.length === 1) showStatus('info', notices[0]);
   else if (notices.length > 1) showStatus('info', 'כמה דברים שכדאי לדעת:', notices);
   else hideStatus();
 
@@ -733,7 +767,10 @@ async function showResult(result, provider, { scroll = true } = {}) {
     const target = notices.length ? $('status') : document.querySelector('.map-wrap');
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  await drawOnMap(result, provider);
+}
 
+async function drawOnMap(result, provider) {
   try {
     await ensureMap(provider);
   } catch (err) {

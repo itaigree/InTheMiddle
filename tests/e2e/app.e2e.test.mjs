@@ -599,11 +599,11 @@ test('a Google map that breaks after another tab blocked Google: its results mov
 });
 
 // Service worker updates: the test server stamps sw.js with a version, like a deploy.
-async function swInstall() {
+async function swInstall({ inBrowser = browser } = {}) {
   const server = await startServer({ overrides: { '/config.js': configJs('') } });
   servers.push(server);
   server.setVersion('v1');
-  const context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+  const context = await inBrowser.newContext({ viewport: { width: 1000, height: 800 } });
   await blockExternal(context, [server.url, 'data:']);
   const page = await context.newPage();
   await page.goto(server.url);
@@ -642,6 +642,18 @@ async function swUntil(page, fn, timeout = 15000) {
   assert.fail(`timed out: ${JSON.stringify(state)}`);
 }
 
+/**
+ * A browser stops an idle worker after about 30 s, and a new version waiting to
+ * take over may wait for that. Workers attached to DevTools (as here) are never
+ * stopped, so do it.
+ */
+async function stopIdleWorkers(context, page) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('ServiceWorker.enable');
+  await cdp.send('ServiceWorker.stopAllWorkers');
+  await cdp.detach();
+}
+
 const swUpdate = (page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update().catch(() => {}));
 const swUpdated = (s) => !s.waiting && !s.installing && s.active === 'activated' && s.caches.includes('inthemiddle-v2');
 const fileVersion = (page, file) => page.evaluate(async (f) => (await fetch(f)).headers.get('x-version'), file);
@@ -659,11 +671,55 @@ test('service worker: a page opened from the cache keeps its version\'s files wh
   server.setOffline(true);
   assert.equal(await fileVersion(cachePage, 'js/providers/osm.js'), 'v1');
   server.setOffline(false);
-  // Once that page is closed, a page load deletes the old copy.
+  // Once that page is closed, the next version deletes the old copy.
   await cachePage.close();
   await page.waitForTimeout(10500); // a page that has just opened counts as open for 10 s
   await page.reload();
-  await swUntil(page, (s) => s.caches.join() === 'inthemiddle-v2');
+  assert.deepEqual((await swState(page)).caches, ['inthemiddle-v1', 'inthemiddle-v2']);
+  server.setVersion('v3');
+  await swUpdate(page);
+  await swUntil(page, (s) => s.caches.join() === 'inthemiddle-v3');
+  await context.close();
+});
+
+test('service worker: a page back from the back/forward cache still has its version\'s files', async () => {
+  // Playwright turns the back/forward cache off; this browser has it on.
+  const bfBrowser = await chromium.launch({ channel: 'chromium', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
+  try {
+    const { server, context, page } = await swInstall({ inBrowser: bfBrowser });
+    const cachePage = await openFromCache(context, server);
+    await cachePage.evaluate(() => {
+      window.sameDocument = true;
+    });
+    server.setVersion('v2');
+    await swUpdate(page);
+    await swUntil(page, swUpdated);
+    // The page opened from v1's copy is left for another page, then another tab loads the app.
+    await cachePage.goto(`${server.url}icons/icon.svg`);
+    await page.waitForTimeout(10500);
+    await page.goto(`${server.url}?x=1`);
+    await page.waitForTimeout(500);
+    await cachePage.goBack({ waitUntil: 'commit' });
+    await cachePage.waitForFunction(() => document.readyState === 'complete');
+    if (await cachePage.evaluate(() => window.sameDocument === true)) {
+      assert.equal(await fileVersion(cachePage, 'js/ui/map-leaflet.js'), 'v1');
+      server.setOffline(true);
+      assert.equal(await fileVersion(cachePage, 'js/providers/osm.js'), 'v1');
+    } else {
+      assert.fail('the page was not restored from the back/forward cache, so this test checks nothing');
+    }
+  } finally {
+    await bfBrowser.close();
+  }
+});
+
+test('service worker: with its cache gone, a slow page load just waits for the network', async () => {
+  const { server, context, page } = await swInstall();
+  await page.evaluate(() => caches.delete('inthemiddle-v1'));
+  const slow = await openFromCache(context, server);
+  assert.equal(await slow.locator('h1').textContent(), 'מקום באמצע');
+  // Nothing was marked as opened from (or put back into) the missing cache.
+  assert.deepEqual((await swState(slow)).caches, []);
   await context.close();
 });
 
@@ -678,6 +734,8 @@ test('service worker: a page opening from the cache just as a new version takes 
   await swUpdate(page);
   await loaded;
   delete server.delays['/index.html'];
+  await page.waitForTimeout(1000);
+  if ((await swState(page)).waiting) await stopIdleWorkers(context, page);
   await swUntil(page, swUpdated);
   assert.equal(await fileVersion(opening, 'js/main.js'), 'v1');
   assert.equal(await fileVersion(opening, 'js/ui/map-leaflet.js'), 'v1');
@@ -773,5 +831,73 @@ test('phones: a re-run after the Google map broke shows the results on screen ag
   assert.notEqual(await page.locator('#input-b').getAttribute('aria-invalid'), 'true');
   const top = await page.locator('#input-b').evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(top >= 0 && top < 800, `field B at ${top}px`);
+  await context.close();
+});
+
+test('a search that replaced the re-run and failed: the re-run still moves the results, and the error stays', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 100 } });
+  await slowOverpass(context, 2500);
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await blockGoogleInOtherTab(context, page);
+  await page.locator('#input-b').fill('מקום שלא קיים');
+  await breakGoogleMap(page);
+  await page.locator('#submit').click();
+  await page.locator('#status[data-kind="error"]').waitFor({ timeout: 20000 });
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  await page.waitForFunction(() => document.getElementById('submit').textContent.includes('מצאו'));
+  assert.equal(await page.locator('#place-list .rating').count(), 0);
+  assert.match(await page.locator('#status').textContent(), /לא הצלחנו למצוא/);
+  await context.close();
+});
+
+test('an invalid search while a re-run is going: the re-run leaves its message on screen', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 100 } });
+  await slowOverpass(context, 2500);
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await blockGoogleInOtherTab(context, page);
+  await page.locator('#input-a').fill('בא');
+  await page.locator('#list-a [role="option"]').first().waitFor();
+  await breakGoogleMap(page);
+  await page.locator('#input-a').fill('');
+  await page.locator('#submit').click();
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#status').getAttribute('data-kind'), 'error');
+  assert.match(await page.locator('#status').textContent(), /נקודת יציאה/);
+  await context.close();
+});
+
+test('phones: a Google map that breaks a while after the search: its notice is scrolled into view with the moved results', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { lateOverlayMs: 3000 }, viewport: { width: 390, height: 800 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  await page.waitForTimeout(900); // smooth scroll
+  const box = await page.locator('#status').boundingBox();
+  assert.ok(box && box.y >= -1 && box.y < 800, `notice at ${box?.y}px`);
+  await context.close();
+});
+
+test('a Google search that fails leaves the OpenStreetMap results on screen on their own map', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 100 } });
+  // Google is blocked for a few seconds (e.g. a rate limit), so the first search is on OpenStreetMap.
+  await page.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 4000).toISOString() })),
+  );
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  await page.waitForTimeout(4500);
+  // The block is over: the next search is on Google, and it fails.
+  await page.locator('#input-b').fill('מקום שלא קיים');
+  await page.locator('#submit').click();
+  await page.locator('#status[data-kind="error"]').waitFor({ timeout: 20000 });
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#map .fake-google-map').count(), 0);
   await context.close();
 });

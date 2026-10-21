@@ -100,8 +100,11 @@ async function openedFromCache(id) {
 /**
  * Delete older deploys' caches, except ones an open page was opened from. Not
  * while a newer deploy's worker installs or waits: its cache isn't this one either.
+ * On a page load, a cache any page was opened from stays until the next deploy
+ * activates: a page in the back/forward cache isn't listed among the open pages,
+ * and only an activation evicts it from there.
  */
-async function deleteOlderCaches() {
+async function deleteOlderCaches({ pageLoad = false } = {}) {
   const names = await olderCacheNames();
   if (!names.length) return;
   const pages = new Set((await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).map((c) => c.id));
@@ -114,7 +117,7 @@ async function deleteOlderCaches() {
       if (at < 0) continue;
       const id = decodeURIComponent(request.url.slice(at + MARKERS.length));
       const written = Number(await (await cache.match(request))?.text());
-      if (pages.has(id) || Date.now() - written < NEW_PAGE_GRACE_MS) {
+      if (pageLoad || pages.has(id) || Date.now() - written < NEW_PAGE_GRACE_MS) {
         used = true;
         break;
       }
@@ -142,8 +145,8 @@ self.addEventListener('fetch', (event) => {
   // Every search link (?a=…&b=…) is the same app page.
   const cacheKey = navigate ? new Request('./') : request;
   const fromCache = (cacheName = CACHE) => caches.match(cacheKey, { cacheName });
-  // Pages opened from an older deploy's cache may have closed since.
-  if (navigate) event.waitUntil(deleteOlderCaches().catch(() => {}));
+  // Clean up what an activation had to leave (a newer version was installing) or a failed install left.
+  if (navigate) event.waitUntil(deleteOlderCaches({ pageLoad: true }).catch(() => {}));
 
   event.respondWith(
     (async () => {
@@ -172,9 +175,11 @@ self.addEventListener('fetch', (event) => {
         response = null;
       }
       if (response) return response;
-      // Mark the page first: from then on, a newer deploy's worker keeps this cache.
+      const cached = await fromCache();
+      if (!cached) return network;
+      // Before answering: from then on, a newer deploy's worker keeps this cache.
       await markOpenedFromCache(event.resultingClientId).catch(() => {});
-      return (await fromCache()) || network;
+      return cached;
     })(),
   );
 });
