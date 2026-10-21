@@ -1,17 +1,13 @@
-// Builds site/data/green-line.json: the areas beyond the Green Line (the 1949
-// armistice lines), used by the "only inside the Green Line" filter.
-//   West Bank, incl. East Jerusalem: UN OCHA's oPt boundaries (HDX, cod-ab-pse)
-//   Gaza Strip and the Golan:        OpenStreetMap (relations 1473938, 11585174)
-// Run: node tools/build-green-line.mjs   (needs network access and `unzip`)
+// Builds site/data/green-line.json: the areas the "only inside the Green Line"
+// filter leaves out, the West Bank (Judea and Samaria) and the Gaza Strip, from
+// OpenStreetMap (relations 1803010 and 1473938). Jerusalem, including its eastern
+// neighborhoods, and the Golan are not left out: the Judea and Samaria area
+// doesn't include Jerusalem.
+// Run: node tools/build-green-line.mjs   (needs network access)
 
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const UA = { 'User-Agent': 'InTheMiddle-data-build/1.0 (https://github.com/itaigree/InTheMiddle)' };
-const OCHA_ZIP =
-  'https://data.humdata.org/dataset/2caf8373-816f-458c-9913-71bddb9cab7c/resource/ca372385-4c79-4378-abf1-cb506fb98023/download/pse_admin_boundaries.geojson.zip';
 const osmPolygon = (id) => `https://polygons.openstreetmap.fr/get_geojson.py?id=${id}&params=0`;
 const TOLERANCE = 0.0003; // degrees, ~30 m
 const OUT = new URL('../site/data/green-line.json', import.meta.url);
@@ -66,30 +62,12 @@ function inRing([x, y], ring) {
 }
 const inPolygons = (pt, polys) => polys.some(([outer, ...holes]) => inRing(pt, outer) && !holes.some((h) => inRing(pt, h)));
 
-// --- West Bank (incl. East Jerusalem) from OCHA
-const dir = mkdtempSync(path.join(tmpdir(), 'ocha-'));
-writeFileSync(path.join(dir, 'pse.zip'), await download(OCHA_ZIP));
-execFileSync('unzip', ['-q', '-o', 'pse.zip'], { cwd: dir });
-const files = readdirSync(dir, { recursive: true }).map(String);
-console.log('OCHA files:', files.join(', '));
-const adm1File = files.find((f) => /adm(in)?1\.geojson$/i.test(f));
-const adm0File = files.find((f) => /adm(in)?0\.geojson$/i.test(f));
-const pick = adm1File || adm0File;
-const ocha = JSON.parse(readFileSync(path.join(dir, pick), 'utf8'));
-console.log('using', pick);
-for (const f of ocha.features) console.log('  feature', JSON.stringify(f.properties).slice(0, 300));
-// adm1 holds "West Bank" and "Gaza Strip"; use the West Bank one (Gaza comes from OSM).
-const isWestBank = (f) => /west\s*bank/i.test(JSON.stringify(f.properties));
-const wbFeatures = adm1File ? ocha.features.filter(isWestBank) : ocha.features;
-let westBank = wbFeatures.flatMap((f) => polygonsOf(f.geometry));
-if (!adm1File) westBank = westBank.filter((p) => p[0].some(([x]) => x > 34.6)); // adm0: drop Gaza
+const westBank = polygonsOf(JSON.parse((await download(osmPolygon(1803010))).toString()));
 const gaza = polygonsOf(JSON.parse((await download(osmPolygon(1473938))).toString()));
-const golan = polygonsOf(JSON.parse((await download(osmPolygon(11585174))).toString()));
 
 const areas = {
   westBank: simplifyPolygons(westBank),
   gaza: simplifyPolygons(gaza),
-  golan: simplifyPolygons(golan),
 };
 for (const [k, v] of Object.entries(areas)) console.log(k, v.length, 'polygons', v.flat(1).reduce((n, r) => n + r.length, 0), 'points');
 
@@ -102,12 +80,14 @@ const CHECK = {
     'Baka al-Gharbiyye': [35.04, 32.42], 'Umm al-Fahm': [35.15, 32.52], Metula: [35.5786, 33.278],
     'Kiryat Shmona': [35.57, 33.21], Tiberias: [35.53, 32.79], Degania: [35.575, 32.708], Maagan: [35.603, 32.711],
     'Ein Gedi': [35.39, 31.46], Arad: [35.21, 31.26], Sderot: [34.6, 31.525], Eilat: [34.95, 29.56], Hadera: [34.92, 32.44],
+    // Jerusalem and the Golan stay in.
+    'Old City': [35.2345, 31.7767], Ramot: [35.2, 31.82], Gilo: [35.18, 31.735], 'Pisgat Zeev': [35.235, 31.825],
+    Katzrin: [35.69, 32.99], 'Majdal Shams': [35.77, 33.27], 'Kfar Haruv': [35.667, 32.75],
   },
   beyond: {
     Ariel: [35.17, 32.105], 'Modiin Illit': [35.044, 31.932], Elkana: [35.03, 32.11], Qalqilya: [34.97, 32.19],
-    "Ma'ale Adumim": [35.3, 31.777], 'Old City': [35.2345, 31.7767], Ramot: [35.2, 31.82], Gilo: [35.18, 31.735],
-    'Pisgat Zeev': [35.235, 31.825], Efrat: [35.15, 31.655], 'Beitar Illit': [35.12, 31.7], 'Kiryat Arba': [35.12, 31.53],
-    'Gaza City': [34.46, 31.5], Katzrin: [35.69, 32.99], 'Majdal Shams': [35.77, 33.27], 'Kfar Haruv': [35.667, 32.75],
+    "Ma'ale Adumim": [35.3, 31.777], Efrat: [35.15, 31.655], 'Beitar Illit': [35.12, 31.7], 'Kiryat Arba': [35.12, 31.53],
+    'Givat Zeev': [35.17, 31.86], 'Gaza City': [34.46, 31.5], 'Khan Yunis': [34.30, 31.345],
   },
 };
 const beyond = (pt) => Object.values(areas).some((polys) => inPolygons(pt, polys));
@@ -125,8 +105,8 @@ writeFileSync(
   OUT,
   JSON.stringify({
     about:
-      'Areas beyond the Green Line (1949 armistice lines). West Bank incl. East Jerusalem: UN OCHA oPt admin boundaries (HDX cod-ab-pse). ' +
-      'Gaza Strip and Golan: OpenStreetMap contributors (ODbL). Simplified to ~30 m. Built by tools/build-green-line.mjs.',
+      'Areas left out by the "only inside the Green Line" filter: the West Bank (Judea and Samaria, without Jerusalem) and the Gaza Strip. ' +
+      'Data: OpenStreetMap contributors (ODbL), relations 1803010 and 1473938. Simplified to ~30 m. Built by tools/build-green-line.mjs.',
     areas,
   }) + '\n',
 );

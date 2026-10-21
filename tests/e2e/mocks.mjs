@@ -164,7 +164,9 @@ export async function mockOsm(
       });
     };
     for (let k = 0; k < 5; k++) {
-      if (body.includes('"amenity"~"^(cafe|ice_cream)$"')) add({ amenity: 'cafe', name: `קפה ${k + 1}` }, k);
+      // Cafes 1–2 close for Shabbat, cafe 3 is open on Saturday, cafes 4–5 have no hours.
+      const hours = ['Su-Th 07:00-23:00; Fr 07:00-14:00; Sa off', 'Su-Th 08:00-22:00; Fr 08:00-15:00', 'Mo-Su 08:00-23:00'][k];
+      if (body.includes('"amenity"~"^(cafe|ice_cream)$"')) add({ amenity: 'cafe', name: `קפה ${k + 1}`, ...(hours && { opening_hours: hours }) }, k);
       if (body.includes('"shop"="mall"') && k < 2) add({ shop: 'mall', name: `קניון ${k + 1}`, website: 'x' }, k + 3);
       if (body.includes('"leisure"="park"')) add({ leisure: 'park', name: `פארק ${k + 1}` }, k + 1);
       if (body.includes('"tourism"="viewpoint"') && k < 3) add({ tourism: 'viewpoint', name: `תצפית ${k + 1}` }, k + 2);

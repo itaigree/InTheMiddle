@@ -137,7 +137,13 @@
           businessStatus: i === 5 ? 'CLOSED_PERMANENTLY' : 'OPERATIONAL',
           rating: 3.8 + (i % 4) * 0.3,
           userRatingCount: 50 * (i + 1),
-          regularOpeningHours: { periods: [{ open: { day: 0, hour: 0, minute: 0 } }] },
+          // The first of each kind closes for Shabbat; the rest are open 24/7.
+          regularOpeningHours: {
+            periods:
+              i === 0
+                ? [0, 1, 2, 3, 4, 5].map((day) => ({ open: { day, hour: 8, minute: 0 }, close: { day, hour: day === 5 ? 14 : 22, minute: 0 } }))
+                : [{ open: { day: 0, hour: 0, minute: 0 } }],
+          },
           photos: [
             {
               getURI: () =>

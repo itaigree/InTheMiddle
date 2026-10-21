@@ -37,13 +37,8 @@ const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
  */
 export async function findMiddle(query, provider, { onProgress = () => {} } = {}) {
   const { a, b, categories, departure } = query;
-  // query.placeFilter (optional) keeps a place or not; `filtered` says whether it dropped any.
-  let filtered = false;
-  const keep = (place) => {
-    if (!query.placeFilter || query.placeFilter(place)) return true;
-    filtered = true;
-    return false;
-  };
+  // Optional: which places to keep (filters the user chose).
+  const keep = query.placeFilter || (() => true);
   const notices = [];
   const opts = { departure };
   let modeA = query.modeA;
@@ -217,7 +212,6 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     radius,
     balance,
     places: ranked,
-    filtered,
     notices,
   };
 }

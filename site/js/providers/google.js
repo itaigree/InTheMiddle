@@ -12,6 +12,7 @@
 
 import { ProviderUnavailableError, ProviderRequestError } from './errors.js';
 import { timelineFromSteps } from '../core/geo.js';
+import { closedOnShabbat, intervalsFromGoogle } from '../core/shabbat.js';
 
 const LANGUAGE = 'iw'; // Google's code for Hebrew
 const REGION = 'il';
@@ -437,6 +438,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
               rating: Number.isFinite(p.rating) ? p.rating : undefined,
               ratingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : undefined,
               openNow: isOpenAt(p.currentOpeningHours?.periods?.length ? p.currentOpeningHours : p.regularOpeningHours, now),
+              closedOnShabbat: closedOnShabbat(intervalsFromGoogle(p.regularOpeningHours)),
               address: p.shortFormattedAddress || undefined,
               mapsUrl: p.googleMapsURI || undefined,
               // Each photo shown is billed (Place Photos), so the UI only shows a few.

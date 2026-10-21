@@ -9,6 +9,7 @@
 
 import { ProviderRequestError, isAbortError } from './errors.js';
 import { haversine } from '../core/geo.js';
+import { closedOnShabbat, intervalsFromOsm } from '../core/shabbat.js';
 
 const PHOTON_URL = 'https://photon.komoot.io/api/';
 const PHOTON_REVERSE_URL = 'https://photon.komoot.io/reverse';
@@ -392,6 +393,7 @@ export function parseOverpass(data, center, categoryIds) {
       category,
       typeLabel: typeLabelOf(tags),
       openNow: tags.opening_hours === '24/7' ? true : null,
+      closedOnShabbat: closedOnShabbat(intervalsFromOsm(tags.opening_hours)),
       address: addressOf(tags),
       source: 'osm',
       rank: haversine(center, { lat, lng }) / 1000 - notability(tags),

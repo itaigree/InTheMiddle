@@ -149,6 +149,9 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
       const open = openText(place);
       if (open) meta.append(open);
     }
+    if (place.closedOnShabbat === true && (place.category === 'cafe' || place.category === 'food')) {
+      meta.append(el('span', 'shabbat', 'סגור בשבת'));
+    }
     if (place.address) meta.append(el('span', null, place.address));
 
     // The א/ב badges and mode icons are visual; screen readers get the words.

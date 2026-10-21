@@ -954,3 +954,32 @@ test('Green Line filter: places beyond the line are left out, and the link keeps
   assert.match(await opened.page.locator('#status').textContent(), /קו הירוק/);
   await opened.context.close();
 });
+
+test('closed on Shabbat: only cafes whose hours show it, other kinds of places untouched', async () => {
+  const { page, context } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#only-shabbat-closed').check({ force: true });
+  await search(page);
+  const names = await page.locator('#place-list .place-name').allTextContents();
+  const cafes = names.filter((n) => n.startsWith('קפה')).sort();
+  assert.deepEqual(cafes, ['קפה 1', 'קפה 2']);
+  assert.ok(names.some((n) => n.startsWith('פארק')));
+  assert.equal(await page.locator('#place-list .shabbat').count(), 2);
+  assert.equal((await sharedLink(page)).searchParams.get('s'), '1');
+  // Few cafes and restaurants left: a notice says why.
+  assert.match(await page.locator('#status').textContent(), /סגורים בשבת/);
+  await context.close();
+});
+
+test('Google mode, closed on Shabbat: from Google opening hours', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#only-shabbat-closed').check({ force: true });
+  await search(page);
+  const names = await page.locator('#place-list .place-name').allTextContents();
+  assert.deepEqual(names.filter((n) => n.startsWith('בית קפה')), ['בית קפה 1']);
+  assert.ok(names.some((n) => n.startsWith('פארק')));
+  await context.close();
+});

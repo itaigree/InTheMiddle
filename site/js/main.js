@@ -36,7 +36,12 @@ const NOTICE_TEXT = {
   'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'departure-past': 'זמן היציאה שנבחר כבר עבר, אז חיפשנו לפי יציאה עכשיו.',
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
+  shabbat:
+    'נשארו מעט בתי קפה ומסעדות שסגורים בשבת: מוצגים רק מקומות ששעות הפתיחה שלהם ידועות, ולהרבה מקומות אין שעות פתיחה במפות.',
 };
+
+/** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
+const SHABBAT_CATEGORIES = new Set(['cafe', 'food']);
 
 const SWITCH_REASON_TEXT = {
   quota:
@@ -490,6 +495,7 @@ function readForm() {
     departure: departure.date,
     departurePast: departure.past,
     greenLine: $('only-green-line').checked,
+    shabbat: $('only-shabbat-closed').checked,
   };
 }
 
@@ -598,15 +604,28 @@ async function runSearch({ request = null, redo = false, background = false } = 
         categories: request.categories,
         departure: request.departure,
         greenLine: request.greenLine,
+        shabbat: request.shabbat,
       };
-      if (request.greenLine) {
+      // The filters the user chose, noting which ones left places out.
+      const dropped = new Set();
+      if (request.greenLine || request.shabbat) {
         const areas = await greenLineAreas;
-        query.placeFilter = (place) => !beyondGreenLine(areas, place);
+        query.placeFilter = (place) => {
+          if (areas && beyondGreenLine(areas, place)) {
+            dropped.add('green-line');
+            return false;
+          }
+          if (request.shabbat && SHABBAT_CATEGORIES.has(place.category) && place.closedOnShabbat !== true) {
+            dropped.add('shabbat');
+            return false;
+          }
+          return true;
+        };
       }
       const res = await findMiddle(query, provider, { onProgress: progress });
       // Google results need a Google map; if it can't load, redo the search on OSM.
       if (mapReady) await mapReady;
-      return { res, provider, query };
+      return { res, provider, query, dropped };
     });
     if (!result || seq !== searchSeq) return;
     // Google failed in this page while the search was running (e.g. the map showed
@@ -616,8 +635,12 @@ async function runSearch({ request = null, redo = false, background = false } = 
       return await runSearch({ request, redo: true, background });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
-    // Say why there are few places when the filter took some away.
-    if (result.res.filtered && request.greenLine && result.res.places.length < 5) result.res.notices.push('green-line');
+    // Say why there are few places when a filter took some away.
+    const { places } = result.res;
+    if (result.dropped.has('green-line') && places.length < 5) result.res.notices.push('green-line');
+    if (result.dropped.has('shabbat') && places.filter((p) => SHABBAT_CATEGORIES.has(p.category)).length < 3) {
+      result.res.notices.push('shabbat');
+    }
     lastQuery = result.query;
     shownRequest = request;
     shownNeedsRedo = false;
@@ -668,6 +691,7 @@ function searchLink(query) {
     categories: query.categories,
     departure: query.departure ? toLocalInputValue(query.departure) : null,
     greenLine: query.greenLine,
+    shabbat: query.shabbat,
     provider: forcedProvider,
   });
   return `${location.origin}${location.pathname}?${qs}`;
@@ -873,6 +897,7 @@ function init() {
   setMode('a', state.modeA);
   setMode('b', state.modeB);
   $('only-green-line').checked = state.greenLine;
+  $('only-shabbat-closed').checked = state.shabbat;
   if (state.departure) {
     // A time that has passed is reset to "now" by the search, with a notice.
     departureChoice.value = 'later';

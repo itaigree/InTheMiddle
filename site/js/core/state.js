@@ -26,6 +26,7 @@ const DEPARTURE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
  * @param {string[]} state.categories
  * @param {string|null} state.departure  local "YYYY-MM-DDTHH:MM", null = now
  * @param {boolean} [state.greenLine]  only places inside the Green Line
+ * @param {boolean} [state.shabbat]  only cafes and restaurants closed on Shabbat
  * @param {string|null} [state.provider]  forced provider id, normally null
  */
 export function encodeState(state) {
@@ -42,6 +43,7 @@ export function encodeState(state) {
   if (state.categories && state.categories.length) params.set('c', state.categories.join(','));
   if (state.departure) params.set('t', state.departure);
   if (state.greenLine) params.set('g', '1');
+  if (state.shabbat) params.set('s', '1');
   if (state.provider) params.set('p', state.provider);
   return params.toString();
 }
@@ -57,6 +59,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
     categories: null,
     departure: null,
     greenLine: false,
+    shabbat: false,
     provider: null,
   };
   for (const key of ['a', 'b']) {
@@ -76,6 +79,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
   const t = params.get('t');
   if (t && DEPARTURE_RE.test(t) && !Number.isNaN(new Date(t).getTime())) result.departure = t;
   result.greenLine = params.get('g') === '1';
+  result.shabbat = params.get('s') === '1';
   const p = params.get('p');
   if (p === 'osm' || p === 'google') result.provider = p;
   return result;

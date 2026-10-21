@@ -28,6 +28,7 @@ const SHELL = [
   'js/core/midpoint.js',
   'js/core/ranking.js',
   'js/core/search.js',
+  'js/core/shabbat.js',
   'js/core/state.js',
   'js/providers/errors.js',
   'js/providers/google.js',

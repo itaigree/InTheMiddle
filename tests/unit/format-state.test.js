@@ -31,6 +31,7 @@ test('state round-trips through the query string', () => {
     categories: ['cafe', 'park'],
     departure: '2026-10-21T18:30',
     greenLine: true,
+    shabbat: true,
     provider: null,
   };
   const decoded = decodeState(encodeState(state));
@@ -51,6 +52,7 @@ test('decodeState drops malformed values', () => {
     categories: ['cafe'],
     departure: null,
     greenLine: false,
+    shabbat: false,
     provider: null,
   });
 });

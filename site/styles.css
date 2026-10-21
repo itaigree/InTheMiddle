@@ -478,6 +478,12 @@ body.has-map .map-placeholder {
   margin-bottom: 8px;
 }
 
+.filter-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -805,6 +811,10 @@ body.has-map .map-placeholder {
 
 .place-meta .closed {
   color: var(--danger);
+}
+
+.place-meta .shabbat {
+  color: var(--primary-strong);
 }
 
 .place-times {
