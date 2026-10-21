@@ -58,8 +58,8 @@ let switchBlock = null;
 let currentMap = null;
 let mapPromise = null;
 let mapKind = null;
-/** The last search as the user asked for it (texts, modes…), to re-run after a provider switch. */
-let lastRequest = null;
+/** The search whose results are on screen, as asked (texts, modes…), to re-run after a provider switch. */
+let shownRequest = null;
 /** The search whose results are on screen, with resolved coordinates, for sharing. */
 let lastQuery = null;
 /** Attribution line under autocomplete suggestions, for the provider that served them. */
@@ -156,8 +156,7 @@ function handleGoogleUnavailable(err) {
     // Already off Google (e.g. another tab blocked it). Still note it: a search on
     // Google that is finishing redoes itself, and this tab won't go back too soon.
     markGoogleUnavailable(err);
-    // Results shown on the broken Google map move to the current provider.
-    if (lastRequest && !searching && lastResult?.providerId === 'google') runSearch({ request: lastRequest });
+    redoShownSearch();
     return;
   }
   markGoogleUnavailable(err);
@@ -165,13 +164,21 @@ function handleGoogleUnavailable(err) {
   getProvider()
     .then((p) => {
       updateProviderNote(p);
-      // A search in progress falls back by itself; otherwise redo the last one.
-      if (lastRequest && !searching) runSearch({ request: lastRequest });
+      redoShownSearch();
     })
     .catch((loadErr) => {
       console.error(loadErr);
       showStatus('error', 'לא הצלחנו לטעון את המפות. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.');
     });
+}
+
+/**
+ * Google results on screen sit on a Google map that no longer works: show them
+ * again with the current provider. (A search in progress falls back by itself.)
+ * The user may be typing a new search meanwhile: don't hold it up, scroll, or mark fields.
+ */
+function redoShownSearch() {
+  if (shownRequest && !searching && lastResult?.providerId === 'google') runSearch({ request: shownRequest, background: true });
 }
 
 function updateProviderNote(provider) {
@@ -491,25 +498,28 @@ function validateForm() {
 
 let searching = false;
 
-function setBusy(busy) {
+function setBusy(busy, { background = false } = {}) {
   searching = busy;
   const button = $('submit');
-  button.disabled = busy;
-  button.textContent = busy ? 'מחפשים…' : 'מצאו לנו מקום באמצע';
+  // A re-run the user didn't ask for leaves the button on: a search they start replaces it.
+  button.disabled = busy && !background;
+  button.textContent = button.disabled ? 'מחפשים…' : 'מצאו לנו מקום באמצע';
 }
 
 /**
  * Run a search from the form, or re-run `request` (an earlier one) after the
  * provider changed.
  */
-async function runSearch({ request = null, redo = false } = {}) {
-  const seq = ++searchSeq;
+async function runSearch({ request = null, redo = false, background = false } = {}) {
   if (!request) {
     const problems = validateForm();
     if (problems.length) {
       showStatus('error', problems.join(' '));
       return;
     }
+  }
+  const seq = ++searchSeq;
+  if (!request) {
     setBusy(true);
     showStatus('progress', PROGRESS_TEXT.geocode);
     // A suggestion picked a moment ago may still be resolving: use it, don't re-geocode.
@@ -518,9 +528,8 @@ async function runSearch({ request = null, redo = false } = {}) {
     request = readForm();
     if (request.departurePast) resetDepartureToNow();
   }
-  lastRequest = request;
   const failuresBefore = googleFailures;
-  setBusy(true);
+  setBusy(true, { background });
   showStatus('progress', PROGRESS_TEXT.geocode);
   const progress = (step) => {
     if (seq === searchSeq && PROGRESS_TEXT[step]) showStatus('progress', PROGRESS_TEXT[step]);
@@ -544,7 +553,10 @@ async function runSearch({ request = null, redo = false } = {}) {
         else if (sides[key].input.value.trim() === request[key].text) sides[key].location = loc;
       }
       if (missing.length) {
-        for (const [key] of missing) sides[key].input.setAttribute('aria-invalid', 'true');
+        for (const [key, text] of missing) {
+          // Not when the field says something else by now (e.g. a re-run while typing).
+          if (sides[key].input.value.trim() === text) sides[key].input.setAttribute('aria-invalid', 'true');
+        }
         const err = new Error('not found');
         err.userMessage = `לא הצלחנו למצוא את ${missing.map(([, t]) => `„${t}”`).join(' ואת ')}. אפשר לנסות לכתוב אחרת או לבחור מהרשימה שנפתחת בזמן ההקלדה.`;
         throw err;
@@ -567,12 +579,13 @@ async function runSearch({ request = null, redo = false } = {}) {
     // its error screen late): its results would sit on a broken map, so redo it.
     // (A block recorded by another tab doesn't make this tab's results wrong.)
     if (result.provider.id === 'google' && googleFailures !== failuresBefore && !redo) {
-      return await runSearch({ request, redo: true });
+      return await runSearch({ request, redo: true, background });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
     lastQuery = result.query;
+    shownRequest = request;
     updateUrl(result.query);
-    await showResult(result.res, result.provider);
+    await showResult(result.res, result.provider, { scroll: !background });
   } catch (err) {
     if (seq !== searchSeq) return;
     console.error(err);
@@ -691,7 +704,7 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
-async function showResult(result, provider) {
+async function showResult(result, provider, { scroll = true } = {}) {
   lastResult = result;
   activeFilter = 'all';
   // Photos are billed per image: allow them for the first few places of this
@@ -715,7 +728,7 @@ async function showResult(result, provider) {
   // Show the map box right away (it fills in when the map is ready), so the
   // phone layout has something to scroll to on the first search.
   document.body.classList.add('has-map');
-  if (window.matchMedia('(max-width: 959px)').matches) {
+  if (scroll && window.matchMedia('(max-width: 959px)').matches) {
     // A notice explains the results, so show it first; otherwise go to the map.
     const target = notices.length ? $('status') : document.querySelector('.map-wrap');
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -811,23 +824,9 @@ function init() {
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     // Never awaited: registration can stay pending (e.g. when service workers are blocked).
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then(recheckWaitingWorker, (err) => console.warn('service worker', err));
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') recheckWaitingWorker();
+      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker', err));
     });
   }
-}
-
-/**
- * A new version waits while a page opened from the offline copy is open (sw.js).
- * That page may be gone by now (e.g. reloaded), so ask the new version to check again.
- */
-function recheckWaitingWorker() {
-  navigator.serviceWorker
-    .getRegistration()
-    .then((reg) => reg?.waiting?.postMessage('recheck'))
-    .catch(() => {});
 }
 
 init();

@@ -27,7 +27,9 @@ const TYPES = {
  *
  * For service worker updates: `setVersion('v2')` stamps sw.js like a deploy and
  * tags every response with an x-version header; `delays` maps paths (or '*') to
- * how long to wait before answering.
+ * how long to wait before answering. A worker precaching files is delayed by
+ * 'precache:<path>' (or 'precache:*') instead, so a slow page load and a slow
+ * install can be set apart.
  */
 export async function startServer({ overrides = {} } = {}) {
   let offline = false;
@@ -42,7 +44,9 @@ export async function startServer({ overrides = {} } = {}) {
     let pathname = decodeURIComponent(url.pathname);
     if (pathname.endsWith('/')) pathname += 'index.html';
     const servedVersion = version;
-    const delay = delays[pathname] ?? delays['*'] ?? 0;
+    // The worker precaches with cache: 'reload', which sends Pragma: no-cache.
+    const kind = req.headers.pragma === 'no-cache' ? 'precache:' : '';
+    const delay = delays[kind + pathname] ?? delays[`${kind}*`] ?? 0;
     if (delay) await new Promise((r) => setTimeout(r, delay));
     if (offline) {
       req.socket.destroy();

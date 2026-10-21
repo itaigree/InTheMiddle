@@ -5,7 +5,8 @@
 // A page is then served from ONE source: pages that load from the network fetch
 // their files from the network (like without a worker); a page the network was
 // too slow to open (or offline) is opened from the cache, and so are all of its
-// files. Requests to other origins and non-GET requests are left alone.
+// files, from that same cache even after a newer deploy's worker takes over.
+// Requests to other origins and non-GET requests are left alone.
 
 const PREFIX = 'inthemiddle-'; // CacheStorage is shared by every <user>.github.io/<repo> site
 const CACHE = `${PREFIX}__BUILD__`; // the deploy workflow stamps the commit id + config hash here
@@ -44,44 +45,18 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE);
       // cache: 'reload' skips the HTTP cache (GitHub Pages serves max-age=600).
       await cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })));
-      // Take over right away, unless a page opened from an older deploy's cache is
-      // still open: activating would delete the files it is still loading from.
-      if (!(await pageOpenedFromOlderCache())) await self.skipWaiting();
+      // Take over right away: a page opened from an older deploy's cache keeps
+      // loading from that cache, which is kept while the page is open.
+      await self.skipWaiting();
     })(),
   );
 });
-
-async function pageOpenedFromOlderCache() {
-  const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const older = (await caches.keys()).filter((n) => n.startsWith(PREFIX) && n !== CACHE);
-  for (const name of older) {
-    const cache = await caches.open(name);
-    for (const page of pages) if (await cache.match(clientMarker(page.id))) return true;
-  }
-  return false;
-}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const names = await caches.keys();
-      // A newer deploy's worker may be filling its cache right now (this one was
-      // held back): leave the clean-up to it, it does the same when it activates.
-      if (!self.registration.installing) {
-        await Promise.all(names.filter((n) => n.startsWith(PREFIX) && n !== CACHE).map((n) => caches.delete(n)));
-      }
+      await deleteOlderCaches();
       await self.clients.claim();
-    })(),
-  );
-});
-
-// Pages ask a held-back worker to check again when they load or come back into
-// view: the page opened from an older cache may have been closed or reloaded since.
-self.addEventListener('message', (event) => {
-  if (event.data !== 'recheck') return;
-  event.waitUntil(
-    (async () => {
-      if (!(await pageOpenedFromOlderCache())) await self.skipWaiting();
     })(),
   );
 });
@@ -90,25 +65,64 @@ self.addEventListener('message', (event) => {
 const NETWORK_TIMEOUT_MS = 4000;
 
 /**
- * Pages (clients) that were opened from the cache. Kept in memory and in the
- * cache, since the browser stops idle workers and memory doesn't survive that.
+ * Pages (clients) opened from a cache, and which cache: a marker in that cache,
+ * and in memory, since the browser stops idle workers and memory doesn't survive
+ * that. The marker holds the time it was written.
  */
-const cacheClients = new Set();
-const clientMarker = (id) => new Request(`./__opened-from-cache/${encodeURIComponent(id)}`);
+const MARKERS = '__opened-from-cache/';
+const clientMarker = (id) => new Request(`./${MARKERS}${encodeURIComponent(id)}`);
+const cacheClients = new Map(); // client id -> cache name
+/** A page that has just opened may not be listed among the open pages yet. */
+const NEW_PAGE_GRACE_MS = 10000;
 
 async function markOpenedFromCache(id) {
   if (!id) return;
-  cacheClients.add(id);
+  cacheClients.set(id, CACHE);
   const cache = await caches.open(CACHE);
-  await cache.put(clientMarker(id), new Response(''));
+  await cache.put(clientMarker(id), new Response(String(Date.now())));
 }
 
+const olderCacheNames = async () => (await caches.keys()).filter((n) => n.startsWith(PREFIX) && n !== CACHE);
+
+/** The cache this page was opened from (this deploy's or an older one), or null. */
 async function openedFromCache(id) {
-  if (!id) return false;
-  if (cacheClients.has(id)) return true;
-  const hit = await (await caches.open(CACHE)).match(clientMarker(id));
-  if (hit) cacheClients.add(id);
-  return Boolean(hit);
+  if (!id) return null;
+  if (cacheClients.has(id)) return cacheClients.get(id);
+  for (const cacheName of [CACHE, ...(await olderCacheNames())]) {
+    if (await caches.match(clientMarker(id), { cacheName })) {
+      cacheClients.set(id, cacheName);
+      return cacheName;
+    }
+  }
+  return null;
+}
+
+/**
+ * Delete older deploys' caches, except ones an open page was opened from. Not
+ * while a newer deploy's worker installs or waits: its cache isn't this one either.
+ */
+async function deleteOlderCaches() {
+  const names = await olderCacheNames();
+  if (!names.length) return;
+  const pages = new Set((await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).map((c) => c.id));
+  const unused = [];
+  for (const name of names) {
+    const cache = await caches.open(name);
+    let used = false;
+    for (const request of await cache.keys()) {
+      const at = request.url.indexOf(MARKERS);
+      if (at < 0) continue;
+      const id = decodeURIComponent(request.url.slice(at + MARKERS.length));
+      const written = Number(await (await cache.match(request))?.text());
+      if (pages.has(id) || Date.now() - written < NEW_PAGE_GRACE_MS) {
+        used = true;
+        break;
+      }
+    }
+    if (!used) unused.push(name);
+  }
+  if (self.registration.installing || self.registration.waiting) return;
+  await Promise.all(unused.map((name) => caches.delete(name)));
 }
 
 /** Is this navigation the app itself (any ?query), as opposed to e.g. the manifest? */
@@ -127,12 +141,15 @@ self.addEventListener('fetch', (event) => {
   if (navigate && !isAppPage(request.url)) return; // other files opened as pages: just the network
   // Every search link (?a=…&b=…) is the same app page.
   const cacheKey = navigate ? new Request('./') : request;
-  const fromCache = async () => (await caches.open(CACHE)).match(cacheKey);
+  const fromCache = (cacheName = CACHE) => caches.match(cacheKey, { cacheName });
+  // Pages opened from an older deploy's cache may have closed since.
+  if (navigate) event.waitUntil(deleteOlderCaches().catch(() => {}));
 
   event.respondWith(
     (async () => {
       if (!navigate) {
-        if (await openedFromCache(event.clientId)) return (await fromCache()) || fetch(request);
+        const cacheName = await openedFromCache(event.clientId);
+        if (cacheName) return (await fromCache(cacheName)) || fetch(request);
         try {
           // Revalidate like the page itself, so a fresh page never gets files from
           // the previous deploy out of the HTTP cache (GitHub Pages: max-age=600).
@@ -155,10 +172,9 @@ self.addEventListener('fetch', (event) => {
         response = null;
       }
       if (response) return response;
-      const cached = await fromCache();
-      if (!cached) return network;
-      event.waitUntil(markOpenedFromCache(event.resultingClientId).catch(() => {}));
-      return cached;
+      // Mark the page first: from then on, a newer deploy's worker keeps this cache.
+      await markOpenedFromCache(event.resultingClientId).catch(() => {});
+      return (await fromCache()) || network;
     })(),
   );
 });
