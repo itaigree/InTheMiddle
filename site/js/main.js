@@ -64,7 +64,10 @@ let suggestFooter = '';
 
 function googleBlocked() {
   if (switchBlock && switchBlock.until <= Date.now()) switchBlock = null;
-  return Boolean(switchBlock) || Boolean(getGoogleBlock());
+  // A block recorded by another tab (or before a reload) counts too, with its reason.
+  const stored = getGoogleBlock();
+  if (stored && !switchBlock) switchBlock = { reason: stored.reason, until: stored.until.getTime() };
+  return Boolean(switchBlock);
 }
 
 function googleWanted() {
@@ -72,8 +75,14 @@ function googleWanted() {
 }
 
 function getProvider() {
-  // Back on Google once a temporary block has expired (long-lived tabs and installed apps).
+  // The cached provider must follow the current verdict: back on Google once a
+  // block has expired, and off Google as soon as one is in force (even if another
+  // tab recorded it).
   if (providerPromise && loadedProviderId === 'osm' && googleWanted()) providerPromise = null;
+  if (providerPromise && loadedProviderId === 'google' && !googleWanted()) {
+    providerPromise = null;
+    loadedProviderId = null;
+  }
   if (!providerPromise) {
     providerPromise = loadProvider().catch((err) => {
       providerPromise = null;
@@ -478,7 +487,7 @@ function setBusy(busy) {
  * Run a search from the form, or re-run `request` (an earlier one) after the
  * provider changed.
  */
-async function runSearch({ request = null } = {}) {
+async function runSearch({ request = null, redo = false } = {}) {
   const seq = ++searchSeq;
   if (!request) {
     const problems = validateForm();
@@ -540,8 +549,8 @@ async function runSearch({ request = null } = {}) {
     if (!result || seq !== searchSeq) return;
     // Google failed while this search was running (e.g. the map showed its error
     // screen late): its results would sit on a broken Google map, so redo it.
-    if (result.provider.id === 'google' && !googleWanted()) {
-      return await runSearch({ request });
+    if (result.provider.id === 'google' && !googleWanted() && !redo) {
+      return await runSearch({ request, redo: true });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
     lastQuery = result.query;

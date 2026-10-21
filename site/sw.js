@@ -1,7 +1,11 @@
-// Offline support for the app shell. Same-origin files are fetched network-first
-// (revalidated past the HTTP cache, so a new deploy shows up right away) and served
-// from the cache when offline. Requests to other origins (maps, places, routing,
-// fonts) and non-GET requests are left alone.
+// Offline support for the app shell.
+//
+// Each deploy's worker precaches that deploy's files when it installs, and the
+// cache is never updated at runtime, so it always holds one consistent version.
+// A page is then served from ONE source: pages that load from the network fetch
+// their files from the network (like without a worker); a page the network was
+// too slow to open (or offline) is opened from the cache, and so are all of its
+// files. Requests to other origins and non-GET requests are left alone.
 
 const PREFIX = 'inthemiddle-'; // CacheStorage is shared by every <user>.github.io/<repo> site
 const CACHE = `${PREFIX}__BUILD__`; // the deploy workflow stamps the commit id here
@@ -59,10 +63,26 @@ self.addEventListener('activate', (event) => {
 const NETWORK_TIMEOUT_MS = 4000;
 
 /**
- * Pages (clients) that were opened from the cache. Their files also come from
- * the cache, so one page never mixes files from two different deploys.
+ * Pages (clients) that were opened from the cache. Kept in memory and in the
+ * cache, since the browser stops idle workers and memory doesn't survive that.
  */
 const cacheClients = new Set();
+const clientMarker = (id) => new Request(`./__opened-from-cache/${encodeURIComponent(id)}`);
+
+async function markOpenedFromCache(id) {
+  if (!id) return;
+  cacheClients.add(id);
+  const cache = await caches.open(CACHE);
+  await cache.put(clientMarker(id), new Response(''));
+}
+
+async function openedFromCache(id) {
+  if (!id) return false;
+  if (cacheClients.has(id)) return true;
+  const hit = await (await caches.open(CACHE)).match(clientMarker(id));
+  if (hit) cacheClients.add(id);
+  return Boolean(hit);
+}
 
 /** Is this navigation the app itself (any ?query), as opposed to e.g. the manifest? */
 function isAppPage(url) {
@@ -77,48 +97,39 @@ self.addEventListener('fetch', (event) => {
   if (new URL(request.url).origin !== self.location.origin) return;
 
   const navigate = request.mode === 'navigate';
-  // Every search link (?a=…&b=…) is the same app page: cache it once.
-  const shell = navigate && isAppPage(request.url);
-  const cacheKey = shell ? new Request('./') : request;
+  if (navigate && !isAppPage(request.url)) return; // other files opened as pages: just the network
+  // Every search link (?a=…&b=…) is the same app page.
+  const cacheKey = navigate ? new Request('./') : request;
   const fromCache = async () => (await caches.open(CACHE)).match(cacheKey);
-
-  if (!navigate && cacheClients.has(event.clientId)) {
-    event.respondWith((async () => (await fromCache()) || fetch(request))());
-    return;
-  }
-
-  let stored = Promise.resolve();
-  const network = fetch(request, { cache: 'no-cache' }).then((response) => {
-    const html = (response.headers.get('content-type') || '').includes('text/html');
-    // Clone before the page starts reading the body.
-    if (response.ok && (!shell || html)) {
-      const copy = response.clone();
-      stored = caches.open(CACHE).then((cache) => cache.put(cacheKey, copy));
-    }
-    return response;
-  });
-  // Keep the worker alive until the cache is updated (registered synchronously).
-  event.waitUntil(network.then(() => stored).catch(() => {}));
 
   event.respondWith(
     (async () => {
-      try {
-        if (!navigate) return await network;
-        // A stalled connection (captive portal, tunnel) shouldn't hang the app:
-        // after a few seconds open it from the cache, files and all.
-        const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS, null));
-        const first = await Promise.race([network, timeout]);
-        if (first) return first;
-        const cached = await fromCache();
-        if (!cached) return await network;
-        if (event.resultingClientId) cacheClients.add(event.resultingClientId);
-        return cached;
-      } catch (err) {
-        const cached = await fromCache();
-        if (!cached) throw err;
-        if (navigate && event.resultingClientId) cacheClients.add(event.resultingClientId);
-        return cached;
+      if (!navigate) {
+        if (await openedFromCache(event.clientId)) return (await fromCache()) || fetch(request);
+        try {
+          return await fetch(request);
+        } catch (err) {
+          // Offline: the cached copy is the best we have.
+          const cached = await fromCache();
+          if (cached) return cached;
+          throw err;
+        }
       }
+      // The app page: the network, unless it is too slow or unreachable.
+      const network = fetch(request, { cache: 'no-cache' });
+      network.catch(() => {}); // may fail after the cache already answered
+      const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS, null));
+      let response = null;
+      try {
+        response = await Promise.race([network, timeout]);
+      } catch {
+        response = null;
+      }
+      if (response) return response;
+      const cached = await fromCache();
+      if (!cached) return network;
+      event.waitUntil(markOpenedFromCache(event.resultingClientId).catch(() => {}));
+      return cached;
     })(),
   );
 });

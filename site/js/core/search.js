@@ -185,11 +185,11 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
       await resampleAfterDrop(dropped);
       const nextBalance = findEqualTimeFraction(fractions, times.a, times.b);
       const nextMidpoint = pointAtFraction(path, nextBalance.fraction);
-      if (haversine(midpoint, nextMidpoint) > radius / 2) continue;
+      if (haversine(midpoint, nextMidpoint) > Math.min(radius / 2, 1000)) continue;
       // The balance point barely moved: the same places still fit, so only the
-      // side that switched to driving needs new (billed) travel times.
+      // side that switched to driving needs new (billed) travel times. The map
+      // keeps showing the area that was actually searched (old midpoint).
       balance = nextBalance;
-      midpoint = nextMidpoint;
     }
     if (dropped.length) placeTimes = await timesTo(candidates, null, unchanged(placeTimes, dropped));
     ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, { preferOpen: !departure });

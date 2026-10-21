@@ -522,3 +522,26 @@ test('phones, free mode: the first search scrolls to the map', async () => {
   assert.ok(top >= -1 && top < 100, `map top at ${top}px`);
   await context.close();
 });
+
+test('a Google block recorded by another tab: this tab switches to OpenStreetMap once, no search loop', async () => {
+  const { page, context, osmLog } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 300 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page); // a Google search; this tab now has Google loaded
+  const before = (await page.evaluate(() => window.__fakeGoogleCalls)).length;
+  // Another tab of the site records a block (shared localStorage).
+  const other = await context.newPage();
+  await other.goto(page.url().split('?')[0]);
+  await other.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'quota', until: new Date(Date.now() + 3600e3).toISOString() })),
+  );
+  await other.close();
+  await page.locator('#submit').click();
+  await page.locator('#map.leaflet-container').waitFor({ timeout: 20000 });
+  await page.waitForFunction(() => document.getElementById('submit').disabled === false);
+  const after = (await page.evaluate(() => window.__fakeGoogleCalls)).length;
+  assert.ok(after - before <= 2, `${after - before} more Google calls`);
+  assert.ok(osmLog.overpass.length >= 1);
+  assert.match(await page.locator('#status').textContent(), /המכסה החינמית היומית של Google נגמרה/);
+  await context.close();
+});
