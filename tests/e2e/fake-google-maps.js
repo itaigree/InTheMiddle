@@ -8,6 +8,8 @@
 //   transitNoService: true   → every TRANSIT matrix element is ROUTE_NOT_FOUND
 //   detailsDelayMs: n        → Place.fetchFields takes n ms (a slow suggestion resolve)
 //   mapNeverLoads: true      → the map never fires 'tilesloaded'
+//   lateOverlayMs: n         → n ms after the map is created, show Google's error screen
+//   matrixDelayMs: n         → RouteMatrix calls take n ms
 (() => {
   const options = window.__fakeGoogleOptions || {};
   const calls = (window.__fakeGoogleCalls = []);
@@ -209,6 +211,7 @@
 
   const RouteMatrix = {
     async computeRouteMatrix(req) {
+      if (options.matrixDelayMs) await new Promise((r) => setTimeout(r, options.matrixDelayMs));
       maybeQuota('matrix', 'ROUTES');
       calls.push(`matrix:${req.travelMode}:${req.origins.length}x${req.destinations.length}`);
       const speed = SPEED[req.travelMode];
@@ -231,6 +234,14 @@
   class FakeMap {
     constructor(container, opts) {
       calls.push(`map:${opts.mapId}`);
+      if (options.lateOverlayMs) {
+        setTimeout(() => {
+          const err = document.createElement('div');
+          err.className = 'gm-err-container';
+          err.textContent = 'This page can’t load Google Maps correctly.';
+          this.div.append(err);
+        }, options.lateOverlayMs);
+      }
       if (options.authFail === 'map') setTimeout(() => window.gm_authFailure?.(), 50);
       this.container = container;
       this.div = document.createElement('div');

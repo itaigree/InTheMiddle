@@ -237,3 +237,18 @@ test('when transit drops out, only that side is queried again', async () => {
     ['car:1', 'car:1', 'transit:1'],
   );
 });
+
+test('transit lost at the candidate stage keeps the places when the midpoint barely moves', async () => {
+  // Transit at the same speed as driving: re-balancing doesn't move the midpoint,
+  // so no second place search and only the switched side is re-queried.
+  const provider = fakeProvider({ transitThrows: 'candidates' });
+  const result = await findMiddle({ ...baseQuery, modeB: 'transit' }, provider);
+  assert.equal(result.modeB, 'car');
+  assert.equal(provider.calls.searchPlaces.length, 1);
+  const candidateCalls = provider.calls.travelTimes.filter((c) => c.destinations !== 8);
+  assert.deepEqual(
+    candidateCalls.map((c) => `${c.mode}:${c.origins}`).sort(),
+    ['car:1', 'car:1', 'transit:1'],
+  );
+  assert.ok(result.places.length > 0);
+});

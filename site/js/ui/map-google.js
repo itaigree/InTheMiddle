@@ -41,13 +41,15 @@ function midContent() {
  * @param {HTMLElement} container
  * @param {{mapId?: string, onError?: (reason: 'auth'|'quota') => void}} options
  */
-export async function createGoogleMapView(container, { mapId, onError } = {}) {
+export async function createGoogleMapView(container, { mapId, onError, isCancelled = () => false } = {}) {
   const [{ Map: GoogleMap, Polyline, Circle, InfoWindow }, { AdvancedMarkerElement }, { LatLngBounds }] = await Promise.all([
     google.maps.importLibrary('maps'),
     google.maps.importLibrary('marker'),
     google.maps.importLibrary('core'),
   ]);
 
+  // Too late (the app has moved on to another map): don't touch the container.
+  if (isCancelled()) throw new Error('Google map creation cancelled');
   container.replaceChildren();
   const map = new GoogleMap(container, {
     center: { lat: 31.8, lng: 35.0 },

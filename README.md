@@ -33,7 +33,8 @@
 ### 1. GitHub Pages
 
 1. **להפוך את ה-repo לציבורי:** ‏Settings ← General ← בתחתית העמוד, Danger Zone ← **Change visibility** ← Public.
-   (ב-GitHub חינמי, Pages עובד רק עם repo ציבורי. מפתח ה-API לא נשמר בקוד, אלא ב-Secret.)
+   (ב-GitHub חינמי, Pages עובד רק עם repo ציבורי. מפתח ה-API לא נשמר ב-repo אלא ב-Secret, אבל הוא כן
+   מופיע באתר עצמו בקובץ `config.js`, כמו בכל אתר שמשתמש ב-Google Maps. מה שמגן עליו הן ההגבלות והמכסות שבסעיף 2.)
 2. **להפעיל את Pages:** ‏Settings ← Pages ← Build and deployment ← Source: **GitHub Actions**.
 3. כל push ל-`main` מריץ בדיקות ומפרסם את האתר. אפשר לראות את ההרצות בלשונית **Actions**.
 
@@ -68,7 +69,7 @@
    | Places API (New) | AutocompletePlacesRequest per day | 300 |
    | Places API (New) | כל שורה אחרת שמסתיימת ב-per day | **0** |
    | Routes API | ComputeRoutes per day | **32** |
-   | Routes API | ComputeRouteMatrix per day (אם נספר באלמנטים: 320) | **32** |
+   | Routes API | ComputeRouteMatrix: מכסה יומית שנספרת ב**אלמנטים** (ראו הערה) | **320** |
    | Maps JavaScript API | Map loads per day (אם קיים) | 300 |
 
    **מאיפה המספרים:** בכל חודש Google נותנת בחינם 1,000 חיפושי מקומות עם דירוגים ושעות פתיחה,
@@ -77,12 +78,16 @@
    מקום שנבחר (4 כברירת מחדל), ולכן יוצאים **כ-8 חיפושים ביום עם Google**. אחרי זה, ועד חצות לפי שעון קליפורניה
    (בסביבות 10:00 בבוקר בישראל), האפליקציה עוברת אוטומטית ל-OpenStreetMap.
 
-   **הגנה נוספת (לא חובה):** תקציב (Budget) רק שולח מייל. מי שרוצה עצירה מוחלטת יכול לחבר לתקציב התראת Pub/Sub
-   עם פונקציה שמנתקת את החיוב מהפרויקט ("Disable billing with budget notifications" בתיעוד של Google Cloud).
+   **הערה על ComputeRouteMatrix:** השירות הזה מחויב לפי אלמנטים (מוצא × יעד), ובקשה אחת יכולה להכיל עד 625.
+   אם בקונסול יש לו מכסה יומית שנספרת באלמנטים, שמים 320. אם יש רק מכסה לפי מספר בקשות או לפי דקה, היא
+   לא מספיקה כדי למנוע חיוב במקרה שמישהו מעתיק את המפתח. במקרה כזה חשוב להוסיף את העצירה המוחלטת שבסעיף 7.
 6. **Map ID** (בשביל הסמנים במפה): ‏Google Maps Platform ← **Map management ← Create Map ID** ←
    שם כלשהו, סוג **JavaScript**, ‏**Vector** ← Save. מעתיקים את ה-Map ID (הוא לא סוד).
-7. מומלץ גם: **Billing ← Budgets & alerts ← Create budget** עם סכום קטן (למשל 5$) והתראות.
-   תקציב רק שולח מייל ולא עוצר שימוש. מה שעוצר בפועל הן המכסות היומיות שבסעיף 5.
+7. **תקציב ועצירה מוחלטת:** ‏**Billing ← Budgets & alerts ← Create budget** עם סכום קטן (למשל 5$) והתראות.
+   תקציב לבדו רק שולח מייל ולא עוצר שימוש. כדי שחריגה תעצור את הכול, מחברים לתקציב התראת Pub/Sub עם פונקציה
+   שמנתקת את החיוב מהפרויקט (בתיעוד של Google Cloud: "Disable billing with budget notifications").
+   זה מומלץ במיוחד אם ל-ComputeRouteMatrix אין מכסה יומית לפי אלמנטים (ראו סעיף 5). בשימוש רגיל באתר המכסות
+   היומיות שבסעיף 5 עוצרות את השימוש בזמן, והאתר עובר ל-OpenStreetMap.
 
 ### 3. לחבר את המפתח לאתר
 

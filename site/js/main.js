@@ -538,6 +538,11 @@ async function runSearch({ request = null } = {}) {
       return { res, provider, query };
     });
     if (!result || seq !== searchSeq) return;
+    // Google failed while this search was running (e.g. the map showed its error
+    // screen late): its results would sit on a broken Google map, so redo it.
+    if (result.provider.id === 'google' && !googleWanted()) {
+      return await runSearch({ request });
+    }
     if (request.departurePast) result.res.notices.unshift('departure-past');
     lastQuery = result.query;
     updateUrl(result.query);
@@ -555,9 +560,9 @@ async function runSearch({ request = null } = {}) {
 function forLink(loc) {
   // Google-derived coordinates stay out of links (they'd end up on other maps).
   if (loc.source === 'google') return { label: loc.label };
-  // The sender's own position: neutral label, ~10 m precision.
+  // The sender's own position: neutral label, ~100 m precision (not their doorstep).
   if (loc.source === 'device') {
-    const round = (x) => Math.round(x * 1e4) / 1e4;
+    const round = (x) => Math.round(x * 1e3) / 1e3;
     return { label: SHARED_LOCATION_LABEL, lat: round(loc.lat), lng: round(loc.lng) };
   }
   return loc;
@@ -681,6 +686,9 @@ async function showResult(result, provider) {
   renderSummary($('results-summary'), result);
   renderList();
 
+  // Show the map box right away (it fills in when the map is ready), so the
+  // phone layout has something to scroll to on the first search.
+  document.body.classList.add('has-map');
   if (window.matchMedia('(max-width: 959px)').matches) {
     // A notice explains the results, so show it first; otherwise go to the map.
     const target = notices.length ? $('status') : document.querySelector('.map-wrap');

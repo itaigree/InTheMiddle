@@ -8,7 +8,7 @@
 // See js/providers/README.md for the full contract.
 
 import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadiusFor } from './midpoint.js';
-import { samplePath, pointAtFraction, straightPath, pathLength, valuesAlongPath } from './geo.js';
+import { samplePath, pointAtFraction, straightPath, pathLength, valuesAlongPath, haversine } from './geo.js';
 import { rankPlaces, dedupePlaces } from './ranking.js';
 import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
 
@@ -183,7 +183,13 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     const dropped = dropUnusableTransit(placeTimes);
     if (dropped.length && pass === 0) {
       await resampleAfterDrop(dropped);
-      continue;
+      const nextBalance = findEqualTimeFraction(fractions, times.a, times.b);
+      const nextMidpoint = pointAtFraction(path, nextBalance.fraction);
+      if (haversine(midpoint, nextMidpoint) > radius / 2) continue;
+      // The balance point barely moved: the same places still fit, so only the
+      // side that switched to driving needs new (billed) travel times.
+      balance = nextBalance;
+      midpoint = nextMidpoint;
     }
     if (dropped.length) placeTimes = await timesTo(candidates, null, unchanged(placeTimes, dropped));
     ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, { preferOpen: !departure });

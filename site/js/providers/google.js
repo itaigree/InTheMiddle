@@ -458,28 +458,39 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
       settle = { resolve, reject };
     });
     mapAuth.catch(() => {});
+    // This map's own failure (error screen): unlike a rejected key, it must not
+    // poison maps created later in this page, once Google is back.
+    let failMap;
+    const mapFailed = new Promise((_, reject) => {
+      failMap = reject;
+    });
+    mapFailed.catch(() => {});
+    // If loading outlives the timeout, the late map must not take over the
+    // container, which by then holds the fallback map.
+    let cancelled = false;
     let view;
     try {
       await ensureReady();
       const { createGoogleMapView } = await import('../ui/map-google.js');
-      view = await withTimeout(
-        createGoogleMapView(container, {
-          mapId,
-          onError: (reason) => {
-            const err = new ProviderUnavailableError(`Google map failed (${reason})`, { reason });
-            rejectAuth(err);
-            for (const fn of unavailableListeners) fn(err);
-          },
-        }),
-        LOAD_TIMEOUT_MS,
-        'Google map load timed out',
-      );
+      const pending = createGoogleMapView(container, {
+        mapId,
+        isCancelled: () => cancelled,
+        onError: (reason) => {
+          const err = new ProviderUnavailableError(`Google map failed (${reason})`, { reason });
+          failMap(err);
+          if (reason === 'auth') rejectAuth(err);
+          for (const fn of unavailableListeners) fn(err);
+        },
+      });
+      pending.then((late) => cancelled && late.destroy(), () => {});
+      view = await withTimeout(pending, LOAD_TIMEOUT_MS, 'Google map load timed out');
     } catch (err) {
+      cancelled = true;
       const classified = classifyGoogleError(err);
       settle.reject(classified);
       throw classified;
     }
-    Promise.race([view.loaded, authFailure, new Promise((r) => setTimeout(r, MAP_AUTH_WAIT_MS))]).then(
+    Promise.race([view.loaded, mapFailed, authFailure, new Promise((r) => setTimeout(r, MAP_AUTH_WAIT_MS))]).then(
       settle.resolve,
       settle.reject,
     );

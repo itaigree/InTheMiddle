@@ -440,7 +440,7 @@ test('"my location" is shared with a neutral label and rounded coordinates', asy
   await search(page);
   const params = new URL(page.url()).searchParams;
   assert.equal(params.get('a'), 'נקודת יציאה ששותפה');
-  assert.equal(params.get('all'), '32.79410,34.98970');
+  assert.equal(params.get('all'), '32.79400,34.99000');
   await context.close();
 });
 
@@ -491,8 +491,34 @@ test('service worker: works offline, and search links share one cached app shell
     return (await cache.keys()).map((r) => r.url);
   });
   assert.equal(cached.filter((u) => u.includes('?')).length, 0, cached.join('\n'));
+  // Opening another file of the site as a page must not replace the cached app.
+  await page.goto(`${server.url}manifest.webmanifest`);
   await context.setOffline(true);
   await page.goto(`${server.url}?a=q&b=r`);
   assert.equal(await page.locator('h1').textContent(), 'מקום באמצע');
+  await context.close();
+});
+
+test('Google error screen appearing late in a search: the search is redone on OpenStreetMap', async () => {
+  const { page, context, osmLog } = await openApp({ key: 'TEST_KEY', google: { lateOverlayMs: 800, matrixDelayMs: 2500 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#submit').click();
+  await page.locator('#map.leaflet-container').waitFor({ timeout: 20000 });
+  await page.locator('#map .pin-a').first().waitFor();
+  assert.ok(osmLog.overpass.length >= 1);
+  assert.match(await page.locator('#provider-note').textContent(), /OpenStreetMap/);
+  assert.equal(await page.locator('#place-list .rating').count(), 0);
+  await context.close();
+});
+
+test('phones, free mode: the first search scrolls to the map', async () => {
+  const { page, context } = await openApp({ viewport: { width: 390, height: 844 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.waitForTimeout(900); // smooth scroll
+  const top = await page.locator('.map-wrap').evaluate((el) => el.getBoundingClientRect().top);
+  assert.ok(top >= -1 && top < 100, `map top at ${top}px`);
   await context.close();
 });
