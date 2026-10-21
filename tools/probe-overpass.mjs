@@ -1,55 +1,32 @@
-// Temporary diagnostic: send the app's Overpass query to each mirror and report.
-import { buildOverpassQuery } from '../site/js/providers/osm.js';
-
-const URLS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.osm.jp/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
+// Temporary diagnostic: can Photon list places near a point (a fallback for Overpass)?
+const H = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Chrome/141 Mobile Safari/537.36', Referer: 'https://itaigree.github.io/' };
+const at = { lat: 32.44, lon: 34.92 }; // Haifa–Tel Aviv midpoint area
+const urls = [
+  `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lon}&radius=6&limit=20&osm_tag=amenity:cafe`,
+  `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lon}&radius=6&limit=20&osm_tag=leisure:park`,
+  `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lon}&radius=6&limit=20&osm_tag=shop:mall`,
+  `https://photon.komoot.io/api/?q=cafe&lat=${at.lat}&lon=${at.lon}&limit=20&osm_tag=amenity:cafe&location_bias_scale=0.1&zoom=14`,
+  `https://photon.komoot.io/api/?q=%D7%A7%D7%A4%D7%94&lat=${at.lat}&lon=${at.lon}&limit=20&osm_tag=amenity:cafe&zoom=14`,
+  `https://photon.komoot.io/api/?q=park&lat=${at.lat}&lon=${at.lon}&limit=20&osm_tag=leisure:park&zoom=14`,
+  `https://overpass-api.de/api/status`,
 ];
-const BROWSER = {
-  'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
-  Accept: '*/*',
-  'Accept-Language': 'he-IL,he;q=0.9',
-  Origin: 'https://itaigree.github.io',
-  Referer: 'https://itaigree.github.io/',
-  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-  'Sec-Fetch-Mode': 'cors',
-  'Sec-Fetch-Site': 'cross-site',
-  'Sec-Fetch-Dest': 'empty',
-};
-const cases = process.env.ALL ? [
-  { name: 'Haifa-TelAviv mid', c: { lat: 32.44, lng: 34.92 }, r: 6600 },
-  { name: 'TelAviv-Jerusalem mid', c: { lat: 31.9, lng: 34.99 }, r: 4000 },
-  { name: 'small city', c: { lat: 32.08, lng: 34.78 }, r: 1500 },
-] : [{ name: 'Haifa-TelAviv mid', c: { lat: 32.44, lng: 34.92 }, r: 6600 }, { name: 'small city', c: { lat: 32.08, lng: 34.78 }, r: 1500 }];
-// Also a minimal query, to tell query problems from server problems.
-cases.push({ name: 'minimal', raw: '[out:json][timeout:10];node["amenity"="cafe"](around:500,32.08,34.78);out tags 5;' });
-const cats = ['cafe', 'mall', 'park', 'nature'];
-for (const k of cases) {
-  const query = k.raw || buildOverpassQuery(k.c, k.r, cats);
-  for (const url of URLS) {
-    const t0 = Date.now();
+for (const url of urls) {
+  const t0 = Date.now();
+  try {
+    const res = await fetch(url, { headers: H, signal: AbortSignal.timeout(30000) });
+    const text = await res.text();
+    let info = text.slice(0, 300).replace(/\s+/g, ' ');
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        body: new URLSearchParams({ data: query }),
-        headers: BROWSER,
-        signal: AbortSignal.timeout(40000),
-      });
-      const text = await res.text();
-      let info;
-      try {
-        const j = JSON.parse(text);
-        info = `elements=${j.elements?.length} remark=${j.remark || '-'}`;
-      } catch {
-        info = 'non-JSON: ' + text.slice(0, 400).replace(/\s+/g, ' ');
-      }
-      console.log(`${k.name} | ${new URL(url).host} | ${res.status} | ${Date.now() - t0} ms | ACAO=${res.headers.get('access-control-allow-origin')} | ${info}`);
-    } catch (e) {
-      console.log(`${k.name} | ${new URL(url).host} | ERROR ${e.name}: ${e.message} | ${Date.now() - t0} ms`);
-    }
+      const j = JSON.parse(text);
+      const feats = j.features || [];
+      const dist = (f) => {
+        const [lon, lat] = f.geometry.coordinates;
+        return Math.round(Math.hypot((lat - at.lat) * 111, (lon - at.lon) * 94) * 10) / 10;
+      };
+      info = `${feats.length} features: ` + feats.slice(0, 12).map((f) => `${f.properties.name}(${f.properties.osm_key}=${f.properties.osm_value},${dist(f)}km)`).join('; ');
+    } catch {}
+    console.log(`${res.status} ${Date.now() - t0}ms ${url}\n   ${info}`);
+  } catch (e) {
+    console.log(`ERR ${e.message} ${url}`);
   }
 }
