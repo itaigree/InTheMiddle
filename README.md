@@ -127,3 +127,10 @@ site/
 tests/unit/                   בדיקות יחידה (node --test)
 .github/workflows/deploy.yml  בדיקות ופריסה ל-GitHub Pages
 ```
+
+## רישיון
+
+הקוד מופץ ברישיון [MIT](LICENSE). Leaflet, שנמצא ב-`site/vendor/leaflet`, מופץ ברישיון BSD-2-Clause משלו.
+
+חישוב התחבורה הציבורית במצב החינמי נעשה דרך [Transitous](https://transitous.org/). השירות מותר לשימוש בפרויקטים
+בקוד פתוח ולא מסחריים, ובתנאי שמוצג קישור למקורות הנתונים שלו (הקישור מופיע בתחתית האתר).

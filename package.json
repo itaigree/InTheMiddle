@@ -7,5 +7,6 @@
     "test": "node --test \"tests/unit/**/*.test.js\"",
     "serve": "npx --yes http-server site -p 8080 -c-1",
     "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.e2e.test.mjs\""
-  }
+  },
+  "license": "MIT"
 }
