@@ -36,6 +36,7 @@
    (ב-GitHub חינמי, Pages עובד רק עם repo ציבורי. מפתח ה-API לא נשמר ב-repo אלא ב-Secret, אבל הוא כן
    מופיע באתר עצמו בקובץ `config.js`, כמו בכל אתר שמשתמש ב-Google Maps. מה שמגן עליו הן ההגבלות והמכסות שבסעיף 2.)
 2. **להפעיל את Pages:** ‏Settings ← Pages ← Build and deployment ← Source: **GitHub Actions**.
+   (לא "Deploy from a branch": במצב הזה GitHub מפרסם את תיקיית השורש, והאתר מציג את קובץ ה-README הזה במקום האפליקציה.)
 3. כל push ל-`main` מריץ בדיקות ומפרסם את האתר. אפשר לראות את ההרצות בלשונית **Actions**.
 
 גם בלי מפתח של Google האתר עובד, במצב OpenStreetMap.

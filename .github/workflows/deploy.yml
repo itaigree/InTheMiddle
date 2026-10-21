@@ -80,6 +80,17 @@ jobs:
           '
 
       - uses: actions/configure-pages@v6
+      - name: Check that Pages publishes this workflow's site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_type="$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type || true)"
+          if [ -z "$build_type" ]; then
+            echo "::warning title=Pages source::Couldn't read the Pages settings; make sure Settings → Pages → Source is 'GitHub Actions'."
+          elif [ "$build_type" != "workflow" ]; then
+            echo "::error title=Pages source::Settings → Pages → Source is 'Deploy from a branch', so the site shows the README instead of the app. Set Source to 'GitHub Actions' and re-run this workflow."
+            exit 1
+          fi
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
