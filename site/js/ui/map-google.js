@@ -107,8 +107,17 @@ export async function createGoogleMapView(container, { mapId, onError } = {}) {
     info.open({ map, anchor: entry.marker, shouldFocus: false });
   }
 
+  // Resolves when the first tiles have loaded, i.e. Google accepted the key.
+  const loaded = new Promise((resolve) => {
+    const listener = map.addListener('tilesloaded', () => {
+      listener.remove();
+      resolve();
+    });
+  });
+
   return {
     kind: 'google',
+    loaded,
 
     showSearch({ a, b, route, midpoint, radius }) {
       clear(searchOverlays);

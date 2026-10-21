@@ -55,21 +55,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/** How long to wait for the network before answering from the cache. */
+const NETWORK_TIMEOUT_MS = 4000;
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   if (new URL(request.url).origin !== self.location.origin) return;
 
+  // Every page URL (?a=…&b=… search links) is the same app shell: cache it once.
+  const cacheKey = request.mode === 'navigate' ? new Request('./') : request;
+
+  let stored = Promise.resolve();
+  const network = fetch(request, { cache: 'no-cache' }).then((response) => {
+    // Clone before the page starts reading the body.
+    if (response.ok) {
+      const copy = response.clone();
+      stored = caches.open(CACHE).then((cache) => cache.put(cacheKey, copy));
+    }
+    return response;
+  });
+  // Keep the worker alive until the cache is updated (registered synchronously).
+  event.waitUntil(network.then(() => stored).catch(() => {}));
+
+  const fromCache = async () => (await caches.open(CACHE)).match(cacheKey);
   event.respondWith(
     (async () => {
-      const cache = await caches.open(CACHE);
+      // A stalled connection (captive portal, tunnel) shouldn't hang the app: after a
+      // few seconds answer from the cache if we can, and keep waiting otherwise.
+      const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS, null));
       try {
-        const response = await fetch(request, { cache: 'no-cache' });
-        if (response.ok) cache.put(request, response.clone());
-        return response;
+        const first = await Promise.race([network, timeout]);
+        if (first) return first;
+        return (await fromCache()) || (await network);
       } catch (err) {
-        const navigate = request.mode === 'navigate';
-        const cached = (await cache.match(request, { ignoreSearch: navigate })) || (navigate ? await cache.match('./') : undefined);
+        const cached = await fromCache();
         if (cached) return cached;
         throw err;
       }

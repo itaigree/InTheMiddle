@@ -54,24 +54,31 @@
    - **Application restrictions** ← Websites ← מוסיפים `https://itaigree.github.io/*`
    - **API restrictions** ← Restrict key ← מסמנים את שלושת ה-API מסעיף 3
    - Save. השינוי נכנס לתוקף תוך כמה דקות.
-5. **מכסות יומיות.** זה החלק שמבטיח שלא יהיה חיוב. ב-**Google Maps Platform ← Quotas** בוחרים כל API,
-   מוצאים את השורה שמסתיימת ב-**per day**, לוחצים על העיפרון, מבטלים את Unlimited ומזינים ערך:
+5. **מכסות יומיות.** זה החלק שמבטיח שלא יהיה חיוב. מפתח של אתר תמיד גלוי בדפדפן, ומי שמעתיק אותו יכול לקרוא
+   גם לשירותים יקרים יותר מאלה שהאפליקציה משתמשת בהם. לכן צריך לשים מכסה על **כל** שורה שמסתיימת ב-**per day**
+   בשלושת ה-API, ולא רק על מה שהאפליקציה צורכת. ב-**Google Maps Platform ← Quotas** בוחרים כל API, מוצאים כל שורה כזו,
+   לוחצים על העיפרון, מבטלים את Unlimited ומזינים ערך:
 
-   | API | מכסה | ערך יומי מומלץ |
+   | API | מכסה (השם המדויק עשוי להיות מעט שונה) | ערך יומי מומלץ |
    | --- | --- | --- |
    | Places API (New) | SearchNearbyRequest per day | **32** |
-   | Places API (New) | GetPhotoMediaRequest per day (אם קיים) | **32** |
+   | Places API (New) | SearchTextRequest per day | **32** |
+   | Places API (New) | GetPlaceRequest per day | **32** |
+   | Places API (New) | GetPhotoMediaRequest per day | **32** |
    | Places API (New) | AutocompletePlacesRequest per day | 300 |
-   | Places API (New) | GetPlaceRequest per day | 300 |
-   | Routes API | ComputeRouteMatrix (per day, אם קיים) | 300 |
-   | Routes API | ComputeRoutes per day | 300 |
+   | Places API (New) | כל שורה אחרת שמסתיימת ב-per day | **0** |
+   | Routes API | ComputeRoutes per day | **32** |
+   | Routes API | ComputeRouteMatrix per day (אם נספר באלמנטים: 320) | **32** |
    | Maps JavaScript API | Map loads per day (אם קיים) | 300 |
 
    **מאיפה המספרים:** בכל חודש Google נותנת בחינם 1,000 חיפושי מקומות עם דירוגים ושעות פתיחה,
-   1,000 תמונות ו-10,000 מכל השאר. 1,000 חלקי 31 ימים זה בערך 32 ביום.
-   חיפוש אחד שולח בקשת חיפוש מקומות אחת לכל סוג מקום שנבחר (4 כברירת מחדל), ולכן יוצאים
-   **כ-8 חיפושים ביום עם Google**. אחרי זה, ועד חצות לפי שעון קליפורניה (10:00 בבוקר בישראל), האפליקציה
-   עוברת אוטומטית ל-OpenStreetMap.
+   1,000 תמונות ו-10,000 מרוב השאר. 1,000 חלקי 31 ימים זה בערך 32 ביום, והמספר הזה שומר על כל שירות
+   מתחת לחינם גם אם מישהו קורא לו בדרך היקרה ביותר. חיפוש אחד באפליקציה שולח בקשת חיפוש מקומות אחת לכל סוג
+   מקום שנבחר (4 כברירת מחדל), ולכן יוצאים **כ-8 חיפושים ביום עם Google**. אחרי זה, ועד חצות לפי שעון קליפורניה
+   (בסביבות 10:00 בבוקר בישראל), האפליקציה עוברת אוטומטית ל-OpenStreetMap.
+
+   **הגנה נוספת (לא חובה):** תקציב (Budget) רק שולח מייל. מי שרוצה עצירה מוחלטת יכול לחבר לתקציב התראת Pub/Sub
+   עם פונקציה שמנתקת את החיוב מהפרויקט ("Disable billing with budget notifications" בתיעוד של Google Cloud).
 6. **Map ID** (בשביל הסמנים במפה): ‏Google Maps Platform ← **Map management ← Create Map ID** ←
    שם כלשהו, סוג **JavaScript**, ‏**Vector** ← Save. מעתיקים את ה-Map ID (הוא לא סוד).
 7. מומלץ גם: **Billing ← Budgets & alerts ← Create budget** עם סכום קטן (למשל 5$) והתראות.

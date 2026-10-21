@@ -72,7 +72,8 @@ body {
   flex-direction: column;
 }
 
-svg {
+.icon-button svg,
+.ghost-button svg {
   width: 1.25em;
   height: 1.25em;
   fill: none;
@@ -95,13 +96,26 @@ select {
   outline-offset: 2px;
 }
 
+/* Visible to screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Header */
 
 .app-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+  padding: 14px 0 0;
 }
 
 .app-header h1 {
@@ -124,7 +138,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 16px 16px;
+  padding: 0 max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
   width: 100%;
   max-width: 1400px;
   margin-inline: auto;
@@ -188,8 +202,16 @@ body.has-map .map-placeholder {
     order: 0;
   }
 
-  .status {
+  .status-region {
     order: 1;
+  }
+
+  .status {
+    scroll-margin-top: 8px;
+  }
+
+  .app-header {
+    order: -1;
   }
 
   .map-wrap {
@@ -220,6 +242,7 @@ body.has-map .map-placeholder {
     flex: 1;
     position: sticky;
     top: 12px;
+    margin-top: 12px;
     height: calc(100dvh - 24px);
   }
 }
@@ -242,7 +265,7 @@ body.has-map .map-placeholder {
 
 .endpoints {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   position: relative;
 }
@@ -251,6 +274,7 @@ body.has-map .map-placeholder {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .endpoint-label {
@@ -266,7 +290,7 @@ body.has-map .map-placeholder {
   width: 1.5em;
   height: 1.5em;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-primary);
   font-size: 0.8em;
   font-weight: 700;
   line-height: 1;
@@ -409,6 +433,7 @@ body.has-map .map-placeholder {
 
 .mode-toggle label {
   flex: 1;
+  min-width: 0;
 }
 
 .mode-toggle input {
@@ -426,7 +451,6 @@ body.has-map .map-placeholder {
   font-size: 0.9rem;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
 }
 
 .mode-toggle input:checked + span {
@@ -664,6 +688,14 @@ body.has-map .map-placeholder {
   scrollbar-width: none;
 }
 
+/* A swipeable single row suits touch; with a mouse (or the narrow desktop panel) wrap instead. */
+@media (min-width: 960px), (hover: hover) and (pointer: fine) {
+  .result-filters {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
 .place-list {
   list-style: none;
   margin: 0;
@@ -705,7 +737,7 @@ body.has-map .map-placeholder {
   height: 28px;
   border-radius: 50%;
   background: var(--mid);
-  color: #fff;
+  color: var(--on-primary);
   font-weight: 700;
   font-size: 0.85rem;
   flex: none;
@@ -894,7 +926,7 @@ body.has-map .map-placeholder {
   height: 30px;
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
-  color: #fff;
+  color: var(--on-primary);
   font-family: var(--font);
   font-weight: 700;
   font-size: 13px;
@@ -950,6 +982,7 @@ body.has-map .map-placeholder {
   text-align: right;
   font-family: var(--font);
   min-width: 140px;
+  color: #1c2321; /* the map bubbles are white in both themes */
 }
 
 .map-popup strong {

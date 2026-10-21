@@ -7,7 +7,7 @@ import { pickTop } from './core/ranking.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
-import { renderSummary, renderFilters, renderPlaces, setActiveCard } from './ui/results.js';
+import { renderSummary, renderFilters, renderPlaces, setActiveCard, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
 
 const config = window.APP_CONFIG || {};
@@ -15,6 +15,9 @@ const $ = (id) => document.getElementById(id);
 
 const RESULTS_LIMIT = 20;
 const MY_LOCATION_LABEL = 'המיקום שלי';
+/** What a shared link calls the sender's "my location" (it isn't the recipient's location). */
+const SHARED_LOCATION_LABEL = 'נקודת יציאה ששותפה';
+const GEOLOCATION_WATCHDOG_MS = 30000;
 
 const PROGRESS_TEXT = {
   geocode: 'מאתרים את נקודות היציאה…',
@@ -30,12 +33,15 @@ const NOTICE_TEXT = {
   'transit-no-service':
     'לא מצאנו תחבורה ציבורית בזמן היציאה שנבחר (אולי שבת, חג או שעת לילה), ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
+  'departure-past': 'זמן היציאה שנבחר כבר עבר, אז חיפשנו לפי יציאה עכשיו.',
 };
 
 const SWITCH_REASON_TEXT = {
-  quota: 'המכסה החינמית היומית של Google נגמרה, אז עברנו למפות החינמיות של OpenStreetMap. מחר נחזור ל-Google.',
+  quota:
+    'המכסה החינמית היומית של Google נגמרה, אז עברנו למפות החינמיות של OpenStreetMap עד שהמכסה תתחדש (בסביבות 10:00 בבוקר).',
+  rate: 'Google עמוסה כרגע, אז עברנו לכמה דקות למפות החינמיות של OpenStreetMap.',
   auth: 'יש בעיה בהגדרות המפתח של Google, אז עברנו בינתיים למפות החינמיות של OpenStreetMap.',
-  'load-failed': 'לא הצלחנו להתחבר ל-Google Maps, אז עברנו למפות החינמיות של OpenStreetMap.',
+  'load-failed': 'לא הצלחנו להתחבר ל-Google Maps, אז עברנו בינתיים למפות החינמיות של OpenStreetMap.',
 };
 
 const forcedProvider = decodeState(location.search).provider;
@@ -43,20 +49,31 @@ const forcedProvider = decodeState(location.search).provider;
 // ---------------------------------------------------------------- providers
 
 let providerPromise = null;
-let switchReason = null;
+let loadedProviderId = null;
+/** Why (and until when) this page stopped using Google: {reason, until: ms}. */
+let switchBlock = null;
 let currentMap = null;
+let mapPromise = null;
+let mapKind = null;
 /** The last search as the user asked for it (texts, modes…), to re-run after a provider switch. */
 let lastRequest = null;
-/** The last search with resolved coordinates, for sharing. */
+/** The search whose results are on screen, with resolved coordinates, for sharing. */
 let lastQuery = null;
 /** Attribution line under autocomplete suggestions, for the provider that served them. */
 let suggestFooter = '';
 
+function googleBlocked() {
+  if (switchBlock && switchBlock.until <= Date.now()) switchBlock = null;
+  return Boolean(switchBlock) || Boolean(getGoogleBlock());
+}
+
 function googleWanted() {
-  return Boolean(config.googleMapsApiKey) && forcedProvider !== 'osm' && !switchReason && !getGoogleBlock();
+  return Boolean(config.googleMapsApiKey) && forcedProvider !== 'osm' && !googleBlocked();
 }
 
 function getProvider() {
+  // Back on Google once a temporary block has expired (long-lived tabs and installed apps).
+  if (providerPromise && loadedProviderId === 'osm' && googleWanted()) providerPromise = null;
   if (!providerPromise) {
     providerPromise = loadProvider().catch((err) => {
       providerPromise = null;
@@ -76,6 +93,7 @@ async function loadProvider() {
         onUnavailable: handleGoogleUnavailable,
       });
       await provider.ready();
+      loadedProviderId = provider.id;
       return provider;
     } catch (err) {
       if (!(err instanceof ProviderUnavailableError)) console.error(err);
@@ -85,14 +103,17 @@ async function loadProvider() {
   const { createOsmProvider } = await import('./providers/osm.js');
   const provider = createOsmProvider();
   await provider.ready?.();
+  loadedProviderId = provider.id;
   return provider;
 }
 
 function markGoogleUnavailable(err) {
   const reason = err instanceof ProviderUnavailableError ? err.reason : 'load-failed';
   console.warn(`Google unavailable (${reason}); switching to OpenStreetMap`, err);
-  if (reason !== 'not-configured') setGoogleBlock(reason);
-  switchReason = reason;
+  const block = reason === 'not-configured' ? { reason, until: Infinity } : setGoogleBlock(reason);
+  const until = typeof block.until === 'number' ? block.until : block.until.getTime();
+  // Keep whichever block lasts longer.
+  if (!switchBlock || until > switchBlock.until) switchBlock = { reason: block.reason, until };
 }
 
 /** Run `fn` with the current provider; if Google drops out, retry once on the fallback. */
@@ -114,13 +135,19 @@ async function withProvider(fn) {
 
 /** Google reported a failure outside a call we made (e.g. key rejected while drawing the map). */
 function handleGoogleUnavailable(err) {
-  if (switchReason) return;
+  if (loadedProviderId !== 'google') return;
   markGoogleUnavailable(err);
   providerPromise = null;
-  getProvider().then((p) => {
-    updateProviderNote(p);
-    if (lastRequest) runSearch({ request: lastRequest });
-  });
+  getProvider()
+    .then((p) => {
+      updateProviderNote(p);
+      // A search in progress falls back by itself; otherwise redo the last one.
+      if (lastRequest && !searching) runSearch({ request: lastRequest });
+    })
+    .catch((loadErr) => {
+      console.error(loadErr);
+      showStatus('error', 'לא הצלחנו לטעון את המפות. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.');
+    });
 }
 
 function updateProviderNote(provider) {
@@ -134,8 +161,8 @@ function updateProviderNote(provider) {
 // --------------------------------------------------------------------- form
 
 const sides = {
-  a: { input: $('input-a'), list: $('list-a'), location: null, ac: null },
-  b: { input: $('input-b'), list: $('list-b'), location: null, ac: null },
+  a: { input: $('input-a'), list: $('list-a'), location: null, ac: null, pending: null, selection: null, geo: null },
+  b: { input: $('input-b'), list: $('list-b'), location: null, ac: null, pending: null, selection: null, geo: null },
 };
 
 function getMode(key) {
@@ -169,6 +196,13 @@ function renderCategoryChips(selected) {
   );
 }
 
+/** Forget anything in flight for a side: a picked suggestion resolving, a location request. */
+function invalidateSide(side) {
+  side.selection = null;
+  side.pending = null;
+  side.geo = null;
+}
+
 function setSideLocation(key, location) {
   const side = sides[key];
   side.location = location;
@@ -180,19 +214,31 @@ for (const key of ['a', 'b']) {
   const side = sides[key];
   side.ac = attachAutocomplete(side.input, side.list, {
     fetchSuggestions: (query, signal) => withProvider((p) => p.suggest(query, { signal })),
-    onSelect: async (suggestion) => {
+    onSelect: (suggestion) => {
       side.input.removeAttribute('aria-invalid');
-      try {
-        const location = await suggestion.resolve();
-        // Ignore if the user kept typing while we resolved the suggestion.
-        if (side.input.value === suggestion.title && location) side.location = { ...location, label: suggestion.title };
-      } catch (err) {
-        console.warn('could not resolve suggestion', err);
-        side.location = null;
-      }
+      side.geo = null;
+      const value = suggestion.value ?? suggestion.title;
+      const token = {};
+      side.selection = token;
+      // A search started before this resolves waits for it (see runSearch).
+      side.pending = (async () => {
+        try {
+          const location = await suggestion.resolve();
+          // Ignore if the user picked or typed something else meanwhile.
+          if (side.selection === token && side.input.value === value && location) {
+            side.location = { ...location, label: value };
+          }
+        } catch (err) {
+          console.warn('could not resolve suggestion', err);
+          if (side.selection === token) side.location = null;
+        } finally {
+          if (side.selection === token) side.pending = null;
+        }
+      })();
     },
     onEdit: () => {
       side.location = null;
+      invalidateSide(side);
       side.input.removeAttribute('aria-invalid');
     },
     footer: () => suggestFooter,
@@ -201,18 +247,46 @@ for (const key of ['a', 'b']) {
   side.input.addEventListener('focus', () => getProvider().catch(() => {}), { once: true });
 }
 
+// "Next" on a phone keyboard (or Enter) in field A moves on to field B instead of
+// submitting a half-filled form. Registered after the combobox, which handles
+// Enter itself when an option is highlighted.
+sides.a.input.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented) return;
+  if (!sides.b.input.value.trim()) {
+    e.preventDefault();
+    sides.b.input.focus();
+  }
+});
+
 document.querySelectorAll('.locate').forEach((button) => {
   button.addEventListener('click', () => {
     const key = button.dataset.side;
+    const side = sides[key];
     if (!navigator.geolocation) {
       showStatus('error', 'הדפדפן הזה לא תומך באיתור מיקום.');
       return;
     }
+    // The latest request wins; typing, picking or swapping cancels it.
+    const token = {};
+    side.geo = token;
     button.classList.add('is-busy');
+    // A permission prompt left unanswered never calls back, so stop the spinner eventually.
+    const watchdog = setTimeout(() => {
+      if (side.geo === token) button.classList.remove('is-busy');
+    }, GEOLOCATION_WATCHDOG_MS);
+    const done = () => {
+      clearTimeout(watchdog);
+      if (side.geo !== token) return false;
+      side.geo = null;
+      button.classList.remove('is-busy');
+      return true;
+    };
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        button.classList.remove('is-busy');
-        sides[key].ac.cancel();
+        if (!done()) return;
+        side.ac.cancel();
+        side.selection = null;
+        side.pending = null;
         setSideLocation(key, {
           label: MY_LOCATION_LABEL,
           lat: pos.coords.latitude,
@@ -222,7 +296,7 @@ document.querySelectorAll('.locate').forEach((button) => {
         hideStatus();
       },
       () => {
-        button.classList.remove('is-busy');
+        if (!done()) return;
         showStatus('error', 'לא הצלחנו לקבל את המיקום שלך. אפשר לבדוק שהרשאת המיקום מופעלת, או פשוט להקליד כתובת.');
       },
       { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 },
@@ -230,16 +304,28 @@ document.querySelectorAll('.locate').forEach((button) => {
   });
 });
 
+document.querySelectorAll('.locate').forEach((button) => {
+  // Clear the spinner when its side's request is invalidated.
+  const side = sides[button.dataset.side];
+  side.input.addEventListener('input', () => button.classList.remove('is-busy'));
+});
+
 $('swap').addEventListener('click', () => {
-  const locA = sides.a.location;
-  const textA = sides.a.input.value;
-  const modeA = getMode('a');
-  sides.a.location = sides.b.location;
-  sides.a.input.value = sides.b.input.value;
-  setMode('a', getMode('b'));
-  sides.b.location = locA;
-  sides.b.input.value = textA;
-  setMode('b', modeA);
+  const snapshot = (key) => ({ location: sides[key].location, text: sides[key].input.value, mode: getMode(key) });
+  const a = snapshot('a');
+  const b = snapshot('b');
+  for (const [key, from] of [
+    ['a', b],
+    ['b', a],
+  ]) {
+    const side = sides[key];
+    // Anything still resolving belonged to the other field.
+    invalidateSide(side);
+    side.location = from.location;
+    side.input.value = from.text;
+    setMode(key, from.mode);
+  }
+  document.querySelectorAll('.locate').forEach((button) => button.classList.remove('is-busy'));
 });
 
 const departureChoice = $('departure-choice');
@@ -256,7 +342,8 @@ departureChoice.addEventListener('change', () => {
   if (later) {
     const now = new Date();
     departureInput.min = toLocalInputValue(now);
-    if (!departureInput.value) {
+    // Fill a sensible default when empty or when the old value has already passed.
+    if (!departureInput.value || new Date(departureInput.value) < now) {
       const soon = new Date(now.getTime() + 60 * 60 * 1000);
       soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
       departureInput.value = toLocalInputValue(soon);
@@ -265,11 +352,19 @@ departureChoice.addEventListener('change', () => {
   }
 });
 
+/** {date: Date|null, past: boolean} – a past time means "now" to the routing services. */
 function departureValue() {
-  if (departureChoice.value !== 'later' || !departureInput.value) return null;
+  if (departureChoice.value !== 'later' || !departureInput.value) return { date: null, past: false };
   const date = new Date(departureInput.value);
-  // A time in the past means "now" to the routing services.
-  return Number.isNaN(date.getTime()) || date < new Date() ? null : date;
+  if (Number.isNaN(date.getTime())) return { date: null, past: false };
+  // A minute or two of slack: a time picked "just now" shouldn't count as past.
+  if (date.getTime() < Date.now() - 2 * 60 * 1000) return { date: null, past: true };
+  return { date: date < new Date() ? null : date, past: false };
+}
+
+function resetDepartureToNow() {
+  departureChoice.value = 'now';
+  departureInput.hidden = true;
 }
 
 // ------------------------------------------------------------------- status
@@ -321,17 +416,23 @@ function toast(message) {
 let searchSeq = 0;
 let lastResult = null;
 let activeFilter = 'all';
+/** Places allowed to show a (billed) Google photo for the result on screen. */
+let photoIds = new Set();
+/** What the list currently shows, so the map can be drawn to match once it's ready. */
+let shown = { places: [], numbering: new Map() };
 
 /** What the user asked for, independent of any provider. */
 function readForm() {
   const endpoint = (key) => ({ text: sides[key].input.value.trim(), location: sides[key].location });
+  const departure = departureValue();
   return {
     a: endpoint('a'),
     b: endpoint('b'),
     modeA: getMode('a'),
     modeB: getMode('b'),
     categories: selectedCategories(),
-    departure: departureValue(),
+    departure: departure.date,
+    departurePast: departure.past,
   };
 }
 
@@ -364,7 +465,10 @@ function validateForm() {
   return problems;
 }
 
+let searching = false;
+
 function setBusy(busy) {
+  searching = busy;
   const button = $('submit');
   button.disabled = busy;
   button.textContent = busy ? 'מחפשים…' : 'מצאו לנו מקום באמצע';
@@ -382,7 +486,13 @@ async function runSearch({ request = null } = {}) {
       showStatus('error', problems.join(' '));
       return;
     }
+    setBusy(true);
+    showStatus('progress', PROGRESS_TEXT.geocode);
+    // A suggestion picked a moment ago may still be resolving: use it, don't re-geocode.
+    await Promise.all([sides.a.pending, sides.b.pending]);
+    if (seq !== searchSeq) return;
     request = readForm();
+    if (request.departurePast) resetDepartureToNow();
   }
   lastRequest = request;
   setBusy(true);
@@ -393,6 +503,10 @@ async function runSearch({ request = null } = {}) {
 
   try {
     const result = await withProvider(async (provider) => {
+      // Load the Google map right away: it's needed anyway, and it is when Google
+      // reports a rejected Maps key – before the billed place searches run.
+      const mapReady = provider.id === 'google' ? ensureMap(provider) : null;
+      mapReady?.catch(() => {});
       const [a, b] = await Promise.all([resolveEndpoint(request.a, provider), resolveEndpoint(request.b, provider)]);
       if (seq !== searchSeq) return null;
       const missing = [];
@@ -418,12 +532,15 @@ async function runSearch({ request = null } = {}) {
         categories: request.categories,
         departure: request.departure,
       };
-      lastQuery = query;
-      updateUrl(query);
       const res = await findMiddle(query, provider, { onProgress: progress });
-      return { res, provider };
+      // Google results need a Google map; if it can't load, redo the search on OSM.
+      if (mapReady) await mapReady;
+      return { res, provider, query };
     });
     if (!result || seq !== searchSeq) return;
+    if (request.departurePast) result.res.notices.unshift('departure-past');
+    lastQuery = result.query;
+    updateUrl(result.query);
     await showResult(result.res, result.provider);
   } catch (err) {
     if (seq !== searchSeq) return;
@@ -434,9 +551,19 @@ async function runSearch({ request = null } = {}) {
   }
 }
 
+/** How an endpoint appears in a shared link. */
+function forLink(loc) {
+  // Google-derived coordinates stay out of links (they'd end up on other maps).
+  if (loc.source === 'google') return { label: loc.label };
+  // The sender's own position: neutral label, ~10 m precision.
+  if (loc.source === 'device') {
+    const round = (x) => Math.round(x * 1e4) / 1e4;
+    return { label: SHARED_LOCATION_LABEL, lat: round(loc.lat), lng: round(loc.lng) };
+  }
+  return loc;
+}
+
 function updateUrl(query) {
-  // Google-derived coordinates stay out of shared links (they'd end up on other maps).
-  const forLink = (loc) => (loc.source === 'google' ? { label: loc.label } : loc);
   const qs = encodeState({
     a: forLink(query.a),
     b: forLink(query.b),
@@ -449,14 +576,59 @@ function updateUrl(query) {
   history.replaceState(null, '', `${location.pathname}?${qs}`);
 }
 
-async function ensureMap(provider) {
+/** The map view for `provider`'s kind, created once (concurrent callers share it). */
+function ensureMap(provider) {
   const wanted = provider.id === 'google' ? 'google' : 'leaflet';
-  if (currentMap?.kind === wanted) return currentMap;
-  currentMap?.destroy();
-  currentMap = null;
-  currentMap = await provider.createMap($('map'));
-  document.body.classList.add('has-map');
-  return currentMap;
+  if (mapPromise && mapKind === wanted) return mapPromise;
+  const previous = mapPromise;
+  mapKind = wanted;
+  const promise = (async () => {
+    const old = await previous?.catch(() => null);
+    currentMap = null;
+    try {
+      old?.destroy();
+    } catch (err) {
+      // A Google map whose key was rejected can fail on teardown; it's gone either way.
+      console.warn('map teardown failed', err);
+    }
+    const map = await provider.createMap($('map'));
+    if (mapPromise !== promise) {
+      // Superseded while loading (the provider switched).
+      map.destroy();
+      throw new Error('map superseded');
+    }
+    currentMap = map;
+    document.body.classList.add('has-map');
+    return map;
+  })();
+  mapPromise = promise;
+  promise.catch(() => {
+    if (mapPromise === promise) {
+      mapPromise = null;
+      mapKind = null;
+    }
+  });
+  return promise;
+}
+
+/**
+ * The map to draw the results on screen on: only one of the kind their provider
+ * needs (a stale map of the other kind may be broken, e.g. a rejected Google key).
+ */
+function resultMap() {
+  if (!currentMap || !lastResult) return null;
+  return currentMap.kind === (lastResult.providerId === 'google' ? 'google' : 'leaflet') ? currentMap : null;
+}
+
+/** Map updates never get to break the list. */
+function onMap(fn) {
+  const map = resultMap();
+  if (!map) return;
+  try {
+    fn(map);
+  } catch (err) {
+    console.error('map update failed', err);
+  }
 }
 
 function displayedPlaces() {
@@ -471,6 +643,7 @@ function displayedPlaces() {
 function renderList() {
   const places = displayedPlaces();
   const numbering = new Map(places.map((p, i) => [p.id, i + 1]));
+  shown = { places, numbering };
   renderFilters($('result-filters'), lastResult.places, activeFilter, (id) => {
     activeFilter = id;
     renderList();
@@ -479,44 +652,61 @@ function renderList() {
     modeA: lastResult.modeA,
     modeB: lastResult.modeB,
     numbering,
+    photoIds,
     showOpenState: !lastResult.departure,
     onSelect: selectPlace,
     onShare: sharePlace,
   });
-  currentMap?.showPlaces(places, { numbering, onSelect: selectPlace });
+  onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
 async function showResult(result, provider) {
   lastResult = result;
   activeFilter = 'all';
+  // Photos are billed per image: allow them for the first few places of this
+  // result only, however the list is filtered later.
+  photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
 
   const notices = result.notices.map((n) => NOTICE_TEXT[n]).filter(Boolean);
-  if (provider.id !== 'google' && switchReason && SWITCH_REASON_TEXT[switchReason]) {
-    notices.unshift(SWITCH_REASON_TEXT[switchReason]);
+  if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
+    notices.unshift(SWITCH_REASON_TEXT[switchBlock.reason]);
   }
   if (notices.length === 1) showStatus('info', notices[0]);
   else if (notices.length > 1) showStatus('info', 'כמה דברים שכדאי לדעת:', notices);
   else hideStatus();
 
-  try {
-    const map = await ensureMap(provider);
-    map.showSearch(result);
-  } catch (err) {
-    console.error('map failed', err);
-  }
+  // The list doesn't wait for the map (a slow map script must not hide results).
   $('results').hidden = false;
   renderSummary($('results-summary'), result);
   renderList();
 
   if (window.matchMedia('(max-width: 959px)').matches) {
-    document.querySelector('.map-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // A notice explains the results, so show it first; otherwise go to the map.
+    const target = notices.length ? $('status') : document.querySelector('.map-wrap');
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  try {
+    await ensureMap(provider);
+  } catch (err) {
+    console.error('map failed', err);
+    return;
+  }
+  if (lastResult !== result) return;
+  onMap((map) => {
+    map.showSearch(result);
+    map.showPlaces(shown.places, { numbering: shown.numbering, onSelect: selectPlace });
+  });
 }
 
 function selectPlace(place, { from }) {
-  currentMap?.highlight(place.id, { pan: from === 'list' });
+  onMap((map) => map.highlight(place.id, { pan: from === 'list' }));
   setActiveCard($('place-list'), place.id, { scroll: from === 'map' });
+  // On phones the map can be far above the tapped card: bring it into view.
+  if (from === 'list' && window.matchMedia('(max-width: 959px)').matches) {
+    document.querySelector('.map-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 async function sharePlace(place) {
@@ -531,9 +721,10 @@ async function sharePlace(place) {
 }
 
 $('share-search').addEventListener('click', async () => {
+  const label = (loc) => forLink(loc).label;
   const outcome = await shareOrCopy({
     title: 'מקום באמצע',
-    text: lastQuery ? `מקומות באמצע הדרך בין ${lastQuery.a.label} לבין ${lastQuery.b.label}` : 'מקום באמצע',
+    text: lastQuery ? `מקומות באמצע הדרך בין ${label(lastQuery.a)} לבין ${label(lastQuery.b)}` : 'מקום באמצע',
     url: location.href,
   });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');
@@ -549,23 +740,36 @@ $('search-form').addEventListener('submit', (e) => {
 
 // --------------------------------------------------------------------- init
 
+function isFramed() {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
+}
+
 function init() {
   const state = decodeState(location.search, { knownCategories: CATEGORY_IDS });
   renderCategoryChips(state.categories || DEFAULT_CATEGORY_IDS);
   for (const key of ['a', 'b']) {
-    const loc = state[key];
+    let loc = state[key];
     if (!loc) continue;
+    // Older links carried the sender's "my location" label.
+    if (loc.label === MY_LOCATION_LABEL) loc = { ...loc, label: SHARED_LOCATION_LABEL };
     sides[key].input.value = loc.label;
     sides[key].location = Number.isFinite(loc.lat) ? { ...loc, source: 'link' } : null;
   }
   setMode('a', state.modeA);
   setMode('b', state.modeB);
-  if (state.departure && new Date(state.departure) > new Date()) {
+  if (state.departure) {
+    // A time that has passed is reset to "now" by the search, with a notice.
     departureChoice.value = 'later';
     departureInput.hidden = false;
     departureInput.value = state.departure;
   }
-  if (state.a && state.b) {
+  if (state.a && state.b && !isFramed()) {
+    // A shared link: show its results right away. (Not inside a frame, where
+    // another site could run billed searches on visitors' behalf.)
     runSearch();
   } else if (!config.googleMapsApiKey || forcedProvider === 'osm') {
     updateProviderNote({ id: 'osm', attributionHtml: '' });

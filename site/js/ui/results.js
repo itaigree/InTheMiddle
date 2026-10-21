@@ -6,8 +6,8 @@ import { fairnessLevel } from '../core/ranking.js';
 import { wazeUrl, googleMapsUrl } from './links.js';
 
 const MODE_ICON = { car: '🚗', transit: '🚌' };
-/** Google bills every photo shown, so only the first few cards get one. */
-const MAX_PHOTOS = 3;
+/** Google bills every photo shown, so only the first few places of a search get one. */
+export const MAX_PHOTOS = 3;
 const MODE_TITLE = { car: 'ברכב', transit: 'בתחבורה ציבורית' };
 
 function el(tag, className, text) {
@@ -38,7 +38,8 @@ export function guessAreaName(places, sample = 10) {
 /** "נקודת האמצע נמצאת באזור חדרה, בערך 34 דק׳ נסיעה מכל צד." */
 export function renderSummary(container, result) {
   container.replaceChildren();
-  const time = result.balance?.time;
+  // Only claim an equal time when it was measured on both sides, not guessed.
+  const time = result.balance?.reliable ? result.balance.time : null;
   const area = guessAreaName(result.places);
   if (area || Number.isFinite(time)) {
     container.append('נקודת האמצע נמצאת ');
@@ -64,6 +65,8 @@ export function renderSummary(container, result) {
 export function renderFilters(container, places, active, onChange) {
   const counts = new Map();
   for (const p of places) counts.set(p.category, (counts.get(p.category) || 0) + 1);
+  // Rebuilding the chips would drop keyboard focus to <body>; put it back.
+  const focused = container.contains(document.activeElement) ? document.activeElement.dataset.filter : null;
   container.replaceChildren();
   if (counts.size < 2) {
     container.hidden = true;
@@ -73,6 +76,7 @@ export function renderFilters(container, places, active, onChange) {
   const make = (id, label, count) => {
     const b = el('button', 'filter-chip');
     b.type = 'button';
+    b.dataset.filter = id;
     b.setAttribute('aria-pressed', String(active === id));
     b.append(label, ' ', el('span', 'count', `(${formatCount(count)})`));
     b.addEventListener('click', () => onChange(id));
@@ -83,6 +87,7 @@ export function renderFilters(container, places, active, onChange) {
     const cat = categoryById(id);
     container.append(make(id, cat ? `${cat.emoji} ${cat.label}` : id, count));
   }
+  if (focused) [...container.children].find((b) => b.dataset.filter === focused)?.focus();
 }
 
 function fairnessText(place) {
@@ -101,9 +106,10 @@ function openText(place) {
 
 /**
  * Render place cards. `places` are ranked results (with timeA/timeB);
- * `numbering` maps place id → the number shown on its map marker.
+ * `numbering` maps place id → the number shown on its map marker; `photoIds`
+ * are the places allowed to show a photo (default: the first MAX_PHOTOS).
  */
-export function renderPlaces(list, template, places, { modeA, modeB, numbering, showOpenState, onSelect, onShare }) {
+export function renderPlaces(list, template, places, { modeA, modeB, numbering, photoIds, showOpenState, onSelect, onShare }) {
   list.replaceChildren();
   if (!places.length) {
     list.append(el('li', 'empty-results', 'לא מצאנו מקומות מתאימים באזור האמצע. אפשר לנסות לבחור עוד סוגי מקומות.'));
@@ -114,9 +120,11 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     node.dataset.placeId = place.id;
     const cat = categoryById(place.category);
 
-    node.querySelector('.place-rank').textContent = numbering.get(place.id) ?? '';
+    const number = numbering.get(place.id) ?? '';
+    node.querySelector('.place-rank').textContent = number;
+    node.querySelector('.place-number').textContent = number ? `מקום ${number} במפה: ` : '';
     const photo = node.querySelector('.place-photo');
-    const withPhoto = place.photoUrl && index < MAX_PHOTOS;
+    const withPhoto = place.photoUrl && (photoIds ? photoIds.has(place.id) : index < MAX_PHOTOS);
     if (withPhoto) {
       const img = el('img');
       img.src = place.photoUrl;
@@ -143,12 +151,16 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     }
     if (place.address) meta.append(el('span', null, place.address));
 
-    const timeA = node.querySelector('.time-a');
-    timeA.querySelector('.time-value').textContent = `${MODE_ICON[modeA]} ${formatDuration(place.timeA)}`;
-    timeA.title = `מנקודה א׳ ${MODE_TITLE[modeA]}`;
-    const timeB = node.querySelector('.time-b');
-    timeB.querySelector('.time-value').textContent = `${MODE_ICON[modeB]} ${formatDuration(place.timeB)}`;
-    timeB.title = `מנקודה ב׳ ${MODE_TITLE[modeB]}`;
+    // The א/ב badges and mode icons are visual; screen readers get the words.
+    const fillTime = (selector, sideName, mode, seconds) => {
+      const box = node.querySelector(selector);
+      box.querySelector('.time-who').textContent = `מנקודה ${sideName} ${MODE_TITLE[mode]}: `;
+      const icon = el('span', null, `${MODE_ICON[mode]} `);
+      icon.setAttribute('aria-hidden', 'true');
+      box.querySelector('.time-value').replaceChildren(icon, formatDuration(seconds));
+    };
+    fillTime('.time-a', 'א׳', modeA, place.timeA);
+    fillTime('.time-b', 'ב׳', modeB, place.timeB);
     const fairness = fairnessText(place);
     const fairEl = node.querySelector('.fairness');
     fairEl.dataset.level = fairness.level;

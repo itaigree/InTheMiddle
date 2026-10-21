@@ -71,10 +71,11 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
 
   /**
    * Travel times (seconds) from each side to `dests`. Driving sides use
-   * `fromTimeline` when given. A transit query that fails outright (as opposed to
-   * finding no service) yields nulls and is listed in `failed`.
+   * `fromTimeline` when given; sides listed in `keep` reuse earlier times for the
+   * same destinations (they're billed). A transit query that fails outright (as
+   * opposed to finding no service) yields nulls and is listed in `failed`.
    */
-  async function timesTo(dests, fromTimeline = null) {
+  async function timesTo(dests, fromTimeline = null, keep = {}) {
     const out = { a: null, b: null, failed: [] };
     const pending = [];
     for (const [key, origin, mode] of [
@@ -82,6 +83,7 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
       ['b', b, modeB],
     ]) {
       if (mode === 'car' && fromTimeline) out[key] = fromTimeline[key];
+      else if (keep[key]) out[key] = keep[key];
       else pending.push({ key, origin, mode });
     }
     // Same mode on both sides: one request with two origins.
@@ -112,9 +114,12 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     return out;
   }
 
-  /** Switch transit sides that failed or found no service at all (Shabbat, night) to driving. */
+  /**
+   * Switch transit sides that failed or found no service at all (Shabbat, night)
+   * to driving. Returns the sides that changed.
+   */
   function dropUnusableTransit(times) {
-    let changed = false;
+    const changed = [];
     for (const key of ['a', 'b']) {
       if ((key === 'a' ? modeA : modeB) !== 'transit') continue;
       if (times.failed.includes(key)) addNotice('transit-error');
@@ -122,47 +127,67 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
       else continue;
       if (key === 'a') modeA = 'car';
       else modeB = 'car';
-      changed = true;
+      changed.push(key);
     }
     return changed;
   }
 
+  /** The other side's times, to reuse when only `changed` sides need new ones. */
+  const unchanged = (times, changed) =>
+    Object.fromEntries(['a', 'b'].filter((k) => !changed.includes(k)).map((k) => [k, times[k]]));
+
   const fractionsFor = () => (timeline && modeA === 'car' && modeB === 'car' ? TIMELINE_FRACTIONS : SAMPLE_FRACTIONS);
-  const sampleTimes = (fractions) => {
+  const sampleTimes = (fractions, keep = {}) => {
     let fromTimeline = null;
     if (timeline) {
       const along = valuesAlongPath(path, timeline, fractions);
       const total = timeline[timeline.length - 1];
       fromTimeline = { a: along, b: along.map((t) => total - t) };
     }
-    return timesTo(samplePath(path, fractions), fromTimeline);
+    return timesTo(samplePath(path, fractions), fromTimeline, keep);
   };
 
   let fractions = fractionsFor();
   let times = await sampleTimes(fractions);
-  if (dropUnusableTransit(times)) {
-    fractions = fractionsFor();
-    times = await sampleTimes(fractions);
-  }
+  const resampleAfterDrop = async (changed) => {
+    const next = fractionsFor();
+    const keep = next === fractions ? unchanged(times, changed) : {};
+    fractions = next;
+    times = await sampleTimes(fractions, keep);
+  };
+  const droppedWhileSampling = dropUnusableTransit(times);
+  if (droppedWhileSampling.length) await resampleAfterDrop(droppedWhileSampling);
 
-  const balance = findEqualTimeFraction(fractions, times.a, times.b);
-  const midpoint = pointAtFraction(path, balance.fraction);
-
-  onProgress('places');
-  let radius = searchRadiusFor(routeMeters);
-  let places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
-  if (places.length < MIN_PLACES) {
-    radius *= 2;
-    places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
-  }
-  const candidates = selectCandidates(places, Math.min(MAX_CANDIDATES, provider.maxCandidates || MAX_CANDIDATES));
-
-  onProgress('times');
+  let balance;
+  let midpoint;
+  let radius;
   let ranked = [];
-  if (candidates.length) {
+  // Usually one pass. If transit turns out unusable for the candidates, the
+  // midpoint was balanced for transit: re-balance for driving and search again.
+  for (let pass = 0; pass < 2; pass++) {
+    balance = findEqualTimeFraction(fractions, times.a, times.b);
+    midpoint = pointAtFraction(path, balance.fraction);
+
+    onProgress('places');
+    radius = searchRadiusFor(routeMeters);
+    let places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
+    if (places.length < MIN_PLACES) {
+      radius *= 2;
+      places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories));
+    }
+    const candidates = selectCandidates(places, Math.min(MAX_CANDIDATES, provider.maxCandidates || MAX_CANDIDATES));
+    if (!candidates.length) break;
+
+    onProgress('times');
     let placeTimes = await timesTo(candidates);
-    if (dropUnusableTransit(placeTimes)) placeTimes = await timesTo(candidates);
+    const dropped = dropUnusableTransit(placeTimes);
+    if (dropped.length && pass === 0) {
+      await resampleAfterDrop(dropped);
+      continue;
+    }
+    if (dropped.length) placeTimes = await timesTo(candidates, null, unchanged(placeTimes, dropped));
     ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, { preferOpen: !departure });
+    break;
   }
 
   return {

@@ -7,7 +7,8 @@ let uid = 0;
  * @param {HTMLInputElement} input
  * @param {HTMLUListElement} list
  * @param {object} opts
- * @param {(query: string, signal: AbortSignal) => Promise<Array<{title: string, subtitle?: string}>>} opts.fetchSuggestions
+ * @param {(query: string, signal: AbortSignal) => Promise<Array<{title: string, subtitle?: string, value?: string}>>} opts.fetchSuggestions
+ *   `title`/`subtitle` are shown in the list; `value` (default: title) is what the input gets when chosen.
  * @param {(suggestion: object) => void} opts.onSelect
  * @param {() => void} [opts.onEdit]  called when the user types (the old selection is stale)
  * @param {() => string} [opts.footer]  small text shown under the suggestions (e.g. attribution)
@@ -18,6 +19,11 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
   let active = -1;
   let timer = 0;
   let controller = null;
+
+  function cancelPending() {
+    clearTimeout(timer);
+    controller?.abort();
+  }
 
   function close() {
     list.hidden = true;
@@ -43,7 +49,9 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
   function choose(index) {
     const item = items[index];
     if (!item) return;
-    input.value = item.title;
+    // A lookup for the text typed just before choosing must not reopen the list.
+    cancelPending();
+    input.value = item.value ?? item.title;
     close();
     onSelect(item);
   }
@@ -51,6 +59,7 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
   function render(suggestions, { emptyText = 'לא נמצאו מקומות בשם הזה' } = {}) {
     items = suggestions;
     active = -1;
+    input.removeAttribute('aria-activedescendant');
     const nodes = suggestions.map((s, i) => {
       const li = document.createElement('li');
       li.id = `${prefix}-opt-${i}`;
@@ -66,16 +75,18 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
         sub.textContent = s.subtitle;
         li.append(sub);
       }
-      // pointerdown fires before the input's blur, so the list is still there.
-      li.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        choose(i);
-      });
+      // Keep focus in the input while pressing, but choose only on a real click/tap:
+      // choosing on pointerdown would select at the start of a swipe meant to scroll
+      // the list, and the tap's click would land on whatever is under the closed list.
+      li.addEventListener('mousedown', (e) => e.preventDefault());
+      li.addEventListener('click', () => choose(i));
       return li;
     });
     if (nodes.length === 0) {
       const li = document.createElement('li');
       li.className = 's-empty';
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-disabled', 'true');
       li.textContent = emptyText;
       nodes.push(li);
     }
@@ -144,8 +155,7 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
   });
 
   input.addEventListener('blur', () => {
-    clearTimeout(timer);
-    controller?.abort();
+    cancelPending();
     close();
   });
 
@@ -153,8 +163,7 @@ export function attachAutocomplete(input, list, { fetchSuggestions, onSelect, on
     close,
     /** Cancel any pending lookup (e.g. when the value is set programmatically). */
     cancel() {
-      clearTimeout(timer);
-      controller?.abort();
+      cancelPending();
       close();
     },
   };

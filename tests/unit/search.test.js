@@ -21,6 +21,7 @@ function fakeProvider({
   timeline = null,
   maxCandidates,
   transitThrows = null, // 'always' | 'candidates'
+  transitSpeed = null, // m/s for transit (default: the side's speed)
 } = {}) {
   const calls = { route: 0, travelTimes: [], searchPlaces: [] };
   return {
@@ -46,7 +47,7 @@ function fakeProvider({
       return origins.map((o) =>
         destinations.map((d) => {
           if (mode === 'transit' && !transitWorks) return null;
-          const speed = o.lat === HAIFA.lat ? speedA : speedB;
+          const speed = mode === 'transit' && transitSpeed ? transitSpeed : o.lat === HAIFA.lat ? speedA : speedB;
           return haversine(o, d) / speed;
         }),
       );
@@ -210,4 +211,29 @@ test('provider unavailability during transit queries still propagates', async ()
     throw new ProviderUnavailableError('quota', { reason: 'quota' });
   };
   await assert.rejects(findMiddle({ ...baseQuery, modeA: 'transit' }, provider), ProviderUnavailableError);
+});
+
+test('transit lost at the candidate stage re-balances the midpoint for driving', async () => {
+  // B by slow transit pushes the transit-balanced midpoint toward B; when transit
+  // then fails for the candidates, both sides drive at the same speed, so the
+  // midpoint must move back to the middle and places be searched there.
+  const provider = fakeProvider({ transitThrows: 'candidates', transitSpeed: 5 });
+  const result = await findMiddle({ ...baseQuery, modeB: 'transit' }, provider);
+  assert.equal(result.modeB, 'car');
+  assert.ok(Math.abs(result.balance.fraction - 0.5) < 0.02, `fraction ${result.balance.fraction}`);
+  assert.equal(provider.calls.searchPlaces.length, 2);
+  const [first, second] = provider.calls.searchPlaces.map((c) => c.center.lat);
+  assert.notEqual(first, second);
+  assert.ok(result.places.length > 0);
+});
+
+test('when transit drops out, only that side is queried again', async () => {
+  const provider = fakeProvider({ transitWorks: false });
+  await findMiddle({ ...baseQuery, modeB: 'transit' }, provider);
+  const sampling = provider.calls.travelTimes.filter((c) => c.destinations === 8);
+  // A by car, B by transit (no service), then B again by car – A is not re-queried.
+  assert.deepEqual(
+    sampling.map((c) => `${c.mode}:${c.origins}`).sort(),
+    ['car:1', 'car:1', 'transit:1'],
+  );
 });

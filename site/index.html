@@ -24,16 +24,16 @@
     <script type="module" src="js/main.js"></script>
   </head>
   <body>
-    <header class="app-header">
-      <img class="app-logo" src="icons/icon.svg" alt="" width="40" height="40" />
-      <div>
-        <h1>מקום באמצע</h1>
-        <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
-      </div>
-    </header>
 
     <main class="layout">
       <div class="panel">
+        <header class="app-header">
+          <img class="app-logo" src="icons/icon.svg" alt="" width="40" height="40" />
+          <div>
+            <h1>מקום באמצע</h1>
+            <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
+          </div>
+        </header>
         <form id="search-form" class="card search-form" novalidate>
           <div class="endpoints">
             <div class="endpoint" data-side="a">
@@ -120,7 +120,9 @@
           <button type="submit" id="submit" class="primary-button">מצאו לנו מקום באמצע</button>
         </form>
 
-        <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+        <div class="status-region" role="status" aria-live="polite">
+          <div id="status" class="status" hidden></div>
+        </div>
 
         <section id="results" class="results" hidden aria-labelledby="results-title">
           <div class="results-head">
@@ -145,7 +147,9 @@
       </section>
     </main>
 
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div role="status" aria-live="polite">
+      <div id="toast" class="toast" hidden></div>
+    </div>
 
     <footer class="app-footer">
       <p id="provider-note" class="provider-note"></p>
@@ -161,11 +165,12 @@
           <span class="place-rank" aria-hidden="true"></span>
           <span class="place-photo" aria-hidden="true"></span>
           <span class="place-body">
+            <span class="place-number sr-only"></span>
             <span class="place-name"></span>
             <span class="place-meta"></span>
             <span class="place-times">
-              <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-value"></span></span>
-              <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-value"></span></span>
+              <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
+              <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
               <span class="fairness"></span>
             </span>
           </span>

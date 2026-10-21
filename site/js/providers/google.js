@@ -17,6 +17,10 @@ const LANGUAGE = 'iw'; // Google's code for Hebrew
 const REGION = 'il';
 const ISRAEL_BOUNDS = { south: 29.45, west: 34.2, north: 33.35, east: 35.95 };
 const LOAD_TIMEOUT_MS = 15000;
+/** A single Places/Routes call that takes longer than this counts as Google being unreachable. */
+const CALL_TIMEOUT_MS = 15000;
+/** How long a search waits for the map to prove the key works before spending billed calls. */
+const MAP_AUTH_WAIT_MS = 3000;
 
 /** Place types (Table A) per category; requested as primary types unless noted. */
 const CATEGORY_TYPES = {
@@ -62,9 +66,11 @@ const PLACE_FIELDS = [
   'googleMapsURI',
   'businessStatus',
   'photos',
-  // Enterprise fields: what makes Google mode worth it.
+  // Enterprise fields: what makes Google mode worth it. currentOpeningHours includes
+  // holiday/special hours for the coming week; both are in the same SKU.
   'rating',
   'userRatingCount',
+  'currentOpeningHours',
   'regularOpeningHours',
 ];
 
@@ -73,6 +79,12 @@ const PLACE_FIELDS = [
 let loadPromise = null;
 let authFailed = false;
 const unavailableListeners = new Set();
+let rejectAuth = () => {};
+/** Rejects when Google reports that the key was rejected (gm_authFailure). */
+const authFailure = new Promise((_, reject) => {
+  rejectAuth = reject;
+});
+authFailure.catch(() => {});
 
 function installAuthFailureHook() {
   const previous = window.gm_authFailure;
@@ -80,6 +92,7 @@ function installAuthFailureHook() {
     authFailed = true;
     window.__inthemiddleGoogleAuthFailed = true;
     const err = new ProviderUnavailableError('Google Maps rejected the API key', { reason: 'auth' });
+    rejectAuth(err);
     for (const fn of unavailableListeners) fn(err);
     if (typeof previous === 'function') previous();
   };
@@ -112,8 +125,10 @@ function loadGoogle(apiKey) {
       LOAD_TIMEOUT_MS,
       'Google Maps load timed out',
     ).then(([core, places, routes]) => ({ core, places, routes }));
+    // A failed load can be retried later in the same page: the bootstrap resets
+    // itself when its script fails to load.
     loadPromise.catch(() => {
-      // The bootstrap only loads once per page, so a failure is final for this page view.
+      loadPromise = null;
     });
   }
   return loadPromise;
@@ -143,7 +158,12 @@ export function classifyGoogleError(err) {
   const code = typeof err?.code === 'number' ? GRPC_CODES[err.code] || err.code : err?.code;
   const text = `${code ?? ''} ${err?.message ?? err ?? ''}`;
   if (/RESOURCE_EXHAUSTED|OVER_QUERY_LIMIT|OVER_DAILY_LIMIT|quota|rate.?limit|\b429\b/i.test(text)) {
-    return new ProviderUnavailableError('Google quota exhausted', { reason: 'quota', cause: err });
+    // A per-minute limit clears within a minute; only a daily one lasts until the reset.
+    const perMinute = /per (user )?(minute|second)|rate.?limit/i.test(text) && !/per day|DAILY/i.test(text);
+    return new ProviderUnavailableError(perMinute ? 'Google rate limit' : 'Google quota exhausted', {
+      reason: perMinute ? 'rate' : 'quota',
+      cause: err,
+    });
   }
   if (
     /PERMISSION_DENIED|REQUEST_DENIED|UNAUTHENTICATED|API.?key|not authorized|has not been used|is disabled|are blocked|billing|RefererNotAllowed|ApiNotActivated|InvalidKey|\b40[13]\b/i.test(
@@ -159,17 +179,21 @@ export function classifyGoogleError(err) {
   return new ProviderUnavailableError('Google is unreachable', { reason: 'load-failed', cause: err });
 }
 
-/** Run a Google call, retrying once on transient failures, and classify errors. */
+/**
+ * Run a Google call with a timeout, retrying once on transient failures, and
+ * classify errors. A call that hangs must not freeze the search forever.
+ */
 async function call(fn) {
   if (authFailed) throw new ProviderUnavailableError('Google Maps rejected the API key', { reason: 'auth' });
+  const attempt = () => withTimeout(Promise.resolve().then(fn), CALL_TIMEOUT_MS, 'Google request timed out');
   try {
-    return await fn();
+    return await attempt();
   } catch (first) {
     const classified = classifyGoogleError(first);
     if (!(classified instanceof ProviderUnavailableError && classified.reason === 'load-failed')) throw classified;
     await new Promise((r) => setTimeout(r, 600));
     try {
-      return await fn();
+      return await attempt();
     } catch (second) {
       throw classifyGoogleError(second);
     }
@@ -218,6 +242,18 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
 
   let libs = null;
   let sessionToken = null;
+  /** Settles once the map has shown the key works (or rejects if Google rejected it). */
+  let mapAuth = null;
+
+  /**
+   * Google reports a rejected Maps JS key only when a map loads. The app starts
+   * the map as a search begins; wait (briefly) for it before the billed calls so
+   * a bad key doesn't cost a full search before falling back.
+   */
+  async function authGate() {
+    if (authFailed) throw new ProviderUnavailableError('Google Maps rejected the API key', { reason: 'auth' });
+    if (mapAuth) await mapAuth;
+  }
 
   async function ready() {
     try {
@@ -254,15 +290,19 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
       .slice(0, 6)
       .map((prediction) => {
         const title = prediction.mainText?.text || prediction.text?.text || '';
+        // The full text ("הרצל 10, חיפה") goes into the field, links and any later
+        // lookup; the short main text alone ("הרצל 10") is ambiguous across cities.
+        const value = (prediction.text?.text || title).replace(/,\s*ישראל$/, '');
         return {
           title,
           subtitle: prediction.secondaryText?.text || '',
+          value,
           resolve: async () => {
             const place = prediction.toPlace();
             // Essentials-only fields end the session at the cheapest tier.
             await call(() => place.fetchFields({ fields: ['location'] }));
             sessionToken = null; // the next search starts a new session
-            return place.location ? { label: title, ...toLatLng(place.location), source: 'google' } : null;
+            return place.location ? { label: value, ...toLatLng(place.location), source: 'google' } : null;
           },
         };
       });
@@ -320,6 +360,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
 
   async function travelTimes(origins, destinations, mode, { departure } = {}) {
     const { routes } = await ensureReady();
+    await authGate();
     const result = origins.map(() => new Array(destinations.length).fill(null));
     if (!destinations.length) return result;
     const transit = mode === 'transit';
@@ -377,6 +418,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   }
 
   async function searchPlaces(center, radius, categoryIds) {
+    await authGate();
     const now = new Date();
     const lists = await Promise.all(
       categoryIds.filter((id) => CATEGORY_TYPES[id]).map(async (category) => {
@@ -394,7 +436,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
               typeLabel: p.primaryTypeDisplayName || undefined,
               rating: Number.isFinite(p.rating) ? p.rating : undefined,
               ratingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : undefined,
-              openNow: isOpenAt(p.regularOpeningHours, now),
+              openNow: isOpenAt(p.currentOpeningHours?.periods?.length ? p.currentOpeningHours : p.regularOpeningHours, now),
               address: p.shortFormattedAddress || undefined,
               mapsUrl: p.googleMapsURI || undefined,
               // Each photo shown is billed (Place Photos), so the UI only shows a few.
@@ -409,19 +451,39 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   }
 
   async function createMap(container) {
-    await ensureReady();
-    const { createGoogleMapView } = await import('../ui/map-google.js');
+    // The gate exists from the moment the map starts loading, so a search that is
+    // already running waits for the verdict instead of slipping past it.
+    let settle;
+    mapAuth = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    mapAuth.catch(() => {});
+    let view;
     try {
-      return await createGoogleMapView(container, {
-        mapId,
-        onError: (reason) => {
-          const err = new ProviderUnavailableError(`Google map failed (${reason})`, { reason });
-          for (const fn of unavailableListeners) fn(err);
-        },
-      });
+      await ensureReady();
+      const { createGoogleMapView } = await import('../ui/map-google.js');
+      view = await withTimeout(
+        createGoogleMapView(container, {
+          mapId,
+          onError: (reason) => {
+            const err = new ProviderUnavailableError(`Google map failed (${reason})`, { reason });
+            rejectAuth(err);
+            for (const fn of unavailableListeners) fn(err);
+          },
+        }),
+        LOAD_TIMEOUT_MS,
+        'Google map load timed out',
+      );
     } catch (err) {
-      throw classifyGoogleError(err);
+      const classified = classifyGoogleError(err);
+      settle.reject(classified);
+      throw classified;
     }
+    Promise.race([view.loaded, authFailure, new Promise((r) => setTimeout(r, MAP_AUTH_WAIT_MS))]).then(
+      settle.resolve,
+      settle.reject,
+    );
+    return view;
   }
 
   return {

@@ -31,21 +31,41 @@ const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
  * Overpass selectors per category, and a Hebrew label per tag value.
  * Every selector also requires a name, so anonymous benches and lawns stay out.
  */
+/**
+ * Overpass selectors per category, in groups that each get their own output
+ * budget: e.g. nature's many small spots (viewpoints, springs) can't crowd out
+ * its reserves and national parks, which are mapped as areas.
+ */
 const CATEGORY_QUERIES = {
-  cafe: ['nwr["amenity"~"^(cafe|ice_cream)$"]'],
-  mall: ['nwr["shop"="mall"]'],
-  park: ['nwr["leisure"="park"]'],
+  cafe: [['nwr["amenity"~"^(cafe|ice_cream)$"]']],
+  mall: [['nwr["shop"="mall"]']],
+  park: [['nwr["leisure"="park"]']],
   nature: [
-    'nwr["tourism"="viewpoint"]',
-    'nwr["leisure"="nature_reserve"]',
-    'nwr["boundary"="national_park"]',
-    'nwr["natural"="spring"]',
-    'nwr["natural"="beach"]',
-    'nwr["tourism"="picnic_site"]',
+    ['nwr["tourism"="viewpoint"]', 'nwr["natural"="spring"]', 'nwr["tourism"="picnic_site"]'],
+    ['nwr["leisure"="nature_reserve"]', 'nwr["boundary"="national_park"]', 'nwr["natural"="beach"]'],
   ],
-  food: ['nwr["amenity"="restaurant"]'],
-  attraction: ['nwr["tourism"~"^(attraction|museum|zoo|theme_park|aquarium)$"]'],
+  food: [['nwr["amenity"="restaurant"]']],
+  attraction: [['nwr["tourism"~"^(attraction|museum|zoo|theme_park|aquarium)$"]']],
 };
+
+/** Which category a place belongs to, in priority order (first match wins). */
+const CATEGORY_RULES = [
+  ['cafe', (t) => /^(cafe|ice_cream)$/.test(t.amenity)],
+  ['mall', (t) => t.shop === 'mall'],
+  ['food', (t) => t.amenity === 'restaurant'],
+  [
+    'nature',
+    (t) =>
+      t.tourism === 'viewpoint' ||
+      t.leisure === 'nature_reserve' ||
+      t.boundary === 'national_park' ||
+      t.natural === 'spring' ||
+      t.natural === 'beach' ||
+      t.tourism === 'picnic_site',
+  ],
+  ['attraction', (t) => /^(attraction|museum|zoo|theme_park|aquarium)$/.test(t.tourism)],
+  ['park', (t) => t.leisure === 'park'],
+];
 
 const TAG_LABELS = {
   'amenity=cafe': 'בית קפה',
@@ -278,34 +298,29 @@ async function transitTimes(origins, destinations, departure) {
 // --------------------------------------------------------------------- places
 
 /**
- * One output block per category, each capped, so a city center full of cafés
- * can't crowd the parks and viewpoints out of the response.
+ * Each selector group is output twice, each capped: once for an inner ring and
+ * once for the whole circle. Overpass cuts a capped output in its storage order,
+ * which is one corner of the circle – not the places nearest the center – so in
+ * a dense city the inner ring is what keeps the closest places in the answer.
  */
 export function buildOverpassQuery(center, radius, categoryIds) {
-  const around = `(around:${Math.round(radius)},${center.lat.toFixed(6)},${center.lng.toFixed(6)})`;
-  const blocks = categoryIds
-    .filter((id) => CATEGORY_QUERIES[id])
-    .map((id) => `(${CATEGORY_QUERIES[id].map((sel) => `${sel}["name"]${around};`).join('')});out tags center qt 150;`);
+  const at = `${center.lat.toFixed(6)},${center.lng.toFixed(6)}`;
+  const outer = Math.round(radius);
+  const inner = Math.round(Math.min(radius, Math.max(800, radius / 3)));
+  const blocks = [];
+  for (const id of categoryIds) {
+    for (const group of CATEGORY_QUERIES[id] || []) {
+      const union = (r) => `(${group.map((sel) => `${sel}["name"](around:${r},${at});`).join('')})`;
+      if (inner < outer) blocks.push(`${union(inner)};out tags center qt 100;`);
+      blocks.push(`${union(outer)};out tags center qt 150;`);
+    }
+  }
   return `[out:json][timeout:25];${blocks.join('')}`;
 }
 
-function categoryOf(tags) {
-  const v = (k) => tags[k];
-  if (/^(cafe|ice_cream)$/.test(v('amenity'))) return 'cafe';
-  if (v('shop') === 'mall') return 'mall';
-  if (v('amenity') === 'restaurant') return 'food';
-  if (
-    v('tourism') === 'viewpoint' ||
-    v('leisure') === 'nature_reserve' ||
-    v('boundary') === 'national_park' ||
-    v('natural') === 'spring' ||
-    v('natural') === 'beach' ||
-    v('tourism') === 'picnic_site'
-  ) {
-    return 'nature';
-  }
-  if (/^(attraction|museum|zoo|theme_park|aquarium)$/.test(v('tourism'))) return 'attraction';
-  if (v('leisure') === 'park') return 'park';
+/** The first category (in priority order) that the tags match among those asked for. */
+function categoryOf(tags, wanted) {
+  for (const [id, test] of CATEGORY_RULES) if (wanted.has(id) && test(tags)) return id;
   return null;
 }
 
@@ -338,13 +353,18 @@ function notability(tags) {
 export function parseOverpass(data, center, categoryIds) {
   const wanted = new Set(categoryIds);
   const byCategory = new Map();
+  const seen = new Set();
   for (const el of data.elements || []) {
     const tags = el.tags || {};
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
     const name = tags['name:he'] || tags.name;
-    const category = categoryOf(tags);
-    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || !category || !wanted.has(category)) continue;
+    const category = categoryOf(tags, wanted);
+    const key = `${el.type}-${el.id}`;
+    // The inner and outer rings overlap, so the same element can come twice.
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || !category) continue;
     const place = {
       id: `osm-${el.type}-${el.id}`,
       name,
@@ -391,25 +411,26 @@ async function overpassPlaces(center, radius, categoryIds) {
   const rounded = { lat: Math.round(center.lat * 1000) / 1000, lng: Math.round(center.lng * 1000) / 1000 };
   const query = buildOverpassQuery(rounded, radius, categoryIds);
   const cacheKey = `inthemiddle.overpass:${query}`;
-  let data = cacheGet(cacheKey);
-  if (!data) {
-    data = await withMirrors(
-      OVERPASS_URLS,
-      async (url) => {
-        const json = await fetchJson(url, {
-          method: 'POST',
-          body: new URLSearchParams({ data: query }),
-          timeoutMs: 35000,
-        });
-        // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
-        if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
-        return json;
-      },
-      'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.',
-    );
-    cacheSet(cacheKey, { elements: data.elements || [] });
-  }
-  return parseOverpass(data, center, categoryIds);
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const data = await withMirrors(
+    OVERPASS_URLS,
+    async (url) => {
+      const json = await fetchJson(url, {
+        method: 'POST',
+        body: new URLSearchParams({ data: query }),
+        timeoutMs: 35000,
+      });
+      // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
+      if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
+      return json;
+    },
+    'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.',
+  );
+  // Only the few places kept are cached: raw answers can be large.
+  const places = parseOverpass(data, rounded, categoryIds);
+  cacheSet(cacheKey, places);
+  return places;
 }
 
 // ------------------------------------------------------------------- provider

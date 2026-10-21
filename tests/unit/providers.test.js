@@ -121,3 +121,24 @@ test('parseOneToMany takes the fastest of transit options and walking', async ()
   assert.deepEqual(parseOneToMany(data, 3), [1500, 600, null]);
   assert.deepEqual(parseOneToMany({}, 2), [null, null]);
 });
+
+test('buildOverpassQuery adds a capped inner ring and splits nature into points and areas', () => {
+  const q = buildOverpassQuery(CENTER, 6000, ['nature']);
+  assert.equal(q.match(/out tags center qt 100;/g).length, 2);
+  assert.equal(q.match(/out tags center qt 150;/g).length, 2);
+  assert.match(q, /around:2000,/);
+  // A small radius needs no separate inner ring.
+  const small = buildOverpassQuery(CENTER, 800, ['cafe']);
+  assert.equal((small.match(/out tags center qt/g) || []).length, 1);
+});
+
+test('parseOverpass: inner/outer duplicates once; categories follow the selection', () => {
+  const park = { type: 'way', id: 9, center: { lat: 32.4, lon: 34.9 }, tags: { leisure: 'park', tourism: 'attraction', name: 'פארק הירקון' } };
+  const data = { elements: [park, park] };
+  // 'attraction' not selected: the park still counts as a park.
+  const parks = parseOverpass(data, CENTER, ['park']);
+  assert.deepEqual(parks.map((p) => [p.id, p.category]), [['osm-way-9', 'park']]);
+  // Both selected: the higher-priority category wins, once.
+  const both = parseOverpass(data, CENTER, ['park', 'attraction']);
+  assert.deepEqual(both.map((p) => p.category), ['attraction']);
+});

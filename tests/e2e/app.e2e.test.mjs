@@ -38,10 +38,10 @@ after(async () => {
   await Promise.all(servers.map((s) => s.close()));
 });
 
-async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '' } = {}) {
+async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {} } = {}) {
   const server = await startServer({ overrides: { '/config.js': configJs(key) } });
   servers.push(server);
-  const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem' });
+  const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', ...contextOptions });
   // Registered first = lowest priority: anything not mocked below is blocked.
   await blockExternal(context, [server.url, 'data:']);
   const osmLog = await mockOsm(context, osm);
@@ -64,6 +64,8 @@ async function pickSuggestion(page, side, text) {
 async function search(page) {
   await page.locator('#submit').click();
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // The list is shown before the map is ready; wait for the map's markers too.
+  await page.locator('#map .pin-a').first().waitFor({ timeout: 20000 });
 }
 
 async function shot(page, name) {
@@ -336,5 +338,161 @@ test('real Google SDK with an invalid key falls back to OpenStreetMap', { skip: 
   assert.match(await page.locator('#status').textContent(), /בעיה בהגדרות המפתח של Google/);
   const block = await page.evaluate(() => JSON.parse(localStorage.getItem('inthemiddle.googleBlocked')));
   assert.equal(block.reason, 'auth');
+  await context.close();
+});
+
+// ------------------------------------------------------- regressions from review
+
+test('Leaflet draws the route and the search circle (overlay SVG is not shrunk)', async () => {
+  const { page, context } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const box = await page.locator('#map .leaflet-overlay-pane svg').boundingBox();
+  assert.ok(box && box.width > 100 && box.height > 100, JSON.stringify(box));
+  const pathBox = await page.locator('#map .leaflet-overlay-pane path').first().boundingBox();
+  assert.ok(pathBox && Math.max(pathBox.width, pathBox.height) > 20, JSON.stringify(pathBox));
+  await context.close();
+});
+
+test('touch: tapping a suggestion picks it without hitting the control underneath; a press alone does not', async () => {
+  const { page, context } = await openApp({
+    viewport: { width: 390, height: 844 },
+    contextOptions: { hasTouch: true, isMobile: true },
+  });
+  await page.locator('#input-a').fill('חיפה');
+  const option = page.locator('#list-a [role="option"]').first();
+  await option.waitFor();
+  // A finger landing on an option (e.g. to start scrolling the list) must not choose it.
+  await option.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await page.locator('#list-a').isVisible(), true);
+  // A real tap chooses it, and the tap doesn't fall through to the mode buttons below.
+  const box = await option.boundingBox();
+  await page.touchscreen.tap(box.x + box.width * 0.15, box.y + box.height / 2);
+  assert.equal(await page.locator('#input-a').inputValue(), 'חיפה');
+  assert.equal(await page.locator('input[name="mode-a"]:checked').getAttribute('value'), 'car');
+  await context.close();
+});
+
+test('Enter ("Next") in field A moves to field B instead of submitting', async () => {
+  const { page, context } = await openApp();
+  await page.locator('#input-a').fill('חיפה');
+  await page.locator('#input-a').press('Escape');
+  await page.locator('#input-a').press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'input-b');
+  assert.equal(await page.locator('#status').isVisible(), false);
+  await context.close();
+});
+
+test('filter chips: photos stay limited to 3 per search, and chips all fit on desktop', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const photoSrcs = new Set(await page.locator('#place-list .place-photo img').evaluateAll((imgs) => imgs.map((i) => i.src)));
+  const chips = page.locator('#result-filters .filter-chip');
+  const count = await chips.count();
+  for (let i = 1; i < count; i++) {
+    // Every chip is reachable without horizontal scrolling.
+    const box = await chips.nth(i).boundingBox();
+    const row = await page.locator('#result-filters').boundingBox();
+    assert.ok(box.x >= row.x - 1 && box.x + box.width <= row.x + row.width + 1, `chip ${i} outside the row`);
+    await chips.nth(i).click();
+    for (const src of await page.locator('#place-list .place-photo img').evaluateAll((imgs) => imgs.map((im) => im.src))) {
+      photoSrcs.add(src);
+    }
+    // Keyboard focus stays on the chip that was pressed.
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('filter-chip')), true);
+  }
+  assert.ok(photoSrcs.size <= 3, `${photoSrcs.size} distinct photos loaded`);
+  await context.close();
+});
+
+test('a Google key rejected when the map loads is caught before any billed place search', async () => {
+  const { page, context, osmLog } = await openApp({ key: 'BAD_KEY', google: { authFail: 'map' } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('searchNearby')).length, 0, calls.join(','));
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  assert.ok(osmLog.overpass.length >= 1);
+  await context.close();
+});
+
+test('submitting right after picking a suggestion uses the pick, not a new text lookup', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { detailsDelayMs: 600 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('searchByText')).length, 0, calls.join(','));
+  await context.close();
+});
+
+test('"my location" is shared with a neutral label and rounded coordinates', async () => {
+  const { page, context } = await openApp({
+    contextOptions: { geolocation: { latitude: 32.794123, longitude: 34.989654 }, permissions: ['geolocation'] },
+  });
+  await page.locator('.locate[data-side="a"]').click();
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const params = new URL(page.url()).searchParams;
+  assert.equal(params.get('a'), 'נקודת יציאה ששותפה');
+  assert.equal(params.get('all'), '32.79410,34.98970');
+  await context.close();
+});
+
+test('phones: a transit fallback notice is scrolled into view, not hidden above the map', async () => {
+  const { page, context } = await openApp({ viewport: { width: 360, height: 740 }, osm: { failTransit: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
+  await search(page);
+  await page.waitForTimeout(800); // smooth scroll
+  const box = await page.locator('#status').boundingBox();
+  assert.ok(box.y >= -1 && box.y < 740, `status at y=${box.y}`);
+  await context.close();
+});
+
+test('a failed search keeps the URL of the results on screen', async () => {
+  const { page, context } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const shownUrl = page.url();
+  await page.locator('#input-b').fill('מקום שלא קיים');
+  await page.locator('#submit').click();
+  await page.locator('#status[data-kind="error"]').waitFor();
+  assert.equal(page.url(), shownUrl);
+  await context.close();
+});
+
+test('service worker: works offline, and search links share one cached app shell', async () => {
+  const server = await startServer({ overrides: { '/config.js': configJs('') } });
+  servers.push(server);
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await blockExternal(context, [server.url, 'data:']);
+  const page = await context.newPage();
+  await page.goto(server.url);
+  // main.js registers the worker only on https; 127.0.0.1 is a secure context too.
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+  await page.goto(`${server.url}?a=x&b=y&c=cafe`);
+  await page.goto(`${server.url}?a=z&b=w&c=park`);
+  const cached = await page.evaluate(async () => {
+    const names = await caches.keys();
+    const cache = await caches.open(names.find((n) => n.startsWith('inthemiddle-')));
+    return (await cache.keys()).map((r) => r.url);
+  });
+  assert.equal(cached.filter((u) => u.includes('?')).length, 0, cached.join('\n'));
+  await context.setOffline(true);
+  await page.goto(`${server.url}?a=q&b=r`);
+  assert.equal(await page.locator('h1').textContent(), 'מקום באמצע');
   await context.close();
 });

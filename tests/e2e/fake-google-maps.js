@@ -6,6 +6,8 @@
 //   authFail: true           → call gm_authFailure() right after loading
 //   quota: 'nearby'|'matrix'|'autocomplete'|'route'  → that call fails with RESOURCE_EXHAUSTED
 //   transitNoService: true   → every TRANSIT matrix element is ROUTE_NOT_FOUND
+//   detailsDelayMs: n        → Place.fetchFields takes n ms (a slow suggestion resolve)
+//   mapNeverLoads: true      → the map never fires 'tilesloaded'
 (() => {
   const options = window.__fakeGoogleOptions || {};
   const calls = (window.__fakeGoogleCalls = []);
@@ -97,6 +99,7 @@
       Object.assign(this, data);
     }
     async fetchFields({ fields }) {
+      if (options.detailsDelayMs) await new Promise((r) => setTimeout(r, options.detailsDelayMs));
       maybeQuota('details', 'PLACES_GET_PLACE');
       calls.push(`fetchFields:${fields.join(',')}`);
       if (this._loc) this.location = new LatLng(this._loc.lat, this._loc.lng);
@@ -228,6 +231,7 @@
   class FakeMap {
     constructor(container, opts) {
       calls.push(`map:${opts.mapId}`);
+      if (options.authFail === 'map') setTimeout(() => window.gm_authFailure?.(), 50);
       this.container = container;
       this.div = document.createElement('div');
       this.div.className = 'fake-google-map';
@@ -247,6 +251,12 @@
     }
     getBounds() {
       return this.bounds;
+    }
+    addListener(name, fn) {
+      // With a rejected key Google shows its error screen instead of loading tiles.
+      const loads = name === 'tilesloaded' && !options.mapNeverLoads && options.authFail !== 'map';
+      const timer = loads ? setTimeout(fn, 20) : 0;
+      return { remove: () => clearTimeout(timer) };
     }
     panTo() {}
     project(p) {
@@ -336,5 +346,7 @@
   };
   Object.assign(window.google.maps, libraries.core, libraries.maps);
   window.google.maps.__ib__();
-  if (options.authFail) setTimeout(() => window.gm_authFailure?.(), 0);
+  // authFail: 'load' (right after the SDK loads) or 'map' (when the first map is created,
+  // which is when Google really reports a Maps JS key problem).
+  if (options.authFail === true || options.authFail === 'load') setTimeout(() => window.gm_authFailure?.(), 0);
 })();

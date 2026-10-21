@@ -24,6 +24,7 @@ export function nextPacificMidnight(now = new Date()) {
 const RETRY_AFTER_MS = {
   auth: 60 * 60 * 1000,
   'load-failed': 10 * 60 * 1000,
+  rate: 2 * 60 * 1000, // a per-minute limit
 };
 
 export function blockUntil(reason, now = new Date()) {
@@ -56,8 +57,15 @@ export function getGoogleBlock(now = new Date()) {
   }
 }
 
+/**
+ * Remember that Google is unavailable. A block is only ever lengthened: a quick
+ * network failure after the daily quota ran out must not shorten the wait.
+ * Returns the block in force.
+ */
 export function setGoogleBlock(reason, now = new Date()) {
+  const existing = getGoogleBlock(now);
   const until = blockUntil(reason, now);
+  if (existing && existing.until >= until) return existing;
   try {
     storage()?.setItem(KEY, JSON.stringify({ reason, until: until.toISOString() }));
   } catch {

@@ -21,3 +21,33 @@ test('block durations by reason', () => {
   assert.equal(blockUntil('load-failed', now).getTime() - now.getTime(), 600 * 1000);
   assert.equal(blockUntil('something-else', now).getTime() - now.getTime(), 600 * 1000);
 });
+
+test('a rate-limit block is short', () => {
+  const now = new Date('2026-10-20T12:00:00Z');
+  assert.equal(blockUntil('rate', now).getTime() - now.getTime(), 120 * 1000);
+});
+
+test('setGoogleBlock never shortens an existing block', async () => {
+  const store = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    },
+  };
+  try {
+    const { setGoogleBlock, getGoogleBlock } = await import('../../site/js/core/availability.js');
+    const now = new Date('2026-10-20T12:00:00Z');
+    setGoogleBlock('quota', now);
+    const kept = setGoogleBlock('load-failed', new Date(now.getTime() + 1000));
+    assert.equal(kept.reason, 'quota');
+    assert.equal(getGoogleBlock(new Date(now.getTime() + 2000)).reason, 'quota');
+    // A longer block replaces a shorter one.
+    store.clear();
+    setGoogleBlock('rate', now);
+    assert.equal(setGoogleBlock('auth', now).reason, 'auth');
+  } finally {
+    delete globalThis.window;
+  }
+});
