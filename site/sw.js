@@ -8,7 +8,7 @@
 // files. Requests to other origins and non-GET requests are left alone.
 
 const PREFIX = 'inthemiddle-'; // CacheStorage is shared by every <user>.github.io/<repo> site
-const CACHE = `${PREFIX}__BUILD__`; // the deploy workflow stamps the commit id here
+const CACHE = `${PREFIX}__BUILD__`; // the deploy workflow stamps the commit id + config hash here
 
 const SHELL = [
   './',
@@ -44,10 +44,22 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE);
       // cache: 'reload' skips the HTTP cache (GitHub Pages serves max-age=600).
       await cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })));
-      await self.skipWaiting();
+      // Take over right away, unless a page opened from an older deploy's cache is
+      // still open: activating would delete the files it is still loading from.
+      if (!(await pageOpenedFromOlderCache())) await self.skipWaiting();
     })(),
   );
 });
+
+async function pageOpenedFromOlderCache() {
+  const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const older = (await caches.keys()).filter((n) => n.startsWith(PREFIX) && n !== CACHE);
+  for (const name of older) {
+    const cache = await caches.open(name);
+    for (const page of pages) if (await cache.match(clientMarker(page.id))) return true;
+  }
+  return false;
+}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -107,7 +119,9 @@ self.addEventListener('fetch', (event) => {
       if (!navigate) {
         if (await openedFromCache(event.clientId)) return (await fromCache()) || fetch(request);
         try {
-          return await fetch(request);
+          // Revalidate like the page itself, so a fresh page never gets files from
+          // the previous deploy out of the HTTP cache (GitHub Pages: max-age=600).
+          return await fetch(request, { cache: 'no-cache' });
         } catch (err) {
           // Offline: the cached copy is the best we have.
           const cached = await fromCache();

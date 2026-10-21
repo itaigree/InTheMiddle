@@ -59,16 +59,21 @@ jobs:
         run: |
           node --input-type=module -e '
             import { readFileSync, writeFileSync } from "node:fs";
+            import { createHash } from "node:crypto";
             const build = process.env.BUILD_ID.slice(0, 12);
             const config = {
               googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
               googleMapId: (process.env.GOOGLE_MAP_ID || "").trim(),
               build,
             };
-            writeFileSync("site/config.js", "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n");
+            const configText = "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n";
+            writeFileSync("site/config.js", configText);
+            // The stamp also changes when only the config does (e.g. re-running the
+            // deploy after adding the key), so the offline copy picks it up.
+            const stamp = build + "-" + createHash("sha256").update(configText).digest("hex").slice(0, 8);
             const sw = readFileSync("site/sw.js", "utf8");
             if (!sw.includes("__BUILD__")) throw new Error("site/sw.js has no __BUILD__ placeholder");
-            writeFileSync("site/sw.js", sw.replaceAll("__BUILD__", build));
+            writeFileSync("site/sw.js", sw.replaceAll("__BUILD__", stamp));
             console.log(config.googleMapsApiKey
               ? "Google Maps key: set"
               : "::warning title=No Google key::GOOGLE_MAPS_API_KEY is not set, deploying the OpenStreetMap-only version");

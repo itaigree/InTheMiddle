@@ -21,10 +21,17 @@ const TYPES = {
 
 /**
  * Starts the server on a free port. `overrides` maps URL paths to file contents,
- * e.g. {'/config.js': 'window.APP_CONFIG = {...}'}.
+ * e.g. {'/config.js': 'window.APP_CONFIG = {...}'}. `setOffline(true)` makes it
+ * drop every connection, which (unlike Playwright's offline mode) also affects
+ * requests made by a service worker.
  */
 export async function startServer({ overrides = {} } = {}) {
+  let offline = false;
   const server = http.createServer(async (req, res) => {
+    if (offline) {
+      req.socket.destroy();
+      return;
+    }
     const url = new URL(req.url, 'http://localhost');
     let pathname = decodeURIComponent(url.pathname);
     if (pathname.endsWith('/')) pathname += 'index.html';
@@ -48,5 +55,12 @@ export async function startServer({ overrides = {} } = {}) {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
-  return { url: `http://127.0.0.1:${port}/`, close: () => new Promise((r) => server.close(r)) };
+  return {
+    url: `http://127.0.0.1:${port}/`,
+    close: () => new Promise((r) => server.close(r)),
+    setOffline(value) {
+      offline = value;
+      if (value) server.closeAllConnections();
+    },
+  };
 }

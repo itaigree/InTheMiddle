@@ -493,9 +493,17 @@ test('service worker: works offline, and search links share one cached app shell
   assert.equal(cached.filter((u) => u.includes('?')).length, 0, cached.join('\n'));
   // Opening another file of the site as a page must not replace the cached app.
   await page.goto(`${server.url}manifest.webmanifest`);
-  await context.setOffline(true);
+  // Offline at the server (Playwright's offline mode doesn't reach the worker's own requests).
+  server.setOffline(true);
   await page.goto(`${server.url}?a=q&b=r`);
   assert.equal(await page.locator('h1').textContent(), 'מקום באמצע');
+  // The app works offline: its modules, including ones loaded later, come from the cache.
+  assert.equal(await page.locator('#category-chips input').count(), 6);
+  const lazy = await page.evaluate(async () => {
+    const mod = await import('./js/ui/map-leaflet.js');
+    return typeof mod.createLeafletMap;
+  });
+  assert.equal(lazy, 'function');
   await context.close();
 });
 
@@ -543,5 +551,26 @@ test('a Google block recorded by another tab: this tab switches to OpenStreetMap
   assert.ok(after - before <= 2, `${after - before} more Google calls`);
   assert.ok(osmLog.overpass.length >= 1);
   assert.match(await page.locator('#status').textContent(), /המכסה החינמית היומית של Google נגמרה/);
+  await context.close();
+});
+
+test('a block recorded by another tab during a search does not throw away this tab\'s Google results', async () => {
+  const { page, context, osmLog } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 1500 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#submit').click();
+  await page.waitForTimeout(500);
+  const other = await context.newPage();
+  await other.goto(page.url().split('?')[0]);
+  await other.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 120e3).toISOString() })),
+  );
+  await other.close();
+  await page.locator('#map .pin-a').first().waitFor({ timeout: 20000 });
+  await page.waitForFunction(() => document.getElementById('submit').disabled === false);
+  // The Google search that was already running is shown; nothing was redone.
+  assert.ok(await page.locator('#map .fake-google-map').count());
+  assert.ok((await page.locator('#place-list .rating').count()) > 0);
+  assert.equal(osmLog.overpass.length, 0);
   await context.close();
 });

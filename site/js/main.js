@@ -49,7 +49,10 @@ const forcedProvider = decodeState(location.search).provider;
 // ---------------------------------------------------------------- providers
 
 let providerPromise = null;
-let loadedProviderId = null;
+/** The provider kind the current promise is for ('google' | 'osm'), set when the load starts. */
+let providerKind = null;
+/** Google failures seen in this page, to tell whether one happened during a search. */
+let googleFailures = 0;
 /** Why (and until when) this page stopped using Google: {reason, until: ms}. */
 let switchBlock = null;
 let currentMap = null;
@@ -75,19 +78,24 @@ function googleWanted() {
 }
 
 function getProvider() {
-  // The cached provider must follow the current verdict: back on Google once a
-  // block has expired, and off Google as soon as one is in force (even if another
-  // tab recorded it).
-  if (providerPromise && loadedProviderId === 'osm' && googleWanted()) providerPromise = null;
-  if (providerPromise && loadedProviderId === 'google' && !googleWanted()) {
-    providerPromise = null;
-    loadedProviderId = null;
-  }
+  // The provider must follow the current verdict: back on Google once a block has
+  // expired, and off Google as soon as one is in force (even if another tab
+  // recorded it). Judged by the kind being loaded, so a load in progress counts.
+  const want = googleWanted() ? 'google' : 'osm';
+  if (providerPromise && providerKind !== want) providerPromise = null;
   if (!providerPromise) {
-    providerPromise = loadProvider().catch((err) => {
-      providerPromise = null;
-      throw err;
-    });
+    providerKind = want;
+    const promise = loadProvider().then(
+      (provider) => {
+        if (providerPromise === promise) providerKind = provider.id;
+        return provider;
+      },
+      (err) => {
+        if (providerPromise === promise) providerPromise = null;
+        throw err;
+      },
+    );
+    providerPromise = promise;
   }
   return providerPromise;
 }
@@ -102,8 +110,8 @@ async function loadProvider() {
         onUnavailable: handleGoogleUnavailable,
       });
       await provider.ready();
-      loadedProviderId = provider.id;
-      return provider;
+      // Blocked while the SDK was loading (e.g. by another tab): don't use it.
+      if (googleWanted()) return provider;
     } catch (err) {
       if (!(err instanceof ProviderUnavailableError)) console.error(err);
       markGoogleUnavailable(err);
@@ -112,11 +120,11 @@ async function loadProvider() {
   const { createOsmProvider } = await import('./providers/osm.js');
   const provider = createOsmProvider();
   await provider.ready?.();
-  loadedProviderId = provider.id;
   return provider;
 }
 
 function markGoogleUnavailable(err) {
+  googleFailures++;
   const reason = err instanceof ProviderUnavailableError ? err.reason : 'load-failed';
   console.warn(`Google unavailable (${reason}); switching to OpenStreetMap`, err);
   const block = reason === 'not-configured' ? { reason, until: Infinity } : setGoogleBlock(reason);
@@ -144,7 +152,11 @@ async function withProvider(fn) {
 
 /** Google reported a failure outside a call we made (e.g. key rejected while drawing the map). */
 function handleGoogleUnavailable(err) {
-  if (loadedProviderId !== 'google') return;
+  if (providerKind !== 'google') {
+    // Already off Google; still note it, in case a search on Google is finishing.
+    googleFailures++;
+    return;
+  }
   markGoogleUnavailable(err);
   providerPromise = null;
   getProvider()
@@ -504,6 +516,7 @@ async function runSearch({ request = null, redo = false } = {}) {
     if (request.departurePast) resetDepartureToNow();
   }
   lastRequest = request;
+  const failuresBefore = googleFailures;
   setBusy(true);
   showStatus('progress', PROGRESS_TEXT.geocode);
   const progress = (step) => {
@@ -547,9 +560,10 @@ async function runSearch({ request = null, redo = false } = {}) {
       return { res, provider, query };
     });
     if (!result || seq !== searchSeq) return;
-    // Google failed while this search was running (e.g. the map showed its error
-    // screen late): its results would sit on a broken Google map, so redo it.
-    if (result.provider.id === 'google' && !googleWanted() && !redo) {
+    // Google failed in this page while the search was running (e.g. the map showed
+    // its error screen late): its results would sit on a broken map, so redo it.
+    // (A block recorded by another tab doesn't make this tab's results wrong.)
+    if (result.provider.id === 'google' && googleFailures !== failuresBefore && !redo) {
       return await runSearch({ request, redo: true });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
