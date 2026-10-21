@@ -574,3 +574,113 @@ test('a block recorded by another tab during a search does not throw away this t
   assert.equal(osmLog.overpass.length, 0);
   await context.close();
 });
+
+test('a Google map that breaks after another tab blocked Google: its results move to OpenStreetMap', async () => {
+  const { page, context, osmLog } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 200, lateOverlayMs: 4000 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.ok(await page.locator('#map .fake-google-map').count());
+  const other = await context.newPage();
+  await other.goto(page.url().split('?')[0]);
+  await other.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 120e3).toISOString() })),
+  );
+  await other.close();
+  // Typing asks for suggestions, so this tab now uses OpenStreetMap; then the Google map shows its error screen.
+  await page.locator('#input-a').focus();
+  await page.keyboard.type('בא');
+  await page.locator('#map.leaflet-container').waitFor({ timeout: 20000 });
+  await page.locator('#map .pin-a').first().waitFor();
+  assert.ok(osmLog.overpass.length >= 1);
+  assert.match(await page.locator('#provider-note').textContent(), /OpenStreetMap/);
+  assert.equal(await page.locator('#place-list .rating').count(), 0);
+  await context.close();
+});
+
+// Service worker updates: the test server stamps sw.js with a version, like a deploy.
+async function swSetup() {
+  const server = await startServer({ overrides: { '/config.js': configJs('') } });
+  servers.push(server);
+  server.setVersion('v1');
+  const context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+  await blockExternal(context, [server.url, 'data:']);
+  const page = await context.newPage();
+  await page.goto(server.url);
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+  });
+  await page.close();
+  // A page the network is too slow to open (4 s) is opened from the cache.
+  server.delays['/index.html'] = 6000;
+  const cachePage = await context.newPage();
+  await cachePage.goto(server.url);
+  delete server.delays['/index.html'];
+  return { server, context, cachePage };
+}
+
+const swState = (page) =>
+  page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    return { waiting: Boolean(reg?.waiting), installing: Boolean(reg?.installing), active: reg?.active?.state, caches: (await caches.keys()).sort() };
+  });
+
+async function swUntil(page, fn, timeout = 15000) {
+  const end = Date.now() + timeout;
+  let state;
+  while (Date.now() < end) {
+    state = await swState(page);
+    if (fn(state)) return state;
+    await page.waitForTimeout(100);
+  }
+  assert.fail(`timed out: ${JSON.stringify(state)}`);
+}
+
+const swUpdate = (page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update().catch(() => {}));
+const recheck = (page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting?.postMessage('recheck'));
+
+test('service worker: a new version waits while a page opened from the cache is open, and takes over once it reloads', async () => {
+  const { server, context, cachePage } = await swSetup();
+  server.setVersion('v2');
+  await swUpdate(cachePage);
+  await swUntil(cachePage, (s) => s.waiting && !s.installing);
+  // Still the page opened from the cache: keep waiting, its files still come from v1.
+  await recheck(cachePage);
+  await cachePage.waitForTimeout(500);
+  assert.ok((await swState(cachePage)).waiting);
+  const lazy = await cachePage.evaluate(async () => (await fetch('js/ui/map-leaflet.js')).headers.get('x-version'));
+  assert.equal(lazy, 'v1');
+  // Reloaded from the network: the page asks again, and the new version takes over.
+  await cachePage.reload();
+  await recheck(cachePage);
+  await swUntil(cachePage, (s) => !s.waiting && s.caches.join() === 'inthemiddle-v2');
+  server.setOffline(true);
+  const offline = await cachePage.evaluate(async () => (await fetch('js/providers/osm.js')).headers.get('x-version'));
+  assert.equal(offline, 'v2');
+  await context.close();
+});
+
+test('service worker: a held-back version activating during the next deploy\'s install keeps that deploy\'s cache', async () => {
+  const { server, context, cachePage } = await swSetup();
+  server.setVersion('v2');
+  await swUpdate(cachePage);
+  await swUntil(cachePage, (s) => s.waiting && !s.installing);
+  // The next deploy installs slowly; the page holding v2 back closes meanwhile, so v2 activates.
+  server.setVersion('v3');
+  server.delays['*'] = 3000;
+  server.delays['/sw.js'] = 0;
+  swUpdate(cachePage).catch(() => {}); // the page closes before the slow install ends
+  await swUntil(cachePage, (s) => s.installing, 8000);
+  await cachePage.close();
+  // Any page of the site will do to look at the caches from.
+  const page = await context.newPage();
+  await page.goto(`${server.url}manifest.webmanifest`);
+  delete server.delays['*'];
+  const state = await swUntil(page, (s) => !s.waiting && !s.installing && s.active === 'activated' && !s.caches.includes('inthemiddle-v2'), 20000);
+  assert.deepEqual(state.caches, ['inthemiddle-v3']);
+  server.setOffline(true);
+  await page.goto(`${server.url}?a=q&b=r`);
+  assert.equal(await page.locator('h1').textContent(), 'מקום באמצע');
+  await context.close();
+});

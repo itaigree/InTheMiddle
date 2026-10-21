@@ -65,8 +65,23 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      await Promise.all(names.filter((n) => n.startsWith(PREFIX) && n !== CACHE).map((n) => caches.delete(n)));
+      // A newer deploy's worker may be filling its cache right now (this one was
+      // held back): leave the clean-up to it, it does the same when it activates.
+      if (!self.registration.installing) {
+        await Promise.all(names.filter((n) => n.startsWith(PREFIX) && n !== CACHE).map((n) => caches.delete(n)));
+      }
       await self.clients.claim();
+    })(),
+  );
+});
+
+// Pages ask a held-back worker to check again when they load or come back into
+// view: the page opened from an older cache may have been closed or reloaded since.
+self.addEventListener('message', (event) => {
+  if (event.data !== 'recheck') return;
+  event.waitUntil(
+    (async () => {
+      if (!(await pageOpenedFromOlderCache())) await self.skipWaiting();
     })(),
   );
 });

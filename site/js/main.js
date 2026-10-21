@@ -153,8 +153,11 @@ async function withProvider(fn) {
 /** Google reported a failure outside a call we made (e.g. key rejected while drawing the map). */
 function handleGoogleUnavailable(err) {
   if (providerKind !== 'google') {
-    // Already off Google; still note it, in case a search on Google is finishing.
-    googleFailures++;
+    // Already off Google (e.g. another tab blocked it). Still note it: a search on
+    // Google that is finishing redoes itself, and this tab won't go back too soon.
+    markGoogleUnavailable(err);
+    // Results shown on the broken Google map move to the current provider.
+    if (lastRequest && !searching && lastResult?.providerId === 'google') runSearch({ request: lastRequest });
     return;
   }
   markGoogleUnavailable(err);
@@ -808,9 +811,23 @@ function init() {
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     // Never awaited: registration can stay pending (e.g. when service workers are blocked).
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker', err));
+      navigator.serviceWorker.register('sw.js').then(recheckWaitingWorker, (err) => console.warn('service worker', err));
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') recheckWaitingWorker();
     });
   }
+}
+
+/**
+ * A new version waits while a page opened from the offline copy is open (sw.js).
+ * That page may be gone by now (e.g. reloaded), so ask the new version to check again.
+ */
+function recheckWaitingWorker() {
+  navigator.serviceWorker
+    .getRegistration()
+    .then((reg) => reg?.waiting?.postMessage('recheck'))
+    .catch(() => {});
 }
 
 init();

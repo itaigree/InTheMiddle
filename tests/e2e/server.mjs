@@ -24,9 +24,15 @@ const TYPES = {
  * e.g. {'/config.js': 'window.APP_CONFIG = {...}'}. `setOffline(true)` makes it
  * drop every connection, which (unlike Playwright's offline mode) also affects
  * requests made by a service worker.
+ *
+ * For service worker updates: `setVersion('v2')` stamps sw.js like a deploy and
+ * tags every response with an x-version header; `delays` maps paths (or '*') to
+ * how long to wait before answering.
  */
 export async function startServer({ overrides = {} } = {}) {
   let offline = false;
+  let version = null;
+  const delays = {};
   const server = http.createServer(async (req, res) => {
     if (offline) {
       req.socket.destroy();
@@ -35,8 +41,19 @@ export async function startServer({ overrides = {} } = {}) {
     const url = new URL(req.url, 'http://localhost');
     let pathname = decodeURIComponent(url.pathname);
     if (pathname.endsWith('/')) pathname += 'index.html';
+    const servedVersion = version;
+    const delay = delays[pathname] ?? delays['*'] ?? 0;
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    if (offline) {
+      req.socket.destroy();
+      return;
+    }
+    const headers = (type) => ({
+      'content-type': type,
+      ...(servedVersion && { 'x-version': servedVersion, 'access-control-expose-headers': 'x-version' }),
+    });
     if (overrides[pathname] != null) {
-      res.writeHead(200, { 'content-type': TYPES[path.extname(pathname)] || 'text/plain' });
+      res.writeHead(200, headers(TYPES[path.extname(pathname)] || 'text/plain'));
       res.end(overrides[pathname]);
       return;
     }
@@ -46,8 +63,9 @@ export async function startServer({ overrides = {} } = {}) {
       return;
     }
     try {
-      const body = await fs.readFile(file);
-      res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
+      let body = await fs.readFile(file);
+      if (servedVersion && pathname === '/sw.js') body = body.toString().replaceAll('__BUILD__', servedVersion);
+      res.writeHead(200, headers(TYPES[path.extname(file)] || 'application/octet-stream'));
       res.end(body);
     } catch {
       res.writeHead(404).end('not found');
@@ -58,6 +76,10 @@ export async function startServer({ overrides = {} } = {}) {
   return {
     url: `http://127.0.0.1:${port}/`,
     close: () => new Promise((r) => server.close(r)),
+    delays,
+    setVersion(value) {
+      version = value;
+    },
     setOffline(value) {
       offline = value;
       if (value) server.closeAllConnections();
