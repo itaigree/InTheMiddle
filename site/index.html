@@ -106,6 +106,18 @@
             <div id="category-chips" class="chips"></div>
           </fieldset>
 
+          <fieldset class="categories" aria-describedby="priority-hint">
+            <legend>מה חשוב יותר?</legend>
+            <div class="group priority">
+              <div class="segmented">
+                <label><input type="radio" name="priority" value="equal" /><span>זמן שווה</span></label>
+                <label><input type="radio" name="priority" value="balanced" checked /><span>מאוזן</span></label>
+                <label><input type="radio" name="priority" value="short" /><span>נסיעה קצרה</span></label>
+              </div>
+              <p id="priority-hint" class="priority-hint">זמן דומה לשני הצדדים, בלי להאריך את הדרך.</p>
+            </div>
+          </fieldset>
+
           <fieldset class="categories">
             <legend>סינון</legend>
             <div class="group">

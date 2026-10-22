@@ -7,7 +7,7 @@
 //   searchPlaces(center, radiusMeters, categoryIds) -> Place[]  (best-first within each category)
 // See js/providers/README.md for the full contract.
 
-import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadiusFor } from './midpoint.js';
+import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadii } from './midpoint.js';
 import { samplePath, pointAtFraction, straightPath, pathLength, valuesAlongPath, haversine } from './geo.js';
 import { rankPlaces, dedupePlaces } from './ranking.js';
 import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
@@ -19,7 +19,7 @@ import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
 export const MAX_CANDIDATES = 40;
 /** Fine sampling used when driving times come from the route itself (no API calls). */
 const TIMELINE_FRACTIONS = Array.from({ length: 49 }, (_, i) => (i + 1) / 50);
-/** Below this many places around the midpoint, the search area is widened once. */
+/** Below this many places around the midpoint, the search area is widened (step by step). */
 const MIN_PLACES = 6;
 
 const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
@@ -32,6 +32,7 @@ const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
  * @param {'car'|'transit'} query.modeB
  * @param {string[]} query.categories
  * @param {Date|null} query.departure  null = leave now
+ * @param {'equal'|'balanced'|'short'} [query.priority]  what matters more (see ranking.js)
  * @param {object} provider
  * @param {{onProgress?: (step: string) => void}} [hooks]
  */
@@ -164,39 +165,54 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
   let midpoint;
   let radius;
   let ranked = [];
+  const radii = searchRadii(routeMeters);
+  const maxCandidates = Math.min(MAX_CANDIDATES, provider.maxCandidates || MAX_CANDIDATES);
+  const rankOptions = { preferOpen: !departure, priority: query.priority };
   // Usually one pass. If transit turns out unusable for the candidates, the
   // midpoint was balanced for transit: re-balance for driving and search again.
-  for (let pass = 0; pass < 2; pass++) {
+  passes: for (let pass = 0; pass < 2; pass++) {
     balance = findEqualTimeFraction(fractions, times.a, times.b);
     midpoint = pointAtFraction(path, balance.fraction);
+    ranked = [];
 
     onProgress('places');
-    radius = searchRadiusFor(routeMeters);
-    let places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories)).filter(keep);
-    if (places.length < MIN_PLACES) {
-      radius *= 2;
-      places = dedupePlaces(await provider.searchPlaces(midpoint, radius, categories)).filter(keep);
-    }
-    const candidates = selectCandidates(places, Math.min(MAX_CANDIDATES, provider.maxCandidates || MAX_CANDIDATES));
-    if (!candidates.length) break;
+    // Too few places (or none either side can reach) around the middle: look
+    // further out, step by step. Places found nearer the middle stay first in
+    // line, and none has its (billed) travel times checked twice.
+    const found = [];
+    const checked = new Set();
+    for (let step = 0; step < radii.length && !ranked.length; step++) {
+      radius = radii[step];
+      if (step) onProgress('wider');
+      found.push(...(await provider.searchPlaces(midpoint, radius, categories)));
+      const places = dedupePlaces(found).filter(keep);
+      if (places.length < MIN_PLACES && step < radii.length - 1) continue;
+      const candidates = selectCandidates(
+        places.filter((p) => !checked.has(p.id)),
+        maxCandidates,
+      );
+      if (!candidates.length) continue;
+      for (const p of candidates) checked.add(p.id);
 
-    onProgress('times');
-    let placeTimes = await timesTo(candidates);
-    const dropped = dropUnusableTransit(placeTimes);
-    if (dropped.length && pass === 0) {
-      await resampleAfterDrop(dropped);
-      const nextBalance = findEqualTimeFraction(fractions, times.a, times.b);
-      const nextMidpoint = pointAtFraction(path, nextBalance.fraction);
-      if (haversine(midpoint, nextMidpoint) > Math.min(radius / 2, 1000)) continue;
-      // The balance point barely moved: the same places still fit, so only the
-      // side that switched to driving needs new (billed) travel times. The map
-      // keeps showing the area that was actually searched (old midpoint).
-      balance = nextBalance;
+      onProgress('times');
+      let placeTimes = await timesTo(candidates);
+      const dropped = dropUnusableTransit(placeTimes);
+      if (dropped.length && pass === 0) {
+        await resampleAfterDrop(dropped);
+        const nextBalance = findEqualTimeFraction(fractions, times.a, times.b);
+        const nextMidpoint = pointAtFraction(path, nextBalance.fraction);
+        if (haversine(midpoint, nextMidpoint) > Math.min(radius / 2, 1000)) continue passes;
+        // The balance point barely moved: the same places still fit, so only the
+        // side that switched to driving needs new (billed) travel times. The map
+        // keeps showing the area that was actually searched (old midpoint).
+        balance = nextBalance;
+      }
+      if (dropped.length) placeTimes = await timesTo(candidates, null, unchanged(placeTimes, dropped));
+      ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, rankOptions);
     }
-    if (dropped.length) placeTimes = await timesTo(candidates, null, unchanged(placeTimes, dropped));
-    ranked = rankPlaces(candidates, placeTimes.a, placeTimes.b, { preferOpen: !departure });
     break;
   }
+  if (radius > radii[0]) notices.push('widened');
 
   return {
     providerId: provider.id,
@@ -211,6 +227,7 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     midpoint,
     radius,
     balance,
+    priority: query.priority || 'balanced',
     places: ranked,
     notices,
   };

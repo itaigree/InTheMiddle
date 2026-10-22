@@ -4,19 +4,26 @@ const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
 
 /** Minutes of "travel" a great rating is worth; a poor rating costs the same. */
 const RATING_WEIGHT_MIN = 6;
-/** How much each minute of imbalance between the sides counts against a place. */
-const IMBALANCE_WEIGHT = 1.2;
+/**
+ * What the user said matters more, as how much each minute of difference
+ * between the sides counts against a place (on top of the average trip):
+ * equal  – both sides travel about the same, even if both travel longer;
+ * short  – as little travel as possible, even if one side travels longer;
+ * balanced – in between (the longer trip plus 1.2× the difference).
+ */
+export const PRIORITIES = { equal: 3.5, balanced: 1.7, short: 0.2 };
 /** Penalty (minutes) for a place known to be closed when leaving now. */
 const CLOSED_PENALTY_MIN = 15;
 
 /**
- * Lower score is better: the longer of the two trips, plus the imbalance between
- * them, adjusted by rating (weighted by how many reviews back it up).
+ * Lower score is better: the average of the two trips plus the difference
+ * between them (weighted by `priority`), adjusted by rating (weighted by how
+ * many reviews back it up).
  */
-export function scorePlace(place, timeA, timeB, { preferOpen = false } = {}) {
-  const maxMin = Math.max(timeA, timeB) / 60;
+export function scorePlace(place, timeA, timeB, { preferOpen = false, priority = 'balanced' } = {}) {
+  const meanMin = (timeA + timeB) / 2 / 60;
   const diffMin = Math.abs(timeA - timeB) / 60;
-  let score = maxMin + IMBALANCE_WEIGHT * diffMin;
+  let score = meanMin + (PRIORITIES[priority] ?? PRIORITIES.balanced) * diffMin;
   if (Number.isFinite(place.rating) && place.rating > 0) {
     const confidence = Math.min(1, Math.log10((place.ratingCount || 0) + 1) / 3);
     score -= (place.rating - 4) * RATING_WEIGHT_MIN * confidence;
@@ -40,6 +47,13 @@ export function rankPlaces(places, timesA, timesB, options = {}) {
       diff: Math.abs(timeA - timeB),
       score: scorePlace(place, timeA, timeB, options),
     }))
+    .sort((x, y) => x.score - y.score);
+}
+
+/** `ranked` (from rankPlaces) scored again with other options, e.g. another priority. */
+export function rerankPlaces(ranked, options = {}) {
+  return ranked
+    .map((p) => ({ ...p, score: scorePlace(p, p.timeA, p.timeB, options) }))
     .sort((x, y) => x.score - y.score);
 }
 

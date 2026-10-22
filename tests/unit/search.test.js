@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findMiddle, selectCandidates, MAX_CANDIDATES } from '../../site/js/core/search.js';
 import { haversine } from '../../site/js/core/geo.js';
+import { searchRadii } from '../../site/js/core/midpoint.js';
 import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
 const HAIFA = { label: 'חיפה', lat: 32.794, lng: 34.9896 };
@@ -119,12 +120,72 @@ test('no transit service (e.g. Shabbat) switches that side to driving', async ()
   assert.ok(result.places.length > 0);
 });
 
-test('too few places widens the search once', async () => {
+test('too few places widens the search step by step, up to a limit, with a notice', async () => {
   const provider = fakeProvider({ placesPerCategory: 2 });
   const result = await findMiddle({ ...baseQuery, categories: ['cafe'] }, provider);
+  const radii = provider.calls.searchPlaces.map((c) => c.radius);
+  // Haifa–Tel Aviv: ~97 km of road → 6.8 km, doubled, then a quarter of the trip.
+  assert.deepEqual(radii, searchRadii(result.routeMeters));
+  assert.equal(radii.length, 3);
+  assert.equal(result.radius, Math.round(result.routeMeters / 4));
+  assert.ok(result.notices.includes('widened'));
+  // The few places found are still shown, their times checked once.
+  assert.equal(result.places.length, 2);
+  assert.equal(provider.calls.travelTimes.length, 2);
+});
+
+test('the search stops widening once enough places turn up', async () => {
+  const provider = fakeProvider({ placesPerCategory: 3 });
+  // Nothing in the middle itself; plenty a little further out.
+  const searchPlaces = provider.searchPlaces;
+  provider.searchPlaces = async (center, radius, categories) => {
+    const places = await searchPlaces.call(provider, center, radius, categories);
+    return provider.calls.searchPlaces.length === 1 ? [] : places;
+  };
+  const result = await findMiddle(baseQuery, provider);
   assert.equal(provider.calls.searchPlaces.length, 2);
-  assert.equal(provider.calls.searchPlaces[1].radius, provider.calls.searchPlaces[0].radius * 2);
-  assert.equal(result.radius, provider.calls.searchPlaces[1].radius);
+  assert.ok(result.notices.includes('widened'));
+  assert.equal(result.places.length, 6);
+});
+
+test('places nobody can reach send the search further out, checking only new places', async () => {
+  const provider = fakeProvider();
+  const travelTimes = provider.travelTimes;
+  // The places of the first search area can't be reached; the wider area's can.
+  let first = true;
+  provider.travelTimes = async (origins, dests, mode) => {
+    const times = await travelTimes.call(provider, origins, dests, mode);
+    if (dests.length === 8) return times; // the route samples
+    const unreachable = first;
+    first = false;
+    return unreachable ? times.map((row) => row.map(() => null)) : times;
+  };
+  const searchPlaces = provider.searchPlaces;
+  provider.searchPlaces = async (center, radius, categories) => {
+    const places = await searchPlaces.call(provider, center, radius, categories);
+    // The wider area also has places of its own.
+    return provider.calls.searchPlaces.length > 1 ? [...places, ...places.map((p) => ({ ...p, id: `far-${p.id}`, name: `far ${p.name}`, lat: p.lat + 0.05 }))] : places;
+  };
+  const result = await findMiddle(baseQuery, provider);
+  assert.equal(provider.calls.searchPlaces.length, 2);
+  assert.ok(result.places.length > 0);
+  assert.ok(result.places.every((p) => p.id.startsWith('far-')));
+  // Places already checked weren't checked (billed) again.
+  assert.deepEqual(provider.calls.travelTimes.map((c) => c.destinations), [8, 10, 10]);
+});
+
+test('what matters more changes the order, not the places', async () => {
+  // A 3x faster side: the middle is off-center, so places differ in both total and balance.
+  const results = {};
+  for (const priority of ['equal', 'balanced', 'short']) {
+    results[priority] = await findMiddle({ ...baseQuery, priority }, fakeProvider({ speedA: 30, speedB: 10 }));
+  }
+  const ids = (r) => r.places.map((p) => p.id);
+  assert.deepEqual(ids(results.equal).slice().sort(), ids(results.short).slice().sort());
+  assert.equal(results.short.priority, 'short');
+  const meanOfTop = (r) => (r.places[0].timeA + r.places[0].timeB) / 2;
+  assert.ok(results.equal.places[0].diff <= results.short.places[0].diff);
+  assert.ok(meanOfTop(results.short) <= meanOfTop(results.equal));
 });
 
 test('provider unavailability propagates so the app can switch providers', async () => {

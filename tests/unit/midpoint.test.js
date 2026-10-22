@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findEqualTimeFraction, searchRadiusFor, SAMPLE_FRACTIONS } from '../../site/js/core/midpoint.js';
+import { findEqualTimeFraction, searchRadiusFor, searchRadii, SAMPLE_FRACTIONS } from '../../site/js/core/midpoint.js';
 
 const near = (x, y, eps = 1e-6) => Math.abs(x - y) < eps;
 
@@ -99,4 +99,19 @@ test('searchRadiusFor scales with distance within bounds', () => {
   assert.equal(searchRadiusFor(5000), 1500);
   assert.equal(searchRadiusFor(100000), 7000);
   assert.equal(searchRadiusFor(1000000), 12000);
+});
+
+test('searchRadii widens by doubling, up to a quarter of the trip (5–30 km)', () => {
+  // A short trip: 1.5 km, then 3 km, then 5 km at most.
+  assert.deepEqual(searchRadii(10000), [1500, 3000, 5000]);
+  // Haifa–Tel Aviv-like: 7 km, 14 km, 25 km.
+  assert.deepEqual(searchRadii(100000), [7000, 14000, 25000]);
+  // A long trip: 12 km, then straight to 30 km (24 km would barely be a step).
+  assert.deepEqual(searchRadii(400000), [12000, 30000]);
+  for (const meters of [3000, 50000, 171000, 2000000]) {
+    const radii = searchRadii(meters);
+    assert.equal(radii[0], searchRadiusFor(meters));
+    assert.ok(radii.length >= 2 && radii.every((r, i) => !i || r > radii[i - 1]));
+    assert.ok(radii[radii.length - 1] <= 30000);
+  }
 });

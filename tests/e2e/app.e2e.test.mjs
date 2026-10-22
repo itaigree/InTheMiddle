@@ -228,6 +228,38 @@ test('free mode, phone, reduced motion: the zoomed-in place and its name stay cl
   await context.close();
 });
 
+test('free mode: nothing in the middle itself → the search widens until it finds places; the priority re-sorts them', async () => {
+  const { page, osmLog, errors, context } = await openApp({ osm: { emptyWithin: 10000 } });
+  // The usual priority is the balanced one.
+  assert.equal(await page.locator('input[name="priority"]:checked').getAttribute('value'), 'balanced');
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.equal(osmLog.overpass.length, 2);
+  assert.ok((await page.locator('#place-list .place-card').count()) >= 5);
+  assert.match(await page.locator('#status').textContent(), /הרחבנו את החיפוש עד \d+ ק״מ מנקודת האמצע/);
+
+  // "Short trip": the same places in a new order, right away, without asking any server again.
+  const requests = osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length;
+  await page.locator('input[name="priority"][value="short"]').check({ force: true });
+  assert.match(await page.locator('#priority-hint').textContent(), /כמה שפחות נסיעה/);
+  assert.match(await page.locator('#results-summary').textContent(), /מסודרים קודם לפי כמה הנסיעה קצרה/);
+  assert.equal(osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length, requests);
+  // The link to this search keeps the choice.
+  assert.equal((await sharedLink(page)).searchParams.get('f'), 'short');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a search link with a priority opens with it chosen', async () => {
+  const { page, errors, context } = await openApp({ query: '?a=%D7%97%D7%99%D7%A4%D7%94&b=%D7%AA%D7%9C%20%D7%90%D7%91%D7%99%D7%91&f=equal' });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('input[name="priority"]:checked').getAttribute('value'), 'equal');
+  assert.match(await page.locator('#results-summary').textContent(), /זמן הנסיעה שווה/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('free mode: public transit through Transitous', async () => {
   const { page, context, osmLog, errors } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');

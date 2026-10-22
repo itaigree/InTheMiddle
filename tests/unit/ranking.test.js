@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scorePlace, rankPlaces, pickTop, fairnessLevel, dedupePlaces } from '../../site/js/core/ranking.js';
+import { scorePlace, rankPlaces, rerankPlaces, pickTop, fairnessLevel, dedupePlaces } from '../../site/js/core/ranking.js';
 
 const place = (id, extra = {}) => ({ id, name: id, lat: 32, lng: 34.9, category: 'cafe', ...extra });
 
@@ -76,4 +76,25 @@ test('dedupePlaces removes same id and same name nearby', () => {
     dedupePlaces(list).map((p) => p.id),
     ['1', '3'],
   );
+});
+
+test('priority: equal favors the even split, short the shorter trips, balanced is as before', () => {
+  const even = place('even'); // 40 and 40 minutes
+  const quick = place('quick'); // 25 and 45 minutes: 10 minutes less on average
+  const score = (p, a, b, priority) => scorePlace(p, a * 60, b * 60, { priority });
+  // Balanced: the longer trip plus 1.2× the difference.
+  assert.ok(Math.abs(score(quick, 25, 45, 'balanced') - (45 + 1.2 * 20)) < 1e-9);
+  assert.ok(score(even, 40, 40, 'equal') < score(quick, 25, 45, 'equal'));
+  assert.ok(score(even, 40, 40, 'balanced') < score(quick, 25, 45, 'balanced'));
+  assert.ok(score(quick, 25, 45, 'short') < score(even, 40, 40, 'short'));
+  // Unknown priority: balanced.
+  assert.equal(score(quick, 25, 45, 'whatever'), score(quick, 25, 45, 'balanced'));
+});
+
+test('rerankPlaces re-sorts known times for another priority', () => {
+  const ranked = rankPlaces([place('even'), place('quick')], [2400, 1500], [2400, 2700], { priority: 'equal' });
+  assert.deepEqual(ranked.map((p) => p.id), ['even', 'quick']);
+  const again = rerankPlaces(ranked, { priority: 'short' });
+  assert.deepEqual(again.map((p) => p.id), ['quick', 'even']);
+  assert.equal(again[0].timeA, 1500);
 });

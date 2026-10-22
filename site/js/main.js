@@ -4,7 +4,8 @@ import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY_IDS } from './core/categorie
 import { encodeState, decodeState } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
-import { pickTop } from './core/ranking.js';
+import { pickTop, rerankPlaces } from './core/ranking.js';
+import { formatDistance } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
@@ -25,6 +26,7 @@ const PROGRESS_TEXT = {
   route: 'מחשבים את הדרך בין שתי הנקודות…',
   balance: 'מחפשים את הנקודה שבה זמן הנסיעה שווה לשני הצדדים…',
   places: 'מחפשים מקומות שווים באזור…',
+  wider: 'באמצע עצמו יש מעט מקומות, אז מחפשים קצת יותר רחוק…',
   times: 'בודקים כמה זמן לוקח להגיע לכל מקום…',
 };
 
@@ -35,11 +37,20 @@ const NOTICE_TEXT = {
     'לא מצאנו תחבורה ציבורית בזמן היציאה שנבחר (אולי שבת, חג או שעת לילה), ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'departure-past': 'זמן היציאה שנבחר כבר עבר, אז חיפשנו לפי יציאה עכשיו.',
+  widened: (result) =>
+    `באזור האמצע עצמו היו מעט מקומות, אז הרחבנו את החיפוש עד ${formatDistance(result.radius)} מנקודת האמצע.`,
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
   shabbat:
     'נשארו מעט בתי קפה ומסעדות שסגורים בשבת: מוצגים רק מקומות ששעות הפתיחה שלהם ידועות, ולהרבה מקומות אין שעות פתיחה במפות.',
   'shabbat-busy':
     'שרת המקומות החינמי עמוס, ובינתיים אין לנו שעות פתיחה, אז אי אפשר לדעת אילו בתי קפה ומסעדות סגורים בשבת. כדאי לנסות שוב בעוד כמה דקות.',
+};
+
+/** What each choice of "what matters more" means, under the choices. */
+const PRIORITY_HINT = {
+  equal: 'זמן נסיעה כמעט שווה לשני הצדדים, גם אם שניהם נוסעים יותר.',
+  balanced: 'זמן דומה לשני הצדדים, בלי להאריך את הדרך.',
+  short: 'כמה שפחות נסיעה, גם אם צד אחד נוסע יותר מהשני.',
 };
 
 /** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
@@ -239,6 +250,36 @@ function setMode(key, mode) {
   const radio = document.querySelector(`input[name="mode-${key}"][value="${mode}"]`);
   if (radio) radio.checked = true;
 }
+
+function getPriority() {
+  return document.querySelector('input[name="priority"]:checked')?.value || 'balanced';
+}
+
+function setPriority(priority) {
+  const radio = document.querySelector(`input[name="priority"][value="${priority}"]`);
+  if (radio) radio.checked = true;
+  $('priority-hint').textContent = PRIORITY_HINT[getPriority()];
+}
+
+/**
+ * A new priority re-sorts the results on screen right away: the travel times
+ * are known, only the order changes (no new searches).
+ */
+function priorityChanged() {
+  const priority = getPriority();
+  $('priority-hint').textContent = PRIORITY_HINT[priority];
+  if (!lastResult || !lastQuery) return;
+  lastQuery = { ...lastQuery, priority };
+  if (shownRequest) shownRequest = { ...shownRequest, priority };
+  lastResult.priority = priority;
+  lastResult.places = rerankPlaces(lastResult.places, { preferOpen: !lastResult.departure, priority });
+  shownLink = searchLink(lastQuery);
+  history.replaceState({ search: searchLink(lastQuery, { own: true }) }, '');
+  renderSummary($('results-summary'), lastResult);
+  renderList();
+}
+
+for (const radio of document.querySelectorAll('input[name="priority"]')) radio.addEventListener('change', priorityChanged);
 
 function selectedCategories() {
   return [...document.querySelectorAll('#category-chips input:checked')].map((i) => i.value);
@@ -506,6 +547,7 @@ function readForm() {
     departurePast: departure.past,
     greenLine: $('only-green-line').checked,
     shabbat: $('only-shabbat-closed').checked,
+    priority: getPriority(),
   };
 }
 
@@ -619,6 +661,7 @@ async function runSearch({ request = null, redo = false, background = false } = 
         departure: request.departure,
         greenLine: request.greenLine,
         shabbat: request.shabbat,
+        priority: request.priority,
       };
       // The filters the user chose, noting which ones left places out.
       const dropped = new Set();
@@ -655,6 +698,14 @@ async function runSearch({ request = null, redo = false, background = false } = 
     if (result.dropped.has('shabbat-busy')) result.res.notices.push('shabbat-busy');
     else if (result.dropped.has('shabbat') && places.filter((p) => SHABBAT_CATEGORIES.has(p.category)).length < 3) {
       result.res.notices.push('shabbat');
+    }
+    // The priority was changed while the search ran: sort its places the new way.
+    const priority = getPriority();
+    if (priority !== result.res.priority) {
+      result.res.priority = priority;
+      result.res.places = rerankPlaces(result.res.places, { preferOpen: !result.res.departure, priority });
+      result.query = { ...result.query, priority };
+      request = { ...request, priority };
     }
     lastQuery = result.query;
     shownRequest = request;
@@ -710,6 +761,7 @@ function searchLink(query, { own = false } = {}) {
     departure: query.departure ? toLocalInputValue(query.departure) : null,
     greenLine: query.greenLine,
     shabbat: query.shabbat,
+    priority: query.priority,
     provider: forcedProvider,
   });
   return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
@@ -813,7 +865,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
 
-  const notices = result.notices.map((n) => NOTICE_TEXT[n]).filter(Boolean);
+  const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
     notices.unshift(SWITCH_REASON_TEXT[switchBlock.reason]);
   }
@@ -926,6 +978,7 @@ function init() {
   setMode('b', state.modeB);
   $('only-green-line').checked = state.greenLine;
   $('only-shabbat-closed').checked = state.shabbat;
+  setPriority(state.priority);
   if (state.departure) {
     // A time that has passed is reset to "now" by the search, with a notice.
     departureChoice.value = 'later';

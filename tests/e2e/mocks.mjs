@@ -50,11 +50,12 @@ const TINY_PNG = Buffer.from(
  * Install OSM mocks on a Playwright page/context. Returns a log of requests per service.
  * `failOverpass: true` makes every Overpass mirror answer 504; `failPhotonPlaces: true`
  * makes Photon's nearest-places lookup answer 503; `failTransit: true` makes
- * Transitous answer 500; `noTransitService: true` returns no connections.
+ * Transitous answer 500; `noTransitService: true` returns no connections;
+ * `emptyWithin: meters` makes Overpass find nothing in searches up to that radius.
  */
 export async function mockOsm(
   target,
-  { failOverpass = false, failPhotonPlaces = false, failTransit = false, noTransitService = false } = {},
+  { failOverpass = false, failPhotonPlaces = false, failTransit = false, noTransitService = false, emptyWithin = 0 } = {},
 ) {
   const log = { photon: [], photonPlaces: [], osrmRoute: [], osrmTable: [], overpass: [], transit: [] };
   // OSM ids per tag, so places of different kinds never share an id (as in OSM).
@@ -159,6 +160,11 @@ export async function mockOsm(
     const m = body.match(/around:(\d+),([\d.]+),([\d.]+)/);
     const center = { lat: Number(m[2]), lng: Number(m[3]) };
     const elements = [];
+    const radius = Math.max(...[...body.matchAll(/around:(\d+)/g)].map((r) => Number(r[1])));
+    if (radius <= emptyWithin) {
+      route.fulfill(json({ version: 0.6, elements }));
+      return;
+    }
     const add = (tags, k) => {
       const i = elements.length;
       elements.push({

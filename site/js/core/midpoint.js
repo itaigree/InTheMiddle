@@ -79,3 +79,20 @@ export function searchRadiusFor(routeMeters) {
   const r = routeMeters * 0.07;
   return Math.round(Math.min(12000, Math.max(1500, r)));
 }
+
+/**
+ * The search radii to try, in order, while too few places turn up: the usual
+ * radius, then doubling, up to a quarter of the trip (at least 5 km, at most
+ * 30 km), so a quiet middle still finds somewhere without sending people to
+ * the far ends of the route. A last step that would barely grow is skipped.
+ */
+export function searchRadii(routeMeters) {
+  const first = searchRadiusFor(routeMeters);
+  const max = Math.round(Math.min(30000, Math.max(5000, routeMeters * 0.25)));
+  const radii = [first];
+  while (radii[radii.length - 1] < max) {
+    const next = radii[radii.length - 1] * 2;
+    radii.push(next * 1.25 >= max ? max : next);
+  }
+  return radii;
+}

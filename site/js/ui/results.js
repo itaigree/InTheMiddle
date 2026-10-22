@@ -51,6 +51,13 @@ export function guessAreaName(places, sample = 10) {
 }
 
 /** "נקודת האמצע נמצאת באזור חדרה, בערך 34 דק׳ נסיעה מכל צד." */
+/** How the list is sorted, by what the user said matters more. */
+const ORDER_TEXT = {
+  equal: 'מסודרים קודם לפי כמה זמן הנסיעה שווה לשני הצדדים.',
+  balanced: 'מסודרים לפי כמה הם מאוזנים וקרובים לשני הצדדים.',
+  short: 'מסודרים קודם לפי כמה הנסיעה קצרה.',
+};
+
 export function renderSummary(container, result) {
   container.replaceChildren();
   // Only claim an equal time when it was measured on both sides, not guessed.
@@ -66,11 +73,7 @@ export function renderSummary(container, result) {
       container.append('בערך ', el('strong', null, formatDuration(time)), ' נסיעה מכל צד. ');
     }
   }
-  container.append(
-    result.places.length
-      ? `מצאנו ${formatCount(result.places.length)} מקומות, מסודרים לפי כמה הם מאוזנים וקרובים לשני הצדדים.`
-      : '',
-  );
+  container.append(result.places.length ? `מצאנו ${formatCount(result.places.length)} מקומות, ${ORDER_TEXT[result.priority] || ORDER_TEXT.balanced}` : '');
 }
 
 /**
@@ -127,7 +130,7 @@ function openText(place) {
 export function renderPlaces(list, template, places, { modeA, modeB, numbering, photoIds, showOpenState, onSelect, onShare }) {
   list.replaceChildren();
   if (!places.length) {
-    list.append(el('li', 'empty-results', 'לא מצאנו מקומות מתאימים באזור האמצע. אפשר לנסות לבחור עוד סוגי מקומות.'));
+    list.append(el('li', 'empty-results', 'לא מצאנו מקומות מתאימים, גם אחרי שהרחבנו את החיפוש סביב האמצע. אפשר לבחור עוד סוגי מקומות, או לכבות סינון אם הוא פעיל.'));
     return;
   }
   places.forEach((place, index) => {

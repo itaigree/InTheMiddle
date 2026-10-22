@@ -587,9 +587,10 @@ body.has-map .map-placeholder {
   background: none;
 }
 
-/* Car or transit: a small segmented control. */
+/* Car or transit, and what matters more: segmented controls. */
 
-.mode-toggle {
+.mode-toggle,
+.segmented {
   display: inline-flex;
   gap: 2px;
   padding: 3px;
@@ -605,7 +606,8 @@ body.has-map .map-placeholder {
   display: block;
 }
 
-.mode-toggle input {
+.mode-toggle input,
+.segmented input {
   position: absolute;
   opacity: 0;
   pointer-events: none;
@@ -622,15 +624,54 @@ body.has-map .map-placeholder {
   transition: background 0.15s, color 0.15s;
 }
 
-.mode-toggle input:checked + span {
+.mode-toggle input:checked + span,
+.segmented input:checked + span {
   background: var(--seg-on);
   color: var(--text);
   box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
 }
 
-.mode-toggle input:focus-visible + span {
+.mode-toggle input:focus-visible + span,
+.segmented input:focus-visible + span {
   outline: 2px solid var(--text);
   outline-offset: 1px;
+}
+
+.priority {
+  padding: 8px;
+}
+
+.segmented {
+  display: flex;
+}
+
+.segmented label {
+  flex: 1;
+  min-width: 0;
+}
+
+.segmented label > span {
+  display: grid;
+  place-items: center;
+  height: 36px;
+  padding-inline: 6px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.segmented input:checked + span {
+  font-weight: 500;
+}
+
+.priority-hint {
+  margin: 8px 8px 2px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 /* Kinds of places, and the result filters: quiet chips, ink when chosen. */

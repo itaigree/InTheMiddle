@@ -32,16 +32,21 @@ test('state round-trips through the query string', () => {
     departure: '2026-10-21T18:30',
     greenLine: true,
     shabbat: true,
+    priority: 'equal',
     provider: null,
   };
   const decoded = decodeState(encodeState(state));
   assert.deepEqual(decoded, state);
   assert.match(encodeState(state), /(^|&)g=1(&|$)/);
   assert.doesNotMatch(encodeState({ ...state, greenLine: false }), /(^|&)g=/);
+  // The usual priority stays out of links.
+  assert.match(encodeState(state), /(^|&)f=equal(&|$)/);
+  assert.doesNotMatch(encodeState({ ...state, priority: 'balanced' }), /(^|&)f=/);
+  assert.equal(decodeState(encodeState({ ...state, priority: 'short' })).priority, 'short');
 });
 
 test('decodeState drops malformed values', () => {
-  const d = decodeState('a=%D7%97&all=999,1&am=plane&b=&c=cafe,,bogus&t=tomorrow&g=yes&p=bing', {
+  const d = decodeState('a=%D7%97&all=999,1&am=plane&b=&c=cafe,,bogus&t=tomorrow&g=yes&f=fast&p=bing', {
     knownCategories: ['cafe', 'park'],
   });
   assert.deepEqual(d, {
@@ -53,6 +58,7 @@ test('decodeState drops malformed values', () => {
     departure: null,
     greenLine: false,
     shabbat: false,
+    priority: 'balanced',
     provider: null,
   });
 });
