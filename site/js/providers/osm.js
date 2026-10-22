@@ -589,9 +589,9 @@ export function createOsmProvider() {
 
     searchPlaces: (center, radius, categoryIds) => overpassPlaces(center, radius, categoryIds),
 
-    async createMap(container) {
+    async createMap(container, options) {
       const { createLeafletMap } = await import('../ui/map-leaflet.js');
-      return createLeafletMap(container);
+      return createLeafletMap(container, options);
     },
   };
 }

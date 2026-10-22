@@ -735,7 +735,7 @@ function ensureMap(provider) {
       // A Google map whose key was rejected can fail on teardown; it's gone either way.
       console.warn('map teardown failed', err);
     }
-    const map = await provider.createMap($('map'));
+    const map = await provider.createMap($('map'), { overview: $('overview') });
     if (mapPromise !== promise) {
       // Superseded while loading (the provider switched).
       map.destroy();
@@ -854,7 +854,9 @@ async function drawOnMap(result, provider) {
 }
 
 function selectPlace(place, { from }) {
-  onMap((map) => map.highlight(place.id, { pan: from === 'list' }));
+  // A place picked from the list is zoomed in on (with the whole search in the
+  // corner); one picked on the map stays where the user is looking.
+  onMap((map) => map.highlight(place.id, { focus: from === 'list' }));
   setActiveCard($('place-list'), place.id, { scroll: from === 'map' });
   // On phones the map can be far above the tapped card: bring it into view.
   if (from === 'list' && window.matchMedia('(max-width: 959px)').matches) {

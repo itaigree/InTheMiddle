@@ -43,7 +43,8 @@ await provider.searchPlaces(center, radiusMeters, categoryIds)
 //   -> Place[], best-first within each category (popularity/quality)
 
 // Map view (Google content must be shown on a Google map, per Google's terms).
-await provider.createMap(containerElement)   // -> MapView
+// `overview`: the corner box for the small zoomed-out map (see MapView).
+await provider.createMap(containerElement, { overview })   // -> MapView
 ```
 
 `departure` is a `Date` or `null` (leave now).
@@ -73,10 +74,15 @@ await provider.createMap(containerElement)   // -> MapView
 view.kind                                  // 'google' | 'leaflet'
 view.showSearch({ a, b, route, midpoint, radius })  // route: [{lat,lng}] | null
 view.showPlaces(places, { numbering, onSelect })    // numbering: Map(placeId -> n)
-view.highlight(placeId, { pan })
+view.highlight(placeId, { focus })   // focus: zoom in on the place
+view.showAll()                       // zoom out to the whole search
 view.resize()
 view.destroy()
 ```
+
+While the view is zoomed in past the whole search (the two points and the places),
+it shows the `overview` box: a small map of the whole search with a frame around
+what the big map shows. Tapping the box calls `showAll()`.
 
 ### Errors
 

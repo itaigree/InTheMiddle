@@ -150,6 +150,84 @@ test('free mode: autocomplete, search, results and Leaflet map', async () => {
   await context.close();
 });
 
+/** Zoom levels of the map tiles the page asks for from now on. */
+function tileZooms(page) {
+  const zooms = [];
+  page.on('request', (req) => {
+    const m = req.url().match(/^https:\/\/tile\.openstreetmap\.org\/(\d+)\//);
+    if (m) zooms.push(Number(m[1]));
+  });
+  return zooms;
+}
+
+/** Whether `inner`'s box lies within `outer`'s. */
+async function within(inner, outer) {
+  const [a, b] = [await inner.boundingBox(), await outer.boundingBox()];
+  return a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.width <= b.x + b.width + 1 && a.y + a.height <= b.y + b.height + 1;
+}
+
+test('free mode: a place picked in the list is zoomed in on, with the whole search in a corner map', async () => {
+  const { page, errors, context } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const overview = page.locator('#overview');
+  // The map shows the whole search: no corner map yet.
+  assert.equal(await overview.isVisible(), false);
+
+  const zooms = tileZooms(page);
+  await page.locator('#place-list .place-card').nth(1).locator('.place-main').click();
+  await overview.waitFor({ state: 'visible' });
+  // Street level, with the place on the map and its name up.
+  await page.waitForFunction(() => document.querySelector('#map .leaflet-popup'));
+  assert.ok(Math.max(...zooms) >= 15, zooms.join(','));
+  assert.ok(await within(page.locator('#map .pin-place.is-active'), page.locator('#map')));
+  // The corner map: both sides, the middle, the places (the picked one marked), the route and a frame.
+  assert.ok(await page.locator('#overview .overview-map.leaflet-container').count());
+  assert.equal(await page.locator('#overview .dot-a').count(), 1);
+  assert.equal(await page.locator('#overview .dot-b').count(), 1);
+  assert.equal(await page.locator('#overview .dot-mid').count(), 1);
+  assert.equal(await page.locator('#overview .dot-place.is-active').count(), 1);
+  assert.ok((await page.locator('#overview .dot-place').count()) >= 5);
+  assert.equal(await page.locator('#overview .leaflet-overlay-pane path').count(), 2);
+  // Nothing in it takes focus; the button over it does.
+  assert.equal(await page.locator('#overview .overview-map').evaluate((el) => el.inert), true);
+
+  // Tapping it zooms back out to the whole search, and it goes away.
+  await page.locator('#overview .overview-button').click();
+  await overview.waitFor({ state: 'hidden' });
+  assert.ok(await within(page.locator('#map .pin-a'), page.locator('#map')));
+  assert.ok(await within(page.locator('#map .pin-b'), page.locator('#map')));
+
+  // A place picked on the map leaves the map where it is.
+  await page.waitForTimeout(800); // the zoom out has ended
+  await page.locator('#map .leaflet-marker-icon:has(.pin-place:not(.is-active))').first().dispatchEvent('click');
+  await page.waitForTimeout(800);
+  assert.equal(await overview.isVisible(), false);
+  assert.equal(await page.locator('#place-list .place-card.is-active').count(), 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('free mode, phone, reduced motion: the zoomed-in place and its name stay clear of the corner map', async () => {
+  const { page, errors, context } = await openApp({ viewport: { width: 390, height: 844 }, contextOptions: { reducedMotion: 'reduce' } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.locator('#place-list .place-card').nth(2).locator('.place-main').click();
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  // Measured together: the page may still be scrolling to the map.
+  const [bubbleTop, cornerBottom] = await page.evaluate(() => [
+    document.querySelector('#map .leaflet-popup-content-wrapper').getBoundingClientRect().top,
+    document.querySelector('#overview').getBoundingClientRect().bottom,
+  ]);
+  assert.ok(bubbleTop >= cornerBottom, `bubble top ${bubbleTop}, corner map bottom ${cornerBottom}`);
+  assert.ok(await within(page.locator('#map .pin-place.is-active'), page.locator('#map')));
+  await shot(page, 'osm-phone-zoomed');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('free mode: public transit through Transitous', async () => {
   const { page, context, osmLog, errors } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
@@ -313,6 +391,36 @@ test('Google mode: Google data on a Google map, with ratings and photos', async 
   await page.locator('#map .fake-marker:has(.pin-place)').first().dispatchEvent('click');
   assert.equal(await page.locator('#place-list .place-card.is-active').count(), 1);
   await shot(page, 'google-desktop');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Google mode: a place picked in the list is zoomed in on; the corner map is one more Google map, made once', async () => {
+  const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: {} });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const calls = () => page.evaluate(() => window.__fakeGoogleCalls);
+  const overview = page.locator('#overview');
+  await page.waitForTimeout(100); // the map settles after fitting
+  assert.equal(await overview.isVisible(), false);
+  // A search that's never zoomed in loads no second map.
+  assert.equal((await calls()).filter((c) => c.startsWith('overview-map:')).length, 0);
+
+  const cards = page.locator('#place-list .place-card');
+  await cards.nth(1).locator('.place-main').click();
+  await overview.waitFor({ state: 'visible' });
+  assert.ok((await calls()).includes('camera:15'));
+  assert.equal(await page.locator('#overview .fake-google-map .dot-place.is-active').count(), 1);
+  assert.equal(await page.locator('#overview .dot-a').count(), 1);
+
+  await page.locator('#overview .overview-button').click();
+  await overview.waitFor({ state: 'hidden' });
+  await cards.nth(3).locator('.place-main').click();
+  await overview.waitFor({ state: 'visible' });
+  const loads = (await calls()).filter((c) => /^(overview-)?map:/.test(c));
+  assert.deepEqual(loads, ['map:DEMO_MAP_ID', 'overview-map:DEMO_MAP_ID']);
+  assert.equal(await page.locator('#overview .dot-place.is-active').count(), 1);
   assert.deepEqual(errors, []);
   await context.close();
 });

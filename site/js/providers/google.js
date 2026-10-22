@@ -452,7 +452,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     return lists.flat();
   }
 
-  async function createMap(container) {
+  async function createMap(container, { overview } = {}) {
     // The gate exists from the moment the map starts loading, so a search that is
     // already running waits for the verdict instead of slipping past it.
     let settle;
@@ -476,6 +476,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
       const { createGoogleMapView } = await import('../ui/map-google.js');
       const pending = createGoogleMapView(container, {
         mapId,
+        overview,
         isCancelled: () => cancelled,
         onError: (reason) => {
           const err = new ProviderUnavailableError(`Google map failed (${reason})`, { reason });

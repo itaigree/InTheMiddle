@@ -91,6 +91,16 @@
       const { lat, lng } = lit(p);
       return lat >= this.s && lat <= this.n && lng >= this.w && lng <= this.e;
     }
+    getCenter() {
+      return new LatLng((this.s + this.n) / 2, (this.w + this.e) / 2);
+    }
+  }
+
+  class Point {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+    }
   }
 
   // ------------------------------------------------------------------ places
@@ -239,7 +249,8 @@
 
   class FakeMap {
     constructor(container, opts) {
-      calls.push(`map:${opts.mapId}`);
+      // The app's small overview map is the one nobody can move.
+      calls.push(`${opts.gestureHandling === 'none' ? 'overview-map' : 'map'}:${opts.mapId}`);
       if (options.lateOverlayMs) {
         setTimeout(() => {
           const err = document.createElement('div');
@@ -256,7 +267,9 @@
       this.div.textContent = 'Fake Google Map';
       container.append(this.div);
       this.bounds = new LatLngBounds({ lat: 31, lng: 34.3 }, { lat: 33, lng: 35.7 });
+      this.zoom = 8;
       this.items = new Set();
+      this.listeners = new Map();
     }
     fitBounds(bounds) {
       this.bounds = new LatLngBounds(bounds.getSouthWest(), bounds.getNorthEast());
@@ -264,14 +277,43 @@
       const padLng = (this.bounds.e - this.bounds.w) * 0.1 + 0.01;
       this.bounds.extend({ lat: this.bounds.s - padLat, lng: this.bounds.w - padLng });
       this.bounds.extend({ lat: this.bounds.n + padLat, lng: this.bounds.e + padLng });
+      // Roughly the zoom at which that span fills the map.
+      this.zoom = Math.floor(Math.log2((360 * ((this.div.clientWidth || 400) / 256)) / (this.bounds.e - this.bounds.w)));
+      this.moved();
+    }
+    moveCamera({ center, zoom }) {
+      calls.push(`camera:${zoom}`);
+      const { lat, lng } = lit(center);
+      const halfLng = ((this.div.clientWidth || 400) / 256) * (180 / 2 ** zoom);
+      const halfLat = halfLng * ((this.div.clientHeight || 300) / (this.div.clientWidth || 400)) * Math.cos((lat * Math.PI) / 180);
+      this.bounds = new LatLngBounds({ lat: lat - halfLat, lng: lng - halfLng }, { lat: lat + halfLat, lng: lng + halfLng });
+      this.zoom = zoom;
+      this.moved();
+    }
+    moved() {
       for (const item of this.items) item.place?.();
+      // Like Google: the bounds change now, the map goes idle a moment later.
+      this.fire('bounds_changed');
+      clearTimeout(this.idleTimer);
+      this.idleTimer = setTimeout(() => this.fire('idle'), 10);
+    }
+    fire(name) {
+      for (const fn of this.listeners.get(name) || []) fn();
     }
     getBounds() {
       return this.bounds;
     }
+    getZoom() {
+      return this.zoom;
+    }
     addListener(name, fn) {
+      if (name !== 'tilesloaded') {
+        if (!this.listeners.has(name)) this.listeners.set(name, new Set());
+        this.listeners.get(name).add(fn);
+        return { remove: () => this.listeners.get(name).delete(fn) };
+      }
       // With a rejected key Google shows its error screen instead of loading tiles.
-      const loads = name === 'tilesloaded' && !options.mapNeverLoads && options.authFail !== 'map';
+      const loads = !options.mapNeverLoads && options.authFail !== 'map';
       const timer = loads ? setTimeout(fn, 20) : 0;
       return { remove: () => clearTimeout(timer) };
     }
@@ -300,6 +342,11 @@
   }
   class Polyline extends Overlay {}
   class Circle extends Overlay {}
+  class Rectangle extends Overlay {
+    setBounds(bounds) {
+      this.bounds = bounds;
+    }
+  }
 
   class InfoWindow {
     setContent(el) {
@@ -350,10 +397,10 @@
   }
 
   const libraries = {
-    core: { LatLng, LatLngBounds, MapsNetworkError, MapsRequestError, MapsServerError },
+    core: { LatLng, LatLngBounds, Point, MapsNetworkError, MapsRequestError, MapsServerError },
     places: { Place, AutocompleteSuggestion, AutocompleteSessionToken },
     routes: { Route, RouteMatrix },
-    maps: { Map: FakeMap, Polyline, Circle, InfoWindow },
+    maps: { Map: FakeMap, Polyline, Circle, Rectangle, InfoWindow },
     marker: { AdvancedMarkerElement },
   };
 

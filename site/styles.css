@@ -206,6 +206,64 @@ select {
 .map {
   position: absolute;
   inset: 0;
+  isolation: isolate; /* the map's own layers stay under the overview */
+}
+
+/* While the map is zoomed in: the whole search, small, in the corner. */
+.overview {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  width: clamp(112px, 30%, 176px);
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  transition: border-color 0.15s;
+}
+
+.overview:hover {
+  border-color: var(--muted);
+}
+
+.overview-map {
+  position: absolute;
+  inset: 0;
+}
+
+.overview-button {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  cursor: zoom-out;
+}
+
+.overview-button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.overview-icon {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .map-placeholder {
@@ -1225,20 +1283,69 @@ body.has-map .map-placeholder {
   border: 3px solid var(--mid);
 }
 
+/* The overview's markers: dots, sized by their maps. */
+.dot {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.dot-a,
+.dot-b {
+  border: 1.5px solid #fff;
+}
+
+.dot-a {
+  background: var(--side-a);
+}
+
+.dot-b {
+  background: var(--side-b);
+}
+
+.dot-mid {
+  background: var(--bg);
+  border: 2px solid var(--mid);
+}
+
+.dot-place {
+  background: var(--mid);
+  border: 1px solid var(--bg);
+  opacity: 0.75;
+}
+
+.dot-place.is-active {
+  background: var(--bg);
+  border: 2.5px solid var(--mid);
+  opacity: 1;
+}
+
 /* leaflet.css is loaded after this file, so these need the extra specificity. */
-.map.leaflet-container {
+.map.leaflet-container,
+.overview-map.leaflet-container {
   font-family: var(--font);
   background: var(--surface-2);
 }
 
 /* A quiet, grey map: only the two points, the middle and the places have color. */
-.map.leaflet-container .leaflet-tile-pane {
+.map.leaflet-container .leaflet-tile-pane,
+.overview-map.leaflet-container .leaflet-tile-pane {
   filter: grayscale(1) contrast(0.92) brightness(1.04);
 }
 
+/* Tiles that land on a fraction of a pixel leave hairline gaps between them in
+   Chrome; a transparent outline closes them. */
+.map.leaflet-container .leaflet-tile,
+.overview-map.leaflet-container .leaflet-tile {
+  outline: 1px solid transparent;
+}
+
+/* Dark: the map turned over, lifted to a soft charcoal, keeping a little of its
+   color (sea, parks, main roads) so it isn't a black sheet. */
 @media (prefers-color-scheme: dark) {
-  .map.leaflet-container .leaflet-tile-pane {
-    filter: grayscale(1) invert(1) contrast(0.85) brightness(0.9);
+  .map.leaflet-container .leaflet-tile-pane,
+  .overview-map.leaflet-container .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(1.4) contrast(0.75) saturate(0.55);
   }
 }
 
