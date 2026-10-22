@@ -15,7 +15,6 @@ const SHELL = [
   './',
   'index.html',
   'styles.css',
-  'designs.css',
   'config.js',
   'manifest.webmanifest',
   'data/green-line.json',

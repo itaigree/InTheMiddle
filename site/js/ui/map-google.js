@@ -127,11 +127,11 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       placeMarkers = new Map();
       activeId = null;
       info.close();
-      const color = cssVar('--mid', '#7c3aed');
+      const color = cssVar('--mid', '#161616');
       searchOverlays = [];
       if (route?.length >= 2) {
         searchOverlays.push(
-          new Polyline({ map, path: route, strokeColor: '#0f766e', strokeOpacity: 0.6, strokeWeight: 5, clickable: false }),
+          new Polyline({ map, path: route, strokeColor: cssVar('--route', '#161616'), strokeOpacity: 0.45, strokeWeight: 4, clickable: false }),
         );
       }
       searchOverlays.push(

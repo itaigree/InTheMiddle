@@ -67,9 +67,11 @@ export async function createLeafletMap(container) {
       placesLayer.clearLayers();
       markers.clear();
       activeId = null;
-      const color = getComputedStyle(document.documentElement).getPropertyValue('--mid').trim() || '#7c3aed';
+      const css = getComputedStyle(document.documentElement);
+      const color = css.getPropertyValue('--mid').trim() || '#161616';
       if (route?.length >= 2) {
-        L.polyline(route.map((p) => [p.lat, p.lng]), { color: '#0f766e', weight: 5, opacity: 0.55 }).addTo(searchLayer);
+        const routeColor = css.getPropertyValue('--route').trim() || '#161616';
+        L.polyline(route.map((p) => [p.lat, p.lng]), { color: routeColor, weight: 4, opacity: 0.45 }).addTo(searchLayer);
       }
       L.circle([midpoint.lat, midpoint.lng], {
         radius,

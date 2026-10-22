@@ -8,8 +8,8 @@
       name="description"
       content="מכניסים שתי נקודות יציאה, ומקבלים בתי קפה, קניונים, פארקים ומקומות יפים שנמצאים באותו זמן נסיעה משני הצדדים."
     />
-    <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0b1f1d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e0e0f" media="(prefers-color-scheme: dark)" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon-180.png" />
@@ -17,61 +17,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap"
     />
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="designs.css" />
-    <script>
-      // Design trial: ?design=1…4 picks a design (remembered on this device), ?design=0 the original.
-      (() => {
-        const FONTS = {
-          1: 'Heebo:wght@400;500;800',
-          2: 'Frank+Ruhl+Libre:wght@500;700&family=Assistant:wght@400;600;700',
-          3: 'Secular+One&family=Assistant:wght@400;600;700',
-          4: 'Heebo:wght@300;400;500;700',
-        };
-        let design = '';
-        try {
-          const asked = new URLSearchParams(location.search).get('design');
-          if (asked !== null) localStorage.setItem('inthemiddle.design', asked);
-          design = localStorage.getItem('inthemiddle.design') || '';
-        } catch {
-          // No storage: the original design.
-        }
-        const apply = (d) => {
-          if (FONTS[d]) {
-            document.documentElement.dataset.design = d;
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = `https://fonts.googleapis.com/css2?family=${FONTS[d]}&display=swap`;
-            document.head.append(link);
-          } else delete document.documentElement.dataset.design;
-        };
-        apply(design);
-        if (design === '') return;
-        // A small switcher while trying the designs out.
-        addEventListener('DOMContentLoaded', () => {
-          const bar = document.createElement('div');
-          bar.className = 'design-switcher';
-          bar.setAttribute('dir', 'rtl');
-          bar.append('עיצוב:');
-          for (const d of ['0', '1', '2', '3', '4']) {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.textContent = d === '0' ? 'מקורי' : d;
-            b.setAttribute('aria-pressed', String(d === design));
-            b.addEventListener('click', () => {
-              try {
-                localStorage.setItem('inthemiddle.design', d);
-              } catch {}
-              location.reload();
-            });
-            bar.append(b);
-          }
-          document.body.append(bar);
-        });
-      })();
-    </script>
     <script src="config.js"></script>
     <script type="module" src="js/main.js"></script>
   </head>
@@ -80,7 +28,7 @@
     <main class="layout">
       <div class="panel">
         <header class="app-header">
-          <img class="app-logo" src="icons/icon.svg" alt="" width="40" height="40" />
+          <svg class="brand-mark" viewBox="0 0 44 16" aria-hidden="true"><path class="brand-line" d="M6 8h32" /><circle class="brand-a" cx="38" cy="8" r="4" /><circle class="brand-b" cx="6" cy="8" r="4" /><circle class="brand-mid" cx="22" cy="8" r="5.5" /></svg>
           <div>
             <h1>מקום באמצע</h1>
             <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
@@ -91,7 +39,7 @@
             <div class="endpoint" data-side="a">
               <label class="endpoint-label" for="input-a">
                 <span class="side-badge side-a" aria-hidden="true">א</span>
-                נקודת יציאה א׳
+                <span class="sr-only">נקודת יציאה א׳</span>
               </label>
               <div class="combo">
                 <input
@@ -113,8 +61,8 @@
                 <ul id="list-a" class="suggestions" role="listbox" aria-label="הצעות לנקודה א׳" hidden></ul>
               </div>
               <div class="mode-toggle" role="radiogroup" aria-label="איך מגיעים מנקודה א׳">
-                <label><input type="radio" name="mode-a" value="car" checked /><span>🚗 רכב</span></label>
-                <label><input type="radio" name="mode-a" value="transit" /><span>🚌 תחבורה ציבורית</span></label>
+                <label title="רכב"><input type="radio" name="mode-a" value="car" checked /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 16.5v-4.2L6.6 7h10.8l2.1 5.3v4.2M4.5 16.5h15M4.5 12.3h15M6.5 16.5v2M17.5 16.5v2" /><circle cx="8" cy="14.4" r=".6" /><circle cx="16" cy="14.4" r=".6" /></svg><span class="sr-only">רכב</span></span></label>
+                <label title="תחבורה ציבורית"><input type="radio" name="mode-a" value="transit" /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="3.5" width="13" height="14" rx="2.5" /><path d="M5.5 11h13M8.5 17.5v2.5M15.5 17.5v2.5" /><circle cx="8.6" cy="14.3" r=".6" /><circle cx="15.4" cy="14.3" r=".6" /></svg><span class="sr-only">תחבורה ציבורית</span></span></label>
               </div>
             </div>
 
@@ -125,7 +73,7 @@
             <div class="endpoint" data-side="b">
               <label class="endpoint-label" for="input-b">
                 <span class="side-badge side-b" aria-hidden="true">ב</span>
-                נקודת יציאה ב׳
+                <span class="sr-only">נקודת יציאה ב׳</span>
               </label>
               <div class="combo">
                 <input
@@ -147,8 +95,8 @@
                 <ul id="list-b" class="suggestions" role="listbox" aria-label="הצעות לנקודה ב׳" hidden></ul>
               </div>
               <div class="mode-toggle" role="radiogroup" aria-label="איך מגיעים מנקודה ב׳">
-                <label><input type="radio" name="mode-b" value="car" checked /><span>🚗 רכב</span></label>
-                <label><input type="radio" name="mode-b" value="transit" /><span>🚌 תחבורה ציבורית</span></label>
+                <label title="רכב"><input type="radio" name="mode-b" value="car" checked /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 16.5v-4.2L6.6 7h10.8l2.1 5.3v4.2M4.5 16.5h15M4.5 12.3h15M6.5 16.5v2M17.5 16.5v2" /><circle cx="8" cy="14.4" r=".6" /><circle cx="16" cy="14.4" r=".6" /></svg><span class="sr-only">רכב</span></span></label>
+                <label title="תחבורה ציבורית"><input type="radio" name="mode-b" value="transit" /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="3.5" width="13" height="14" rx="2.5" /><path d="M5.5 11h13M8.5 17.5v2.5M15.5 17.5v2.5" /><circle cx="8.6" cy="14.3" r=".6" /><circle cx="15.4" cy="14.3" r=".6" /></svg><span class="sr-only">תחבורה ציבורית</span></span></label>
               </div>
             </div>
           </div>
@@ -160,18 +108,26 @@
 
           <fieldset class="categories">
             <legend>סינון</legend>
-            <div class="chips">
-              <label class="chip"><input type="checkbox" id="only-green-line" /><span>רק בתוך הקו הירוק</span></label>
-              <label class="chip"><input type="checkbox" id="only-shabbat-closed" /><span><span class="emoji" aria-hidden="true">🕯️ </span>סגור בשבת</span></label>
+            <div class="group">
+              <label class="switch-row">
+                <span class="switch-text">
+                  רק בתוך הקו הירוק
+                  <small>בלי יהודה ושומרון ועזה</small>
+                </span>
+                <input type="checkbox" class="switch" id="only-green-line" />
+              </label>
+              <label class="switch-row">
+                <span class="switch-text">
+                  סגור בשבת
+                  <small>בתי קפה ומסעדות ששעות הפתיחה שלהם מראות שהם סגורים בשבת. סימן טוב לכשרות, לא אישור.</small>
+                </span>
+                <input type="checkbox" class="switch" id="only-shabbat-closed" />
+              </label>
             </div>
-            <p class="filter-hint">
-              הקו הירוק: בלי יהודה ושומרון ועזה. סגור בשבת: בתי קפה ומסעדות שלפי שעות הפתיחה שלהם סגורים
-              בשבת. זה סימן טוב לכשרות, לא אישור.
-            </p>
           </fieldset>
 
-          <div class="when">
-            <label for="departure">מתי יוצאים?</label>
+          <div class="when group">
+            <label for="departure-choice">מתי יוצאים</label>
             <div class="when-row">
               <select id="departure-choice" aria-label="זמן יציאה">
                 <option value="now">עכשיו</option>
@@ -205,7 +161,7 @@
       <section class="map-wrap" aria-label="מפה">
         <div id="map" class="map" dir="ltr"></div>
         <div id="map-placeholder" class="map-placeholder">
-          <img src="icons/icon.svg" alt="" width="72" height="72" />
+          <svg class="brand-mark brand-mark-large" viewBox="0 0 44 16" aria-hidden="true"><path class="brand-line" d="M6 8h32" /><circle class="brand-a" cx="38" cy="8" r="4" /><circle class="brand-b" cx="6" cy="8" r="4" /><circle class="brand-mid" cx="22" cy="8" r="5.5" /></svg>
           <p>המפה תופיע כאן אחרי החיפוש</p>
         </div>
       </section>

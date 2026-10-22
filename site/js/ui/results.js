@@ -5,7 +5,22 @@ import { formatDuration, formatCount, formatRating } from '../core/format.js';
 import { fairnessLevel } from '../core/ranking.js';
 import { wazeUrl, googleMapsUrl } from './links.js';
 
-const MODE_ICON = { car: '🚗', transit: '🚌' };
+/** Line icons for the two ways of getting there (the same as in the form). */
+const MODE_ICON = {
+  car: '<path d="M4.5 16.5v-4.2L6.6 7h10.8l2.1 5.3v4.2M4.5 16.5h15M4.5 12.3h15M6.5 16.5v2M17.5 16.5v2" /><circle cx="8" cy="14.4" r=".6" /><circle cx="16" cy="14.4" r=".6" />',
+  transit:
+    '<rect x="5.5" y="3.5" width="13" height="14" rx="2.5" /><path d="M5.5 11h13M8.5 17.5v2.5M15.5 17.5v2.5" /><circle cx="8.6" cy="14.3" r=".6" /><circle cx="15.4" cy="14.3" r=".6" />',
+};
+
+function modeIcon(mode) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'mode-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.dataset.mode = mode;
+  svg.innerHTML = MODE_ICON[mode];
+  return svg;
+}
 /** Google bills every photo shown, so only the first few places of a search get one. */
 export const MAX_PHOTOS = 3;
 const MODE_TITLE = { car: 'ברכב', transit: 'בתחבורה ציבורית' };
@@ -73,16 +88,11 @@ export function renderFilters(container, places, active, onChange) {
     return;
   }
   container.hidden = false;
-  const make = (id, label, count, emoji) => {
+  const make = (id, label, count) => {
     const b = el('button', 'filter-chip');
     b.type = 'button';
     b.dataset.filter = id;
     b.setAttribute('aria-pressed', String(active === id));
-    if (emoji) {
-      const icon = el('span', 'emoji', `${emoji} `);
-      icon.setAttribute('aria-hidden', 'true');
-      b.append(icon);
-    }
     b.append(label, ' ', el('span', 'count', `(${formatCount(count)})`));
     b.addEventListener('click', () => onChange(id));
     return b;
@@ -90,7 +100,7 @@ export function renderFilters(container, places, active, onChange) {
   container.append(make('all', 'הכל', places.length));
   for (const [id, count] of counts) {
     const cat = categoryById(id);
-    container.append(make(id, cat ? cat.label : id, count, cat?.emoji));
+    container.append(make(id, cat ? cat.label : id, count));
   }
   if (focused) [...container.children].find((b) => b.dataset.filter === focused)?.focus();
 }
@@ -136,10 +146,8 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
       img.alt = '';
       img.loading = 'lazy';
       img.decoding = 'async';
-      img.addEventListener('error', () => img.replaceWith(el('span', 'emoji', cat?.emoji || '📍')));
+      img.addEventListener('error', () => img.remove()); // no picture: the box hides
       photo.append(img);
-    } else {
-      photo.append(el('span', 'emoji', cat?.emoji || '📍'));
     }
     node.querySelector('.place-name').textContent = place.name;
 
@@ -163,9 +171,7 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     const fillTime = (selector, sideName, mode, seconds) => {
       const box = node.querySelector(selector);
       box.querySelector('.time-who').textContent = `מנקודה ${sideName} ${MODE_TITLE[mode]}: `;
-      const icon = el('span', null, `${MODE_ICON[mode]} `);
-      icon.setAttribute('aria-hidden', 'true');
-      box.querySelector('.time-value').replaceChildren(icon, formatDuration(seconds));
+      box.querySelector('.time-value').replaceChildren(modeIcon(mode), formatDuration(seconds));
     };
     fillTime('.time-a', 'א׳', modeA, place.timeA);
     fillTime('.time-b', 'ב׳', modeB, place.timeB);

@@ -255,11 +255,7 @@ function renderCategoryChips(selected) {
       input.value = cat.id;
       input.checked = selected.includes(cat.id);
       const span = document.createElement('span');
-      const emoji = document.createElement('span');
-      emoji.className = 'emoji';
-      emoji.setAttribute('aria-hidden', 'true');
-      emoji.textContent = `${cat.emoji} `;
-      span.append(emoji, cat.label);
+      span.textContent = cat.label;
       label.append(input, span);
       return label;
     }),

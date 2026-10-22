@@ -96,6 +96,9 @@ async function sharedLink(page) {
   return new URL((await page.evaluate(() => window.copied)).split('\n').pop());
 }
 
+/** How side `side` gets to the first place in the list, by its time's icon. */
+const travelMode = (page, side) => page.locator(`#place-list .time-${side} .mode-icon`).first().getAttribute('data-mode');
+
 async function shot(page, name) {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true });
 }
@@ -156,7 +159,7 @@ test('free mode: public transit through Transitous', async () => {
   // One Transitous call for sampling the route and one for the candidates, from B only.
   assert.equal(osmLog.transit.length, 2);
   assert.ok(osmLog.transit.every((q) => new URLSearchParams(q).get('one').startsWith('31.2518')));
-  assert.match(await page.locator('#place-list .time-b .time-value').first().textContent(), /🚌/);
+  assert.equal(await travelMode(page, 'b'), 'transit');
   assert.equal(await page.locator('#status').isVisible(), false);
   assert.match(await page.locator('#attribution').innerHTML(), /transitous\.org\/sources/);
   assert.deepEqual(errors, []);
@@ -170,7 +173,7 @@ test('free mode: Transitous down → that side drives, with a notice', async () 
   await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
   await search(page);
   assert.match(await page.locator('#status').textContent(), /לא הצלחנו לחשב כרגע זמני תחבורה ציבורית/);
-  assert.match(await page.locator('#place-list .time-b .time-value').first().textContent(), /🚗/);
+  assert.equal(await travelMode(page, 'b'), 'car');
   await context.close();
 });
 
@@ -323,8 +326,7 @@ test('Google mode: mixed modes query transit only for that side', async () => {
   const matrices = (await page.evaluate(() => window.__fakeGoogleCalls)).filter((c) => c.startsWith('matrix:'));
   assert.deepEqual(matrices.slice(0, 1), ['matrix:TRANSIT:1x8']);
   assert.ok(matrices.includes(matrices.find((m) => m.startsWith('matrix:DRIVING:1x'))));
-  const bTime = await page.locator('#place-list .time-b .time-value').first().textContent();
-  assert.match(bTime, /🚌/);
+  assert.equal(await travelMode(page, 'b'), 'transit');
   await context.close();
 });
 
@@ -335,7 +337,7 @@ test('Google mode: no transit service (Shabbat) falls back to driving for that s
   await page.locator('input[name="mode-a"][value="transit"]').check({ force: true });
   await search(page);
   assert.match(await page.locator('#status').textContent(), /לא מצאנו תחבורה ציבורית/);
-  assert.match(await page.locator('#place-list .time-a .time-value').first().textContent(), /🚗/);
+  assert.equal(await travelMode(page, 'a'), 'car');
   await context.close();
 });
 
