@@ -1,0 +1,376 @@
+/* Design trial: alternative looks over styles.css, picked with ?design=1…4
+   (see the script in index.html). Each sets its own colors, so it looks the same
+   in light and dark mode. */
+
+/* The switcher shown while trying the designs out. */
+.design-switcher {
+  position: fixed;
+  inset-inline-start: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font: 13px/1 system-ui, sans-serif;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 30%);
+}
+
+.design-switcher button {
+  min-width: 30px;
+  height: 28px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #222;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.design-switcher button[aria-pressed='true'] {
+  background: #fff;
+  color: #111;
+}
+
+/* Shared by the designs: no emoji as icons (no picture: no placeholder), flatter surfaces. */
+[data-design='1'] .place-photo:not(:has(img)),
+[data-design='2'] .place-photo:not(:has(img)) {
+  display: none;
+}
+
+[data-design] .chip .emoji,
+[data-design] .filter-chip .emoji {
+  display: none;
+}
+
+[data-design] .primary-button,
+[data-design] .ghost-button,
+[data-design] .chip span,
+[data-design] .filter-chip,
+[data-design] .mode-toggle span {
+  border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------------ 1: signage
+   Israeli road and transit signs: flat, bold, high contrast, square corners. */
+
+:root[data-design='1'] {
+  color-scheme: light;
+  --bg: #ecebe6;
+  --surface: #ffffff;
+  --surface-2: #f4f3ef;
+  --text: #111111;
+  --muted: #4b4b4b;
+  --border: #111111;
+  --primary: #ffd100;
+  --primary-strong: #f0c000;
+  --primary-soft: #fff3b0;
+  --on-primary: #111111;
+  --side-a: #0050a0;
+  --side-b: #d7262e;
+  --mid: #111111;
+  --good: #00713a;
+  --shadow: none;
+  --radius: 4px;
+  --radius-sm: 3px;
+  --font: 'Heebo', system-ui, sans-serif;
+}
+
+[data-design='1'] .card,
+[data-design='1'] .place-card,
+[data-design='1'] .map-wrap,
+[data-design='1'] .combo input {
+  border-width: 2px;
+}
+
+[data-design='1'] .app-header {
+  background: #00713a;
+  color: #fff;
+  margin-inline: calc(-1 * max(16px, env(safe-area-inset-left)));
+  padding: 14px max(16px, env(safe-area-inset-left));
+}
+
+[data-design='1'] .app-header h1 {
+  font-weight: 800;
+  font-size: 1.7rem;
+  letter-spacing: -0.01em;
+}
+
+[data-design='1'] .tagline {
+  color: #e2efe7;
+}
+
+[data-design='1'] .app-logo {
+  background: #fff;
+  border-radius: 4px;
+  padding: 3px;
+}
+
+[data-design='1'] .primary-button {
+  border: 2px solid #111;
+  font-weight: 800;
+}
+
+[data-design='1'] .chip input:checked + span,
+[data-design='1'] .filter-chip[aria-pressed='true'],
+[data-design='1'] .mode-toggle input:checked + span {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+[data-design='1'] .chip span,
+[data-design='1'] .filter-chip,
+[data-design='1'] .mode-toggle span {
+  border-width: 2px;
+  font-weight: 500;
+}
+
+[data-design='1'] .place-rank {
+  border-radius: 3px;
+}
+
+[data-design='1'] .place-photo {
+  border-radius: 3px;
+}
+
+[data-design='1'] .place-actions .action,
+[data-design='1'] .place-meta .shabbat {
+  color: #111;
+  font-weight: 500;
+}
+
+[data-design='1'] .place-actions .action:hover {
+  background: var(--primary);
+}
+
+/* ---------------------------------------------------------------- 2: editorial
+   A printed city guide: paper, serif headings, thin rules, no shadows. */
+
+:root[data-design='2'] {
+  color-scheme: light;
+  --bg: #f6f1e7;
+  --surface: #fbf8f1;
+  --surface-2: #f1eadc;
+  --text: #1d1b18;
+  --muted: #6b6257;
+  --border: #d9cfbe;
+  --primary: #8f2d1f;
+  --primary-strong: #6f2015;
+  --primary-soft: #f1e1d9;
+  --on-primary: #fbf8f1;
+  --side-a: #1d4e6b;
+  --side-b: #8f2d1f;
+  --mid: #1d1b18;
+  --shadow: none;
+  --radius: 2px;
+  --radius-sm: 2px;
+  --font: 'Assistant', system-ui, sans-serif;
+}
+
+[data-design='2'] h1,
+[data-design='2'] h2,
+[data-design='2'] .place-name {
+  font-family: 'Frank Ruhl Libre', serif;
+}
+
+[data-design='2'] .app-header {
+  border-bottom: 3px double var(--text);
+  padding-bottom: 12px;
+}
+
+[data-design='2'] .app-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+[data-design='2'] .app-logo {
+  display: none;
+}
+
+[data-design='2'] .tagline {
+  font-style: italic;
+}
+
+[data-design='2'] .card {
+  border-width: 1px 0;
+  border-color: var(--text);
+  background: transparent;
+  padding-inline: 0;
+}
+
+[data-design='2'] .place-card {
+  border-width: 0 0 1px;
+  background: transparent;
+}
+
+[data-design='2'] .place-card.is-active {
+  background: var(--primary-soft);
+}
+
+[data-design='2'] .place-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+[data-design='2'] .place-rank {
+  background: none;
+  color: var(--primary);
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.3rem;
+  width: auto;
+}
+
+[data-design='2'] .chip span,
+[data-design='2'] .filter-chip,
+[data-design='2'] .mode-toggle span {
+  background: transparent;
+}
+
+[data-design='2'] .chip input:checked + span,
+[data-design='2'] .filter-chip[aria-pressed='true'],
+[data-design='2'] .mode-toggle input:checked + span {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+}
+
+[data-design='2'] .primary-button {
+  letter-spacing: 0.02em;
+}
+
+[data-design='2'] .place-photo {
+  border-radius: 0;
+  filter: sepia(0.25);
+}
+
+[data-design='2'] .place-actions .action {
+  color: var(--primary);
+}
+
+/* ------------------------------------------------------------- 3: warm café
+   Earthy colors, a rounded friendly heading font, dashed "hand-made" edges. */
+
+:root[data-design='3'] {
+  color-scheme: light;
+  --bg: #f1e6d6;
+  --surface: #fffaf2;
+  --surface-2: #f7ecdd;
+  --text: #3a2a1f;
+  --muted: #7a6455;
+  --border: #dcc8ae;
+  --primary: #b9532f;
+  --primary-strong: #96401f;
+  --primary-soft: #f6dccf;
+  --on-primary: #fffaf2;
+  --side-a: #5f7432;
+  --side-b: #b9532f;
+  --mid: #8a5a2b;
+  --shadow: 0 2px 0 #dcc8ae;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --font: 'Assistant', system-ui, sans-serif;
+}
+
+[data-design='3'] h1,
+[data-design='3'] .primary-button,
+[data-design='3'] .place-name {
+  font-family: 'Secular One', sans-serif;
+  font-weight: 400;
+}
+
+[data-design='3'] .app-header h1 {
+  font-size: 1.8rem;
+  color: var(--primary);
+}
+
+[data-design='3'] .card {
+  border: 2px dashed var(--border);
+}
+
+[data-design='3'] .place-card {
+  border-style: dashed;
+}
+
+[data-design='3'] .primary-button {
+  font-size: 1.15rem;
+  box-shadow: 0 3px 0 var(--primary-strong);
+}
+
+[data-design='3'] .chip input:checked + span,
+[data-design='3'] .filter-chip[aria-pressed='true'] {
+  background: #e7efd5;
+  border-color: var(--side-a);
+  color: #3f4f1f;
+}
+
+[data-design='3'] .place-photo {
+  background: repeating-linear-gradient(45deg, #f6dccf 0 6px, #fffaf2 6px 12px);
+}
+
+[data-design='3'] .place-photo .emoji {
+  display: none;
+}
+
+/* ------------------------------------------------------------ 4: dark, map-first
+   A dark app with one bright accent, and a bigger map. */
+
+:root[data-design='4'] {
+  color-scheme: dark;
+  --bg: #0c0e11;
+  --surface: #14171c;
+  --surface-2: #1b1f26;
+  --text: #eef0f3;
+  --muted: #8d949e;
+  --border: #272c34;
+  --primary: #c6f432;
+  --primary-strong: #d8ff5c;
+  --primary-soft: #26300f;
+  --on-primary: #0c0e11;
+  --side-a: #4cc3ff;
+  --side-b: #ff5c8a;
+  --mid: #c6f432;
+  --good: #6be38a;
+  --warn: #ffc95c;
+  --danger: #ff7a7a;
+  --star: #ffc95c;
+  --shadow: none;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --font: 'Heebo', system-ui, sans-serif;
+}
+
+[data-design='4'] .app-header h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-design='4'] .app-logo {
+  filter: grayscale(1) brightness(1.6);
+}
+
+[data-design='4'] .place-photo .emoji {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
+[data-design='4'] .map-wrap {
+  min-height: 420px;
+}
+
+/* OpenStreetMap tiles in dark (the Google map follows the system setting). */
+[data-design='4'] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9);
+}
+
+/* Numbers stay readable on each design's marker colors. */
+[data-design='1'] .place-rank {
+  color: #fff;
+}
+
+[data-design] .pin-place.is-active {
+  color: var(--on-primary);
+}

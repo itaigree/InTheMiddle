@@ -73,11 +73,16 @@ export function renderFilters(container, places, active, onChange) {
     return;
   }
   container.hidden = false;
-  const make = (id, label, count) => {
+  const make = (id, label, count, emoji) => {
     const b = el('button', 'filter-chip');
     b.type = 'button';
     b.dataset.filter = id;
     b.setAttribute('aria-pressed', String(active === id));
+    if (emoji) {
+      const icon = el('span', 'emoji', `${emoji} `);
+      icon.setAttribute('aria-hidden', 'true');
+      b.append(icon);
+    }
     b.append(label, ' ', el('span', 'count', `(${formatCount(count)})`));
     b.addEventListener('click', () => onChange(id));
     return b;
@@ -85,7 +90,7 @@ export function renderFilters(container, places, active, onChange) {
   container.append(make('all', 'הכל', places.length));
   for (const [id, count] of counts) {
     const cat = categoryById(id);
-    container.append(make(id, cat ? `${cat.emoji} ${cat.label}` : id, count));
+    container.append(make(id, cat ? cat.label : id, count, cat?.emoji));
   }
   if (focused) [...container.children].find((b) => b.dataset.filter === focused)?.focus();
 }
@@ -131,10 +136,10 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
       img.alt = '';
       img.loading = 'lazy';
       img.decoding = 'async';
-      img.addEventListener('error', () => img.replaceWith(cat?.emoji || '📍'));
+      img.addEventListener('error', () => img.replaceWith(el('span', 'emoji', cat?.emoji || '📍')));
       photo.append(img);
     } else {
-      photo.textContent = cat?.emoji || '📍';
+      photo.append(el('span', 'emoji', cat?.emoji || '📍'));
     }
     node.querySelector('.place-name').textContent = place.name;
 
