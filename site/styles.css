@@ -1327,10 +1327,11 @@ body.has-map .map-placeholder {
   background: var(--surface-2);
 }
 
-/* A quiet, grey map: only the two points, the middle and the places have color. */
+/* A quiet map: its colors (sea, parks, roads) toned down to half, so the two
+   points, the middle and the places stand out on it. */
 .map.leaflet-container .leaflet-tile-pane,
 .overview-map.leaflet-container .leaflet-tile-pane {
-  filter: grayscale(1) contrast(0.92) brightness(1.04);
+  filter: saturate(0.5) contrast(0.92) brightness(1.03);
 }
 
 /* Tiles that land on a fraction of a pixel leave hairline gaps between them in
