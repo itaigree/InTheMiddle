@@ -38,7 +38,7 @@ after(async () => {
   await Promise.all(servers.map((s) => s.close()));
 });
 
-async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {} } = {}) {
+async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {}, clock = false } = {}) {
   const server = await startServer({ overrides: { '/config.js': configJs(key), ...files } });
   servers.push(server);
   const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', ...contextOptions });
@@ -49,6 +49,7 @@ async function openApp({ key = '', google = null, osm = {}, viewport = { width: 
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err));
+  if (clock) await page.clock.install(); // time runs as usual, and tests can jump ahead
   await page.goto(server.url + query);
   return { page, context, osmLog, googleLog, errors, server };
 }
@@ -66,6 +67,19 @@ async function search(page) {
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   // The list is shown before the map is ready; wait for the map's markers too.
   await page.locator('#map .pin-a').first().waitFor({ timeout: 20000 });
+}
+
+/**
+ * Move the page's (installed) clock past `until`. Under load a jump now and then
+ * doesn't reach the page, so check, and jump again if needed.
+ */
+async function jumpPast(page, until) {
+  for (let i = 0; i < 3; i++) {
+    const now = await page.evaluate(() => Date.now());
+    if (now > until) return;
+    await page.clock.fastForward(until - now + 60_000);
+  }
+  assert.fail('the page clock did not move');
 }
 
 /** The link the "share this search" button gives (copied, as there is no share sheet here). */
@@ -230,7 +244,27 @@ test('Overpass busy: the places come from Photon instead', async () => {
   await search(page);
   assert.ok(osmLog.photonPlaces.length >= 1);
   assert.ok((await page.locator('#place-list .place-card').count()) > 0);
-  assert.match(await page.locator('#place-list').textContent(), /cafe 1|park 1/);
+  const list = await page.locator('#place-list').textContent();
+  assert.match(list, /cafe 1/);
+  assert.match(list, /park 1/);
+  // Nature's reserves are asked for apart from its small spots, so both show.
+  assert.match(list, /viewpoint 1/);
+  assert.match(list, /nature_reserve 1/);
+  await context.close();
+});
+
+test('Overpass busy with "closed on Shabbat": the notice says the hours are unknown for now', async () => {
+  const { page, context, osmLog } = await openApp({ osm: { failOverpass: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#only-shabbat-closed').check({ force: true });
+  await search(page);
+  // Overpass is asked once, not again for the widened search.
+  assert.equal(osmLog.overpass.length, 1);
+  const list = await page.locator('#place-list').textContent();
+  assert.doesNotMatch(list, /cafe 1/);
+  assert.match(list, /park 1/);
+  assert.match(await page.locator('#status').textContent(), /עמוס/);
   await context.close();
 });
 
@@ -981,5 +1015,107 @@ test('Google mode, closed on Shabbat: from Google opening hours', async () => {
   const names = await page.locator('#place-list .place-name').allTextContents();
   assert.deepEqual(names.filter((n) => n.startsWith('בית קפה')), ['בית קפה 1']);
   assert.ok(names.some((n) => n.startsWith('פארק')));
+  await context.close();
+});
+
+test('a Google map that showed its error screen is not reused once Google is back', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 100 }, clock: true });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  // The free place services are down, so the re-run on OpenStreetMap fails and the broken map stays.
+  let down = true;
+  const fail = (route) => (down ? route.fulfill({ status: 503, body: 'down', headers: { 'access-control-allow-origin': '*' } }) : route.fallback());
+  await context.route('https://overpass-api.de/**', fail);
+  await context.route('https://photon.komoot.io/reverse**', fail);
+  await breakGoogleMap(page);
+  await page.locator('#status[data-kind="error"]').waitFor({ timeout: 30000 });
+  down = false;
+  // The quota block ends (the next Pacific midnight); the next search is on Google again.
+  const until = await page.evaluate(() => new Date(JSON.parse(localStorage.getItem('inthemiddle.googleBlocked')).until).getTime());
+  await jumpPast(page, until);
+  await page.locator('#submit').click();
+  // A second Google map is made (the broken one, still on screen until then, isn't reused)…
+  await page.waitForFunction(() => window.__fakeGoogleCalls.filter((c) => c.startsWith('map:')).length >= 2, null, {
+    timeout: 20000,
+    polling: 250,
+  });
+  // …and the results are drawn on it.
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000, polling: 250 });
+  await page.locator('#map .fake-google-map .pin-a').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#map .gm-err-container').count(), 0);
+  await context.close();
+});
+
+test('a reload after opening a search link shows that search again, and the address bar stays plain', async () => {
+  const query = '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180&c=cafe,park&g=1';
+  const { page, context } = await openApp({ query });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.reload();
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#input-a').inputValue(), 'חיפה');
+  assert.equal(await page.locator('#only-green-line').isChecked(), true);
+  assert.equal(new URL(page.url()).search, '');
+  await context.close();
+});
+
+test('"my location" stays "my location" after a reload, and is still shared rounded', async () => {
+  const { page, context } = await openApp({
+    contextOptions: { geolocation: { latitude: 32.794123, longitude: 34.989654 }, permissions: ['geolocation'] },
+  });
+  await page.locator('.locate[data-side="a"]').click();
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.reload();
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#input-a').inputValue(), 'המיקום שלי');
+  const params = (await sharedLink(page)).searchParams;
+  assert.equal(params.get('a'), 'נקודת יציאה ששותפה');
+  assert.equal(params.get('all'), '32.79400,34.99000');
+  await context.close();
+});
+
+test('a failed search while OpenStreetMap results are on screen loads no Google map', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: { matrixDelayMs: 100 } });
+  await page.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 3000).toISOString() })),
+  );
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.waitForTimeout(3500); // Google is back
+  for (let i = 0; i < 2; i++) {
+    await page.locator('#input-b').fill('מקום שלא קיים');
+    await page.locator('#submit').click();
+    await page.locator('#status[data-kind="error"]').waitFor({ timeout: 20000 });
+    await page.waitForFunction(() => !document.getElementById('submit').disabled);
+  }
+  assert.equal((await page.evaluate(() => window.__fakeGoogleCalls || [])).filter((c) => c.startsWith('map:')).length, 0);
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  await context.close();
+});
+
+test('service worker: a version that goes live while the previous one installs: no copy mixing the two', async () => {
+  const { server, context, page } = await swInstall();
+  server.setVersion('v2');
+  server.delays['precache:*'] = 1500; // a slow connection: the first files arrive as v2…
+  swUpdate(page).catch(() => {});
+  await swUntil(page, (s) => s.installing, 8000);
+  await page.waitForTimeout(500);
+  server.setVersion('v3'); // …and the next deploy goes live meanwhile
+  delete server.delays['precache:*'];
+  await swUntil(page, (s) => !s.installing && !s.waiting, 20000);
+  // Whatever is active now has one version's files throughout.
+  server.setOffline(true);
+  const versions = await Promise.all(['styles.css', 'js/main.js', 'data/green-line.json'].map((f) => fileVersion(page, f)));
+  assert.equal(new Set(versions).size, 1, versions.join(' '));
+  server.setOffline(false);
+  // The next update check installs the new version whole.
+  await swUpdate(page);
+  await swUntil(page, (s) => !s.installing && !s.waiting && s.caches.includes('inthemiddle-v3'));
+  server.setOffline(true);
+  const after = await Promise.all(['styles.css', 'js/main.js', 'data/green-line.json'].map((f) => fileVersion(page, f)));
+  assert.deepEqual(after, ['v3', 'v3', 'v3']);
   await context.close();
 });

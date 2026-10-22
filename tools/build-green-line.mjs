@@ -65,9 +65,13 @@ const inPolygons = (pt, polys) => polys.some(([outer, ...holes]) => inRing(pt, o
 const westBank = polygonsOf(JSON.parse((await download(osmPolygon(1803010))).toString()));
 const gaza = polygonsOf(JSON.parse((await download(osmPolygon(1473938))).toString()));
 
+// Pieces lying inside another piece add nothing (OSM's Judea and Samaria comes with
+// Areas A and B as extra pieces inside its outline): leave them out of the file.
+const dropNested = (polys) =>
+  polys.filter(([outer], i) => !polys.some(([other], j) => j !== i && other.length > outer.length && outer.every((pt) => inRing(pt, other))));
 const areas = {
-  westBank: simplifyPolygons(westBank),
-  gaza: simplifyPolygons(gaza),
+  westBank: dropNested(simplifyPolygons(westBank)),
+  gaza: dropNested(simplifyPolygons(gaza)),
 };
 for (const [k, v] of Object.entries(areas)) console.log(k, v.length, 'polygons', v.flat(1).reduce((n, r) => n + r.length, 0), 'points');
 

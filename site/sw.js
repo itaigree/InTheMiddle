@@ -48,6 +48,10 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE);
       // cache: 'reload' skips the HTTP cache (GitHub Pages serves max-age=600).
       await cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })));
+      // A newer deploy that went live meanwhile may have sent some of the files:
+      // then don't install this one (the next update check installs the newer one).
+      const script = await (await fetch(self.location.href, { cache: 'reload' })).text();
+      if (!script.includes(`\${PREFIX}${CACHE.slice(PREFIX.length)}\``)) throw new Error('a newer version went live while installing');
       // Take over right away: a page opened from an older deploy's cache keeps
       // loading from that cache, which is kept while the page is open.
       await self.skipWaiting();
@@ -100,6 +104,18 @@ async function openedFromCache(id) {
   return null;
 }
 
+const listPages = async () => (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).map((c) => c.id);
+// The browser evicts pages in the back/forward cache when this worker starts
+// activating, but fires the activate event a second later: a page that leaves in
+// that second stays in the back/forward cache, unlisted. So the pages open when
+// activation started count too. A worker that wasn't running then (started just
+// for the activate event) can't know them: it keeps every cache a page was opened
+// from, as on a page load, until the next version activates.
+let pagesAtActivation = null;
+self.serviceWorker?.addEventListener('statechange', () => {
+  if (self.serviceWorker.state === 'activating') pagesAtActivation = listPages().catch(() => null);
+});
+
 /**
  * Delete older deploys' caches, except ones an open page was opened from. Not
  * while a newer deploy's worker installs or waits: its cache isn't this one either.
@@ -110,7 +126,9 @@ async function openedFromCache(id) {
 async function deleteOlderCaches({ pageLoad = false } = {}) {
   const names = await olderCacheNames();
   if (!names.length) return;
-  const pages = new Set((await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).map((c) => c.id));
+  const atActivation = pageLoad ? null : await pagesAtActivation;
+  const keepMarked = pageLoad || (!atActivation && Boolean(self.serviceWorker));
+  const pages = new Set([...(await listPages()), ...(atActivation || [])]);
   const unused = [];
   for (const name of names) {
     const cache = await caches.open(name);
@@ -120,7 +138,7 @@ async function deleteOlderCaches({ pageLoad = false } = {}) {
       if (at < 0) continue;
       const id = decodeURIComponent(request.url.slice(at + MARKERS.length));
       const written = Number(await (await cache.match(request))?.text());
-      if (pageLoad || pages.has(id) || Date.now() - written < NEW_PAGE_GRACE_MS) {
+      if (keepMarked || pages.has(id) || Date.now() - written < NEW_PAGE_GRACE_MS) {
         used = true;
         break;
       }

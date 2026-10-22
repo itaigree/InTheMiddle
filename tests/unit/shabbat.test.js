@@ -32,3 +32,20 @@ test('Google opening hours: closed on Shabbat or not', () => {
   assert.equal(closedOnShabbat(intervalsFromGoogle({ periods: [{ open: { day: 0, hour: 0, minute: 0 } }] })), false); // 24/7
   assert.equal(closedOnShabbat(intervalsFromGoogle(undefined)), null);
 });
+
+test('OSM opening hours: open ends, additional rules and other forms are never a wrong "closed"', () => {
+  assert.equal(osm('Su-Th 08:00-22:00; Fr 08:00-18:00+'), null); // may close later, into Shabbat
+  assert.equal(osm('Su-Th 12:00-24:00+; Fr 10:00-15:00; Sa 20:00-24:00+'), true); // open ends away from Shabbat
+  assert.equal(osm('Su-Fr 08:00-23:00, Fr 08:00-14:00'), false); // ", " adds to Friday, doesn't replace it
+  assert.equal(osm('Mo-Fr 08:00-17:00, Fr 08:00-13:00'), true);
+  assert.equal(osm('Mo 02:00-06:45; PH open || Su-Tu,Tu-Sa 08:00-00:00'), null); // fallback rules
+  assert.equal(osm('We 24:00-19:15'), null); // not a valid time
+  assert.equal(osm('off'), null); // never open: says nothing about Shabbat
+  assert.equal(osm('Sa off'), null);
+});
+
+test('Google opening hours with missing times are unknown', () => {
+  const g = (periods) => closedOnShabbat(intervalsFromGoogle({ periods }));
+  assert.equal(g([{ open: { day: 5, hour: 8, minute: 0 }, close: { day: 6, minute: 0 } }]), null); // close.hour missing
+  assert.equal(g([{ close: { day: 5, hour: 14, minute: 0 } }]), null); // no usable period
+});

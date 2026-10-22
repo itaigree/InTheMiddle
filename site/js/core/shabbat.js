@@ -33,10 +33,11 @@ export function intervalsFromGoogle(openingHours) {
     if (!close) return [[0, WEEK]]; // open 24/7
     const start = open.day * DAY + open.hour * 60 + (open.minute || 0);
     let end = close.day * DAY + close.hour * 60 + (close.minute || 0);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null; // a time it doesn't give: unknown
     if (end <= start) end += WEEK;
     out.push([start, end]);
   }
-  return out;
+  return out.length ? out : null;
 }
 
 const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -59,13 +60,14 @@ function parseDays(text) {
 function parseTimes(text) {
   const ranges = [];
   for (const part of text.split(',')) {
-    const m = part.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})\+?$/);
+    const m = part.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})(\+?)$/);
     if (!m) return null;
     const start = Number(m[1]) * 60 + Number(m[2]);
     let end = Number(m[3]) * 60 + Number(m[4]);
-    if (start > 24 * 60 || end > 48 * 60) return null;
+    if (start >= 24 * 60 || end > 48 * 60) return null;
     if (end <= start) end += DAY; // past midnight
-    ranges.push([start, end]);
+    // "+": open end, it may close later than that.
+    ranges.push([start, end, m[5] === '+']);
   }
   return ranges;
 }
@@ -79,13 +81,21 @@ export function intervalsFromOsm(text) {
   if (typeof text !== 'string' || !text.trim()) return null;
   const value = text.trim();
   if (value === '24/7') return [[0, WEEK]];
-  const perDay = new Map(); // day → [[start, end] in minutes from that day's 00:00]
+  if (value.includes('||')) return null; // fallback rules
+  const perDay = new Map(); // day → [[start, end, openEnd] in minutes from that day's 00:00]
   // Rules are separated by ";" or by ", " before a new day selector ("Mo-Fr 08:00-17:00, PH off").
-  const rules = value.split(';').flatMap((r) => r.split(/,\s+(?=(?:Su|Mo|Tu|We|Th|Fr|Sa|PH)\b)/));
-  for (let rule of rules) {
+  // A ", " rule is an additional one: it adds to earlier rules for its days instead of replacing them.
+  const rules = value
+    .split(';')
+    .flatMap((r) => r.split(/,\s+(?=(?:Su|Mo|Tu|We|Th|Fr|Sa|PH)\b)/).map((rule, i) => ({ rule, additional: i > 0 })));
+  for (let { rule, additional } of rules) {
     rule = rule.trim().replace(/,PH\b|\bPH,/g, '');
     if (!rule) continue;
-    if (/^PH\b/.test(rule)) continue; // public holidays only: not a weekly rule
+    if (/^PH\b/.test(rule)) {
+      // Public holidays only: not a weekly rule (anything more in it isn't understood).
+      if (/^PH\s+(?:off|closed|[\d:,+\s-]+)$/i.test(rule)) continue;
+      return null;
+    }
     const m = rule.match(/^(?:([A-Za-z,-]+)\s+)?(.+)$/);
     const days = m[1] ? parseDays(m[1]) : new Set([0, 1, 2, 3, 4, 5, 6]);
     let times = m[2];
@@ -95,16 +105,25 @@ export function intervalsFromOsm(text) {
     }
     if (!days) return null;
     if (/^(off|closed)$/i.test(times)) {
-      for (const d of days) perDay.set(d, []);
+      for (const d of days) if (!additional || !perDay.has(d)) perDay.set(d, []);
       continue;
     }
     if (times === '24:00' || times === '00:00-24:00') times = '00:00-24:00';
     const ranges = parseTimes(times.replace(/\s+/g, ''));
     if (!ranges) return null;
-    for (const d of days) perDay.set(d, ranges); // a later rule replaces earlier ones for its days
+    // A later rule replaces earlier ones for its days; an additional one adds to them.
+    for (const d of days) perDay.set(d, additional && perDay.has(d) ? [...perDay.get(d), ...ranges] : ranges);
   }
   if (!perDay.size) return null;
+  // Never open ("off", "Sa off" alone): nothing says it keeps Shabbat.
+  if (![...perDay.values()].some((ranges) => ranges.length)) return null;
   const out = [];
-  for (const [d, ranges] of perDay) for (const [s, e] of ranges) out.push([d * DAY + s, d * DAY + e]);
+  for (const [d, ranges] of perDay) {
+    for (const [s, e, openEnd] of ranges) {
+      // An open end ("14:00+") within half a day before or during Shabbat may run into it: unknown.
+      if (openEnd && d * DAY + e > SHABBAT[0] - 12 * 60 && d * DAY + e < SHABBAT[1]) return null;
+      out.push([d * DAY + s, d * DAY + e]);
+    }
+  }
   return out;
 }

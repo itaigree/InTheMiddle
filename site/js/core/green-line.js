@@ -6,12 +6,17 @@ let pending = null;
 
 /** The areas beyond the line, as polygons ([outer, ...holes] rings of [lng, lat]) with bounding boxes. */
 export function loadGreenLine() {
-  pending ||= fetch(new URL('../../data/green-line.json', import.meta.url))
+  if (pending) return pending;
+  // A stalled request mustn't hold the search up (the other services have timeouts too).
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  pending = fetch(new URL('../../data/green-line.json', import.meta.url), { signal: controller.signal })
     .then((res) => {
       if (!res.ok) throw new Error(`green-line.json: HTTP ${res.status}`);
       return res.json();
     })
-    .then((data) => prepare(Object.values(data.areas).flat()));
+    .then((data) => prepare(Object.values(data.areas).flat()))
+    .finally(() => clearTimeout(timer));
   pending.catch(() => {
     pending = null;
   });

@@ -57,6 +57,12 @@ export async function mockOsm(
   { failOverpass = false, failPhotonPlaces = false, failTransit = false, noTransitService = false } = {},
 ) {
   const log = { photon: [], photonPlaces: [], osrmRoute: [], osrmTable: [], overpass: [], transit: [] };
+  // OSM ids per tag, so places of different kinds never share an id (as in OSM).
+  const tagIds = new Map();
+  const idBase = (tag) => {
+    if (!tagIds.has(tag)) tagIds.set(tag, 5000 + 100 * tagIds.size);
+    return tagIds.get(tag);
+  };
 
   await target.route('https://photon.komoot.io/**', (route) => {
     const url = new URL(route.request().url());
@@ -75,7 +81,7 @@ export async function mockOsm(
         return [0, 1, 2].map((k) => ({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [lng + (k - 1) * 0.003, lat + t * 0.002 + 0.001] },
-          properties: { osm_type: 'N', osm_id: 5000 + k + 10 * t, osm_key: key, osm_value: value, name: `${value} ${k + 1}` },
+          properties: { osm_type: 'N', osm_id: idBase(tag) + k, osm_key: key, osm_value: value, name: `${value} ${k + 1}` },
         }));
       });
       route.fulfill(json({ type: 'FeatureCollection', features }));

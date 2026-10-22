@@ -28,6 +28,16 @@ const MAX_TABLE_COORDS = 100;
 const MAX_TRANSIT_DESTINATIONS = 100;
 const PLACES_PER_CATEGORY = 15;
 const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
+/**
+ * Photon's places have no opening hours and no notability, so they are kept only
+ * briefly; for as long, Overpass isn't asked again after it failed (each try can
+ * cost the full 12 s).
+ */
+const PHOTON_CACHE_TTL_MS = 5 * 60 * 1000;
+const OVERPASS_BACKOFF_MS = PHOTON_CACHE_TTL_MS;
+/** Part of the cache key: bump it when cached places change shape (e.g. a new field). */
+const PLACES_CACHE_VERSION = 2;
+let overpassFailedAt = -Infinity;
 
 /**
  * Overpass selectors per category, and a Hebrew label per tag value.
@@ -50,21 +60,21 @@ const CATEGORY_QUERIES = {
   attraction: [['nwr["tourism"~"^(attraction|museum|zoo|theme_park|aquarium)$"]']],
 };
 
-/** The same categories as OSM tags, for Photon's nearest-places lookup. */
+/**
+ * The same categories as OSM tags, for Photon's nearest-places lookup, in the same
+ * groups as CATEGORY_QUERIES: each group is asked for separately, so nature's many
+ * small spots can't crowd out its reserves and national parks.
+ */
 const PHOTON_TAGS = {
-  cafe: ['amenity:cafe', 'amenity:ice_cream'],
-  mall: ['shop:mall'],
-  park: ['leisure:park'],
+  cafe: [['amenity:cafe', 'amenity:ice_cream']],
+  mall: [['shop:mall']],
+  park: [['leisure:park']],
   nature: [
-    'tourism:viewpoint',
-    'natural:spring',
-    'tourism:picnic_site',
-    'leisure:nature_reserve',
-    'boundary:national_park',
-    'natural:beach',
+    ['tourism:viewpoint', 'natural:spring', 'tourism:picnic_site'],
+    ['leisure:nature_reserve', 'boundary:national_park', 'natural:beach'],
   ],
-  food: ['amenity:restaurant'],
-  attraction: ['tourism:attraction', 'tourism:museum', 'tourism:zoo', 'tourism:theme_park', 'tourism:aquarium'],
+  food: [['amenity:restaurant']],
+  attraction: [['tourism:attraction', 'tourism:museum', 'tourism:zoo', 'tourism:theme_park', 'tourism:aquarium']],
 };
 
 /** Which category a place belongs to, in priority order (first match wins). */
@@ -412,15 +422,15 @@ export function parseOverpass(data, center, categoryIds) {
 function cacheGet(key) {
   try {
     const hit = JSON.parse(sessionStorage.getItem(key));
-    return hit && Date.now() - hit.t < OVERPASS_CACHE_TTL_MS ? hit.v : null;
+    return hit && Date.now() - hit.t < (hit.ttl || OVERPASS_CACHE_TTL_MS) ? hit.v : null;
   } catch {
     return null;
   }
 }
 
-function cacheSet(key, value) {
+function cacheSet(key, value, ttl) {
   try {
-    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), v: value }));
+    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), ttl, v: value }));
   } catch {
     // Storage full or disabled: just don't cache.
   }
@@ -431,11 +441,14 @@ async function overpassPlaces(center, radius, categoryIds) {
   // Overpass asks apps to keep their load on the public servers small.
   const rounded = { lat: Math.round(center.lat * 1000) / 1000, lng: Math.round(center.lng * 1000) / 1000 };
   const query = buildOverpassQuery(rounded, radius, categoryIds);
-  const cacheKey = `inthemiddle.overpass:${query}`;
+  const cacheKey = `inthemiddle.overpass.v${PLACES_CACHE_VERSION}:${query}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
   let places;
+  let ttl = OVERPASS_CACHE_TTL_MS;
+  const resting = Date.now() - overpassFailedAt < OVERPASS_BACKOFF_MS;
   try {
+    if (resting) throw new ProviderRequestError('Overpass failed moments ago; not asked again yet');
     const json = await fetchJson(OVERPASS_URL, {
       method: 'POST',
       body: new URLSearchParams({ data: query }),
@@ -446,9 +459,15 @@ async function overpassPlaces(center, radius, categoryIds) {
     places = parseOverpass(json, rounded, categoryIds);
   } catch (err) {
     if (isAbortError(err)) throw err;
-    console.warn('Overpass failed, asking Photon for the nearest places', err);
+    if (!resting) {
+      overpassFailedAt = Date.now();
+      console.warn('Overpass failed, asking Photon for the nearest places', err);
+    }
     try {
-      places = await photonPlaces(rounded, radius, categoryIds);
+      let complete;
+      ({ places, complete } = await photonPlaces(rounded, radius, categoryIds));
+      // A category whose request failed isn't cached as "nothing there".
+      ttl = complete ? PHOTON_CACHE_TTL_MS : 0;
     } catch (photonErr) {
       const failed = new ProviderRequestError(`Overpass and Photon failed: ${photonErr.message}`, { cause: photonErr });
       failed.userMessage = 'שרת המקומות החינמי עמוס כרגע. כדאי לנסות שוב בעוד דקה.';
@@ -456,7 +475,7 @@ async function overpassPlaces(center, radius, categoryIds) {
     }
   }
   // Only the few places kept are cached: raw answers can be large.
-  cacheSet(cacheKey, places);
+  if (ttl) cacheSet(cacheKey, places, ttl);
   return places;
 }
 
@@ -464,27 +483,30 @@ const OSM_TYPES = { N: 'node', W: 'way', R: 'relation' };
 
 /**
  * The places of each category nearest the center, from Photon (one request per
- * category). Photon only gives a place's main tag, so they are shaped as Overpass
- * elements and ranked by parseOverpass, by distance.
+ * group of PHOTON_TAGS). Photon only gives a place's main tag, so they are shaped
+ * as Overpass elements and ranked by parseOverpass, by distance. Returns
+ * {places, complete}: complete is false when some request failed.
  */
 async function photonPlaces(center, radius, categoryIds) {
-  const lists = await Promise.all(
-    categoryIds
-      .filter((id) => PHOTON_TAGS[id])
-      .map(async (id) => {
-        const params = new URLSearchParams({
-          lat: center.lat.toFixed(5),
-          lon: center.lng.toFixed(5),
-          radius: String(Math.max(1, Math.ceil(radius / 1000))), // km
-          limit: '30',
-          lang: 'default', // OSM's local names (Hebrew), as in photonSearch
-        });
-        for (const tag of PHOTON_TAGS[id]) params.append('osm_tag', tag);
-        const data = await fetchJson(`${PHOTON_REVERSE_URL}?${params}`, { timeoutMs: 12000 });
-        return data.features || [];
-      }),
+  const asks = categoryIds.flatMap((id) => (PHOTON_TAGS[id] || []).map((tags) => ({ id, tags })));
+  const settled = await Promise.allSettled(
+    asks.map(async ({ tags }) => {
+      const params = new URLSearchParams({
+        lat: center.lat.toFixed(5),
+        lon: center.lng.toFixed(5),
+        radius: String(Math.max(1, Math.ceil(radius / 1000))), // km
+        limit: '30',
+        lang: 'default', // OSM's local names (Hebrew), as in photonSearch
+      });
+      for (const tag of tags) params.append('osm_tag', tag);
+      const data = await fetchJson(`${PHOTON_REVERSE_URL}?${params}`, { timeoutMs: 12000 });
+      return data.features || [];
+    }),
   );
-  const elements = lists.flat().map((f) => {
+  // One busy or slow request doesn't cost the others' places.
+  const failed = settled.filter((r) => r.status === 'rejected');
+  if (failed.length && failed.length === settled.length) throw failed[0].reason;
+  const asElement = (f) => {
     const p = f.properties || {};
     const [lon, lat] = f.geometry?.coordinates || [];
     return {
@@ -494,8 +516,31 @@ async function photonPlaces(center, radius, categoryIds) {
       lon,
       tags: { name: p.name, [p.osm_key]: p.osm_value, 'addr:street': p.street, 'addr:housenumber': p.housenumber, 'addr:city': p.city },
     };
+  };
+  // Each group's places, nearest first; a category with several groups takes them in turns.
+  const byCategory = new Map();
+  settled.forEach((r, i) => {
+    if (r.status !== 'fulfilled') return;
+    const { id } = asks[i];
+    const list = parseOverpass({ elements: r.value.map(asElement) }, center, [id]);
+    byCategory.set(id, [...(byCategory.get(id) || []), list]);
   });
-  return parseOverpass({ elements }, center, categoryIds);
+  const seen = new Set();
+  const places = [];
+  for (const lists of byCategory.values()) {
+    let taken = 0;
+    for (let i = 0; taken < PLACES_PER_CATEGORY && lists.some((l) => i < l.length); i++) {
+      for (const list of lists) {
+        const place = list[i];
+        if (!place || seen.has(place.id) || taken >= PLACES_PER_CATEGORY) continue;
+        seen.add(place.id);
+        taken++;
+        // Photon gives no opening hours: "closed on Shabbat" can't be told for these.
+        places.push({ ...place, hoursUnknown: true });
+      }
+    }
+  }
+  return { places, complete: !failed.length };
 }
 
 // ------------------------------------------------------------------- provider

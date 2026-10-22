@@ -38,6 +38,8 @@ const NOTICE_TEXT = {
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
   shabbat:
     'נשארו מעט בתי קפה ומסעדות שסגורים בשבת: מוצגים רק מקומות ששעות הפתיחה שלהם ידועות, ולהרבה מקומות אין שעות פתיחה במפות.',
+  'shabbat-busy':
+    'שרת המקומות החינמי עמוס, ובינתיים אין לנו שעות פתיחה, אז אי אפשר לדעת אילו בתי קפה ומסעדות סגורים בשבת. כדאי לנסות שוב בעוד כמה דקות.',
 };
 
 /** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
@@ -58,13 +60,15 @@ const forcedProvider = decodeState(location.search).provider;
 let providerPromise = null;
 /** The provider kind the current promise is for ('google' | 'osm'), set when the load starts. */
 let providerKind = null;
-/** Google failures seen in this page, to tell whether one happened during a search. */
+/** Google maps that broke in this page (error screen, rejected key), to tell whether one did during a search. */
 let googleFailures = 0;
 /** Why (and until when) this page stopped using Google: {reason, until: ms}. */
 let switchBlock = null;
 let currentMap = null;
 let mapPromise = null;
 let mapKind = null;
+/** A Google map that showed Google's error screen: it stays broken, so it's never reused. */
+let brokenMap = null;
 /** The search whose results are on screen, as asked (texts, modes…), to re-run after a provider switch. */
 let shownRequest = null;
 /** …and the provider they came from. */
@@ -137,7 +141,6 @@ async function loadProvider() {
 }
 
 function markGoogleUnavailable(err) {
-  googleFailures++;
   const reason = err instanceof ProviderUnavailableError ? err.reason : 'load-failed';
   console.warn(`Google unavailable (${reason}); switching to OpenStreetMap`, err);
   const block = reason === 'not-configured' ? { reason, until: Infinity } : setGoogleBlock(reason);
@@ -158,13 +161,15 @@ async function withProvider(fn) {
     providerPromise = null;
     const fallback = await getProvider();
     suggestFooter = fallback.suggestFooter || '';
-    updateProviderNote(fallback);
+    noteProvider(fallback);
     return fn(fallback);
   }
 }
 
 /** Google reported a failure outside a call we made (e.g. key rejected while drawing the map). */
 function handleGoogleUnavailable(err) {
+  googleFailures++;
+  if (mapKind === 'google') brokenMap = mapPromise;
   if (providerKind !== 'google') {
     // Already off Google (e.g. another tab blocked it). Still note it: a search on
     // Google that is finishing redoes itself, and this tab won't go back too soon.
@@ -176,7 +181,7 @@ function handleGoogleUnavailable(err) {
   providerPromise = null;
   getProvider()
     .then((p) => {
-      updateProviderNote(p);
+      noteProvider(p);
       redoShownSearch();
     })
     .catch((loadErr) => {
@@ -204,6 +209,11 @@ function redoShownSearch() {
  */
 function restoreShownMap() {
   if (lastResult && !resultMap() && shownProvider && shownProvider.id !== 'google') drawOnMap(lastResult, shownProvider);
+}
+
+/** Results on screen keep the note and attribution of their provider (showResult sets them). */
+function noteProvider(provider) {
+  if (!lastResult) updateProviderNote(provider);
 }
 
 function updateProviderNote(provider) {
@@ -570,10 +580,6 @@ async function runSearch({ request = null, redo = false, background = false } = 
 
   try {
     const result = await withProvider(async (provider) => {
-      // Load the Google map right away: it's needed anyway, and it is when Google
-      // reports a rejected Maps key – before the billed place searches run.
-      const mapReady = provider.id === 'google' ? ensureMap(provider) : null;
-      mapReady?.catch(() => {});
       const greenLineAreas = request.greenLine ? loadGreenLine().catch(greenLineFailed) : null;
       greenLineAreas?.catch(() => {});
       const [a, b] = await Promise.all([resolveEndpoint(request.a, provider), resolveEndpoint(request.b, provider)]);
@@ -584,8 +590,11 @@ async function runSearch({ request = null, redo = false, background = false } = 
         ['b', b],
       ]) {
         if (!loc) missing.push([key, request[key].text]);
-        // Remember the coordinates while the field still says the same thing.
-        else if (sides[key].input.value.trim() === request[key].text) sides[key].location = loc;
+        // Remember the coordinates while the field still says the same thing, and the
+        // user hasn't given it other coordinates since (e.g. "my location" again).
+        else if (sides[key].input.value.trim() === request[key].text && sides[key].location === request[key].location) {
+          sides[key].location = loc;
+        }
       }
       if (missing.length) {
         for (const [key, text] of missing) {
@@ -596,6 +605,11 @@ async function runSearch({ request = null, redo = false, background = false } = 
         err.userMessage = `לא הצלחנו למצוא את ${missing.map(([, t]) => `„${t}”`).join(' ואת ')}. אפשר לנסות לכתוב אחרת או לבחור מהרשימה שנפתחת בזמן ההקלדה.`;
         throw err;
       }
+      // Load the Google map now: it's needed anyway, and it is when Google reports a
+      // rejected Maps key – before the billed place searches run. (Not before both
+      // places are found: a search that stops there leaves the map on screen as it is.)
+      const mapReady = provider.id === 'google' ? ensureMap(provider) : null;
+      mapReady?.catch(() => {});
       const query = {
         a,
         b,
@@ -616,7 +630,7 @@ async function runSearch({ request = null, redo = false, background = false } = 
             return false;
           }
           if (request.shabbat && SHABBAT_CATEGORIES.has(place.category) && place.closedOnShabbat !== true) {
-            dropped.add('shabbat');
+            dropped.add(place.hoursUnknown ? 'shabbat-busy' : 'shabbat');
             return false;
           }
           return true;
@@ -638,16 +652,19 @@ async function runSearch({ request = null, redo = false, background = false } = 
     // Say why there are few places when a filter took some away.
     const { places } = result.res;
     if (result.dropped.has('green-line') && places.length < 5) result.res.notices.push('green-line');
-    if (result.dropped.has('shabbat') && places.filter((p) => SHABBAT_CATEGORIES.has(p.category)).length < 3) {
+    if (result.dropped.has('shabbat-busy')) result.res.notices.push('shabbat-busy');
+    else if (result.dropped.has('shabbat') && places.filter((p) => SHABBAT_CATEGORIES.has(p.category)).length < 3) {
       result.res.notices.push('shabbat');
     }
     lastQuery = result.query;
     shownRequest = request;
     shownNeedsRedo = false;
     shownLink = searchLink(result.query);
-    // A re-run doesn't scroll away from a field the user is typing in.
+    // A reload (or coming back to this page) shows this search again; the address bar stays as it is.
+    history.replaceState({ search: searchLink(result.query, { own: true }) }, '');
+    // A re-run doesn't scroll away from a field the user is typing in, or to an error it leaves on screen.
     const typing = [sides.a.input, sides.b.input].includes(document.activeElement);
-    await showResult(result.res, result.provider, { scroll: !(background && typing), status: !quiet() });
+    await showResult(result.res, result.provider, { scroll: !(background && (typing || quiet())), status: !quiet() });
   } catch (err) {
     if (seq !== searchSeq) return;
     console.error(err);
@@ -670,22 +687,23 @@ function greenLineFailed(err) {
   throw failed;
 }
 
-/** How an endpoint appears in a shared link. */
-function forLink(loc) {
+/** How an endpoint appears in a shared link (or, `own`, in this tab's history). */
+function forLink(loc, { own = false } = {}) {
   // Google-derived coordinates stay out of links (they'd end up on other maps).
   if (loc.source === 'google') return { label: loc.label };
   // The sender's own position: neutral label, ~100 m precision (not their doorstep).
-  if (loc.source === 'device') {
+  if (loc.source === 'device' && !own) {
     const round = (x) => Math.round(x * 1e3) / 1e3;
     return { label: SHARED_LOCATION_LABEL, lat: round(loc.lat), lng: round(loc.lng) };
   }
   return loc;
 }
 
-function searchLink(query) {
+/** A link to the search (`own`: only for this tab's history, so "my location" stays as it is). */
+function searchLink(query, { own = false } = {}) {
   const qs = encodeState({
-    a: forLink(query.a),
-    b: forLink(query.b),
+    a: forLink(query.a, { own }),
+    b: forLink(query.b, { own }),
     modeA: query.modeA,
     modeB: query.modeB,
     categories: query.categories,
@@ -694,7 +712,7 @@ function searchLink(query) {
     shabbat: query.shabbat,
     provider: forcedProvider,
   });
-  return `${location.origin}${location.pathname}?${qs}`;
+  return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
 
 /** The address of the site itself, without a search (sharing it shares the app). */
@@ -705,7 +723,7 @@ function plainAddress() {
 /** The map view for `provider`'s kind, created once (concurrent callers share it). */
 function ensureMap(provider) {
   const wanted = provider.id === 'google' ? 'google' : 'leaflet';
-  if (mapPromise && mapKind === wanted) return mapPromise;
+  if (mapPromise && mapKind === wanted && mapPromise !== brokenMap) return mapPromise;
   const previous = mapPromise;
   mapKind = wanted;
   const promise = (async () => {
@@ -884,15 +902,23 @@ function isFramed() {
 }
 
 function init() {
-  const state = decodeState(location.search, { knownCategories: CATEGORY_IDS });
+  // A search link opened in this tab earlier (or the search shown before a reload or
+  // a return to this page) lives in history.state: the address bar is the plain site.
+  const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
+  const state = decodeState(linkSearch ?? history.state?.search ?? '', { knownCategories: CATEGORY_IDS });
   renderCategoryChips(state.categories || DEFAULT_CATEGORY_IDS);
   for (const key of ['a', 'b']) {
     let loc = state[key];
     if (!loc) continue;
-    // Older links carried the sender's "my location" label.
-    if (loc.label === MY_LOCATION_LABEL) loc = { ...loc, label: SHARED_LOCATION_LABEL };
+    let source = 'link';
+    if (loc.label === MY_LOCATION_LABEL) {
+      // This tab's own search (from history): the device's position, shared only rounded.
+      // From a link (older links carried the sender's "my location" label): someone else's.
+      if (linkSearch === null) source = 'device';
+      else loc = { ...loc, label: SHARED_LOCATION_LABEL };
+    }
     sides[key].input.value = loc.label;
-    sides[key].location = Number.isFinite(loc.lat) ? { ...loc, source: 'link' } : null;
+    sides[key].location = Number.isFinite(loc.lat) ? { ...loc, source } : null;
   }
   setMode('a', state.modeA);
   setMode('b', state.modeB);
@@ -906,7 +932,7 @@ function init() {
   }
   // A search link was opened: its search runs below, and the address bar goes back
   // to the plain site, so sharing the page from the browser shares the app itself.
-  if (location.search !== new URL(plainAddress(), location.href).search) history.replaceState(null, '', plainAddress());
+  if (linkSearch !== null) history.replaceState({ search: linkSearch }, '', plainAddress());
   if (state.a && state.b && !isFramed()) {
     // A shared link: show its results right away. (Not inside a frame, where
     // another site could run billed searches on visitors' behalf.)
