@@ -12,6 +12,14 @@ export function haversine(a, b) {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/** Initial compass bearing (degrees, 0 = north, clockwise) from a toward b. */
+export function bearing(a, b) {
+  const dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(toRad(b.lat));
+  const x = Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 /** Cumulative distance from the start of the path to each vertex. */
 export function cumulativeDistances(path) {
   const cum = [0];

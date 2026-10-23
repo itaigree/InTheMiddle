@@ -2,7 +2,7 @@
 
 export const MODES = ['car', 'transit'];
 /** What matters more when no place is exactly in the middle (see core/ranking.js). */
-export const PRIORITIES = ['equal', 'balanced', 'short'];
+export const PRIORITIES = ['equal', 'balanced', 'gap'];
 
 function encodePoint(p) {
   return `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
@@ -29,7 +29,7 @@ const DEPARTURE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
  * @param {string|null} state.departure  local "YYYY-MM-DDTHH:MM", null = now
  * @param {boolean} [state.greenLine]  only places inside the Green Line
  * @param {boolean} [state.shabbat]  only cafes and restaurants closed on Shabbat
- * @param {'equal'|'balanced'|'short'} [state.priority]  what matters more (balanced is left out)
+ * @param {'equal'|'balanced'|'gap'} [state.priority]  what matters more (balanced is left out)
  * @param {string|null} [state.provider]  forced provider id, normally null
  */
 export function encodeState(state) {
@@ -85,7 +85,9 @@ export function decodeState(search, { knownCategories = null } = {}) {
   if (t && DEPARTURE_RE.test(t) && !Number.isNaN(new Date(t).getTime())) result.departure = t;
   result.greenLine = params.get('g') === '1';
   result.shabbat = params.get('s') === '1';
-  if (PRIORITIES.includes(params.get('f'))) result.priority = params.get('f');
+  // 'short' was the first name of 'gap'.
+  const f = params.get('f') === 'short' ? 'gap' : params.get('f');
+  if (PRIORITIES.includes(f)) result.priority = f;
   const p = params.get('p');
   if (p === 'osm' || p === 'google') result.provider = p;
   return result;

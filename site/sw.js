@@ -24,6 +24,7 @@ const SHELL = [
   'js/core/categories.js',
   'js/core/format.js',
   'js/core/geo.js',
+  'js/core/detour.js',
   'js/core/green-line.js',
   'js/core/midpoint.js',
   'js/core/ranking.js',

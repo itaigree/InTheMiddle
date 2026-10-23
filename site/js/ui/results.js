@@ -55,7 +55,7 @@ export function guessAreaName(places, sample = 10) {
 const ORDER_TEXT = {
   equal: 'מסודרים קודם לפי כמה זמן הנסיעה שווה לשני הצדדים.',
   balanced: 'מסודרים לפי כמה הם מאוזנים וקרובים לשני הצדדים.',
-  short: 'מסודרים קודם לפי כמה הנסיעה קצרה.',
+  gap: 'מסודרים בעיקר לפי כמה הם קרובים, גם אם יש פער בין הצדדים.',
 };
 
 export function renderSummary(container, result) {

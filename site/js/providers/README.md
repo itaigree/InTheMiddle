@@ -30,7 +30,11 @@ await provider.geocode(text)            // -> {label, lat, lng} | null
 
 // Driving route between two points, for drawing and for sampling the midpoint.
 await provider.route(a, b, { departure })
-//   -> { path: [{lat, lng}, ...], distanceMeters, durationSec } | null
+//   -> { path: [{lat, lng}, ...], timeline?: [sec at each vertex], distanceMeters, durationSec } | null
+
+// Driving routes, best first: forced through `via` points in order, or with
+// alternatives (used to go around the West Bank when the Green Line filter is on).
+await provider.routes(a, b, { departure, via: [{lat, lng}], alternatives: true })   // -> Route[]
 
 // Travel-time matrix in seconds; null where there is no route.
 await provider.travelTimes(origins, destinations, mode, { departure })

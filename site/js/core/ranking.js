@@ -8,10 +8,10 @@ const RATING_WEIGHT_MIN = 6;
  * What the user said matters more, as how much each minute of difference
  * between the sides counts against a place (on top of the average trip):
  * equal  – both sides travel about the same, even if both travel longer;
- * short  – as little travel as possible, even if one side travels longer;
+ * gap    – a bigger gap between the sides is fine, for a place nearer overall;
  * balanced – in between (the longer trip plus 1.2× the difference).
  */
-export const PRIORITIES = { equal: 3.5, balanced: 1.7, short: 0.2 };
+export const PRIORITIES = { equal: 3.5, balanced: 1.7, gap: 0.2 };
 /** Penalty (minutes) for a place known to be closed when leaving now. */
 const CLOSED_PENALTY_MIN = 15;
 

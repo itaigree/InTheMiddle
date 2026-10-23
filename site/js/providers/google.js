@@ -328,35 +328,44 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     return place.location ? { label: text, ...toLatLng(place.location), source: 'google' } : null;
   }
 
-  async function route(a, b) {
-    const { routes } = await ensureReady();
-    const { routes: found } = await call(() =>
-      routes.Route.computeRoutes({
-        origin: { lat: a.lat, lng: a.lng },
-        destination: { lat: b.lat, lng: b.lng },
-        travelMode: 'DRIVING',
-        routingPreference: 'TRAFFIC_UNAWARE',
-        fields: ['path', 'legs', 'distanceMeters', 'durationMillis'],
-        language: LANGUAGE,
-        region: REGION,
-      }),
-    );
-    const best = found?.[0];
-    if (!best) return null;
-    const steps = (best.legs || []).flatMap((leg) => leg.steps || []);
-    const built = timelineFromSteps(
-      steps.map((s) => ({
-        path: (s.path || []).map(toLatLng),
-        durationSec: (s.staticDurationMillis ?? 0) / 1000,
-      })),
-    );
-    const path = built.path.length >= 2 ? built.path : (best.path || []).map(toLatLng);
-    return {
-      path,
-      timeline: built.path.length >= 2 ? built.timeline : undefined,
-      distanceMeters: best.distanceMeters,
-      durationSec: (best.durationMillis ?? 0) / 1000,
+  /**
+   * Driving routes from a to b, best first: through the `via` points in order
+   * (plain stops, which stay on the Essentials SKU), or with Google's
+   * `alternatives` (Google gives those only without via points).
+   */
+  async function routes(a, b, { via = [], alternatives = false } = {}) {
+    const { routes: lib } = await ensureReady();
+    const request = {
+      origin: { lat: a.lat, lng: a.lng },
+      destination: { lat: b.lat, lng: b.lng },
+      travelMode: 'DRIVING',
+      routingPreference: 'TRAFFIC_UNAWARE',
+      fields: ['path', 'legs', 'distanceMeters', 'durationMillis'],
+      language: LANGUAGE,
+      region: REGION,
     };
+    if (via.length) request.intermediates = via.map((p) => ({ lat: p.lat, lng: p.lng }));
+    else if (alternatives) request.computeAlternativeRoutes = true;
+    const { routes: found } = await call(() => lib.Route.computeRoutes(request));
+    return (found || []).map((r) => {
+      const steps = (r.legs || []).flatMap((leg) => leg.steps || []);
+      const built = timelineFromSteps(
+        steps.map((s) => ({
+          path: (s.path || []).map(toLatLng),
+          durationSec: (s.staticDurationMillis ?? 0) / 1000,
+        })),
+      );
+      return {
+        path: built.path.length >= 2 ? built.path : (r.path || []).map(toLatLng),
+        timeline: built.path.length >= 2 ? built.timeline : undefined,
+        distanceMeters: r.distanceMeters,
+        durationSec: (r.durationMillis ?? 0) / 1000,
+      };
+    });
+  }
+
+  async function route(a, b) {
+    return (await routes(a, b))[0] || null;
   }
 
   async function travelTimes(origins, destinations, mode, { departure } = {}) {
@@ -510,6 +519,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     suggest,
     geocode,
     route,
+    routes,
     travelTimes,
     searchPlaces,
     createMap,

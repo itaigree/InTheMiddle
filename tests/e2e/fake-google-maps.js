@@ -18,6 +18,7 @@
     חיפה: { name: 'חיפה', lat: 32.794, lng: 34.9896, region: 'ישראל' },
     'תל אביב': { name: 'תל אביב-יפו', lat: 32.0853, lng: 34.7818, region: 'ישראל' },
     'באר שבע': { name: 'באר שבע', lat: 31.2518, lng: 34.7913, region: 'ישראל' },
+    ירושלים: { name: 'ירושלים', lat: 31.7784, lng: 35.2066, region: 'ישראל' },
   };
   const find = (q) => {
     const key = Object.keys(KNOWN).find((k) => q.includes(k) || k.includes(q));
@@ -198,27 +199,35 @@
   const Route = {
     async computeRoutes(req) {
       maybeQuota('route', 'ROUTES');
-      const a = lit(req.origin);
-      const b = lit(req.destination);
+      const via = (req.intermediates || []).map(lit);
+      calls.push(via.length ? `route:via${via.length}` : `route${req.computeAlternativeRoutes ? ':alternatives' : ''}`);
+      // Straight lines through every point; one leg between each two of them.
+      const points = [lit(req.origin), ...via, lit(req.destination)];
       const n = 4;
-      const pts = Array.from({ length: n * 5 + 1 }, (_, i) => ({
-        lat: a.lat + ((b.lat - a.lat) * i) / (n * 5),
-        lng: a.lng + ((b.lng - a.lng) * i) / (n * 5),
-      }));
-      const steps = Array.from({ length: n }, (_, s) => {
-        const path = pts.slice(s * 5, s * 5 + 6);
-        let d = 0;
-        for (let i = 1; i < path.length; i++) d += haversine(path[i - 1], path[i]);
-        return { path, distanceMeters: d, staticDurationMillis: (d / SPEED.DRIVING) * 1000 };
+      const legs = points.slice(1).map((b, k) => {
+        const a = points[k];
+        const pts = Array.from({ length: n * 5 + 1 }, (_, i) => ({
+          lat: a.lat + ((b.lat - a.lat) * i) / (n * 5),
+          lng: a.lng + ((b.lng - a.lng) * i) / (n * 5),
+        }));
+        const steps = Array.from({ length: n }, (_, s) => {
+          const path = pts.slice(s * 5, s * 5 + 6);
+          let d = 0;
+          for (let i = 1; i < path.length; i++) d += haversine(path[i - 1], path[i]);
+          return { path, distanceMeters: d, staticDurationMillis: (d / SPEED.DRIVING) * 1000 };
+        });
+        return { steps, pts };
       });
-      const distance = haversine(a, b);
+      const path = legs.flatMap((leg, k) => leg.pts.slice(k ? 1 : 0));
+      let distance = 0;
+      for (let i = 1; i < path.length; i++) distance += haversine(path[i - 1], path[i]);
       return {
         routes: [
           {
             distanceMeters: distance,
             durationMillis: (distance / SPEED.DRIVING) * 1000,
-            path: pts,
-            legs: [{ steps }],
+            path,
+            legs: legs.map(({ steps }) => ({ steps })),
           },
         ],
       };

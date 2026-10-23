@@ -1,5 +1,5 @@
-// "Only inside the Green Line": the areas beyond it (the West Bank incl. East
-// Jerusalem, the Gaza Strip and the Golan) are in data/green-line.json, built by
+// "Only inside the Green Line": the areas beyond it (the West Bank without
+// Jerusalem, and the Gaza Strip) are in data/green-line.json, built by
 // tools/build-green-line.mjs. Loaded only when the filter is used.
 
 let pending = null;

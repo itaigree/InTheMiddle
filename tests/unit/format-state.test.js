@@ -42,7 +42,9 @@ test('state round-trips through the query string', () => {
   // The usual priority stays out of links.
   assert.match(encodeState(state), /(^|&)f=equal(&|$)/);
   assert.doesNotMatch(encodeState({ ...state, priority: 'balanced' }), /(^|&)f=/);
-  assert.equal(decodeState(encodeState({ ...state, priority: 'short' })).priority, 'short');
+  assert.equal(decodeState(encodeState({ ...state, priority: 'gap' })).priority, 'gap');
+  // Links made with the option's first name still open it.
+  assert.equal(decodeState('f=short').priority, 'gap');
 });
 
 test('decodeState drops malformed values', () => {

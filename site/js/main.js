@@ -37,6 +37,9 @@ const NOTICE_TEXT = {
     'לא מצאנו תחבורה ציבורית בזמן היציאה שנבחר (אולי שבת, חג או שעת לילה), ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'transit-error': 'לא הצלחנו לחשב כרגע זמני תחבורה ציבורית, ולכן חישבנו את הצד הזה לפי נסיעה ברכב.',
   'departure-past': 'זמן היציאה שנבחר כבר עבר, אז חיפשנו לפי יציאה עכשיו.',
+  bypass: 'הדרך המהירה עוברת ביהודה ושומרון, אז חישבנו את האמצע לפי הדרך המהירה ביותר שעוקפת אותם.',
+  'bypass-failed':
+    'לא מצאנו דרך שעוקפת את יהודה ושומרון, אז חישבנו את האמצע לפי הדרך המהירה, שעוברת שם. מקומות שמעבר לקו הירוק לא מוצגים.',
   widened: (result) =>
     `באזור האמצע עצמו היו מעט מקומות, אז הרחבנו את החיפוש עד ${formatDistance(result.radius)} מנקודת האמצע.`,
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
@@ -50,7 +53,7 @@ const NOTICE_TEXT = {
 const PRIORITY_HINT = {
   equal: 'זמן נסיעה כמעט שווה לשני הצדדים, גם אם שניהם נוסעים יותר.',
   balanced: 'זמן דומה לשני הצדדים, בלי להאריך את הדרך.',
-  short: 'כמה שפחות נסיעה, גם אם צד אחד נוסע יותר מהשני.',
+  gap: 'מותר פער גדול יותר בזמני הנסיעה בין שני הצדדים, בשביל מקום קרוב יותר.',
 };
 
 /** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
@@ -667,6 +670,8 @@ async function runSearch({ request = null, redo = false, background = false } = 
       const dropped = new Set();
       if (request.greenLine || request.shabbat) {
         const areas = await greenLineAreas;
+        // The middle is found along a road that doesn't go through the West Bank.
+        if (areas) query.avoidAreas = areas;
         query.placeFilter = (place) => {
           if (areas && beyondGreenLine(areas, place)) {
             dropped.add('green-line');

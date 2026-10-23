@@ -11,6 +11,7 @@ export const PLACES = {
   חיפה: { name: 'חיפה', lat: 32.794, lng: 34.9896, state: 'מחוז חיפה' },
   'תל אביב': { name: 'תל אביב-יפו', lat: 32.0853, lng: 34.7818, state: 'מחוז תל אביב' },
   'באר שבע': { name: 'באר שבע', lat: 31.2518, lng: 34.7913, state: 'מחוז הדרום' },
+  ירושלים: { name: 'ירושלים', lat: 31.7784, lng: 35.2066, state: 'מחוז ירושלים' },
 };
 
 function haversine(a, b) {
@@ -118,10 +119,11 @@ export async function mockOsm(
         return { lat, lng };
       });
     if (url.pathname.includes('/route/')) {
-      log.osrmRoute.push(url.pathname);
-      const pts = line(coords[0], coords[1]);
+      log.osrmRoute.push(url.pathname + url.search);
+      // Straight lines through every point (the start, any via points, the end).
+      const pts = coords.slice(1).flatMap((c, i) => line(coords[i], c).slice(i ? 1 : 0));
       const durations = pts.slice(1).map((p, i) => haversine(pts[i], p) / SPEED);
-      const distance = haversine(coords[0], coords[1]);
+      const distance = durations.reduce((sum, d) => sum + d, 0) * SPEED;
       route.fulfill(
         json({
           code: 'Ok',

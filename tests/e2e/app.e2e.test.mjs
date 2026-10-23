@@ -239,14 +239,14 @@ test('free mode: nothing in the middle itself → the search widens until it fin
   assert.ok((await page.locator('#place-list .place-card').count()) >= 5);
   assert.match(await page.locator('#status').textContent(), /הרחבנו את החיפוש עד \d+ ק״מ מנקודת האמצע/);
 
-  // "Short trip": the same places in a new order, right away, without asking any server again.
+  // "Flexible gap": the same places in a new order, right away, without asking any server again.
   const requests = osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length;
-  await page.locator('input[name="priority"][value="short"]').check({ force: true });
-  assert.match(await page.locator('#priority-hint').textContent(), /כמה שפחות נסיעה/);
-  assert.match(await page.locator('#results-summary').textContent(), /מסודרים קודם לפי כמה הנסיעה קצרה/);
+  await page.locator('input[name="priority"][value="gap"]').check({ force: true });
+  assert.match(await page.locator('#priority-hint').textContent(), /פער גדול יותר/);
+  assert.match(await page.locator('#results-summary').textContent(), /גם אם יש פער בין הצדדים/);
   assert.equal(osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length, requests);
   // The link to this search keeps the choice.
-  assert.equal((await sharedLink(page)).searchParams.get('f'), 'short');
+  assert.equal((await sharedLink(page)).searchParams.get('f'), 'gap');
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -1119,16 +1119,68 @@ test('Green Line filter: places beyond the line are left out, and the link keeps
   assert.equal(link.searchParams.get('g'), '1');
   await context.close();
 
-  // The same link, with every place around the midpoint beyond the line (test data).
+  // The same link, with the whole middle of the way beyond the line (test data)
+  // and no way around it: the middle moves along the route to the nearest point
+  // inside, and the notice says so.
   const square = [[34.5, 32.2], [35.3, 32.2], [35.3, 32.7], [34.5, 32.7], [34.5, 32.2]];
   const opened = await openApp({
     query: link.search,
     files: { '/data/green-line.json': JSON.stringify({ areas: { test: [[square]] } }) },
+    osm: {},
   });
-  await opened.page.locator('#place-list .empty-results').waitFor({ timeout: 20000 });
+  await opened.page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   assert.equal(await opened.page.locator('#only-green-line').isChecked(), true);
-  assert.match(await opened.page.locator('#status').textContent(), /קו הירוק/);
+  assert.match(await opened.page.locator('#status').textContent(), /לא מצאנו דרך שעוקפת/);
+  const [, lat] = opened.osmLog.overpass.at(-1).match(/around:\d+,([\d.]+),/);
+  assert.ok(Number(lat) <= 32.2 || Number(lat) >= 32.7, `middle at ${lat}`);
   await opened.context.close();
+});
+
+const greenLineAreas = (() => {
+  const data = JSON.parse(fs.readFileSync(new URL('../../site/data/green-line.json', import.meta.url), 'utf8'));
+  return Object.values(data.areas).flat();
+})();
+/** Whether a point is beyond the Green Line (the app's own test, run here). */
+async function beyondLine(point) {
+  const { prepare, beyondGreenLine } = await import('../../site/js/core/green-line.js');
+  return beyondGreenLine(prepare(greenLineAreas), point);
+}
+
+test('Green Line filter, free mode: Jerusalem–Be\'er Sheva goes around the West Bank, the middle inside', async () => {
+  const { page, osmLog, errors, context } = await openApp();
+  await pickSuggestion(page, 'a', 'ירושלים');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('#only-green-line').check({ force: true });
+  await search(page);
+  // The straight way (the mock's route) crosses; the next try goes through gates.
+  assert.equal(osmLog.osrmRoute.length, 2, osmLog.osrmRoute.join('\n'));
+  assert.match(osmLog.osrmRoute[0], /alternatives=3/);
+  assert.match(osmLog.osrmRoute[1], /bearings=/);
+  assert.match(await page.locator('#status').textContent(), /הדרך המהירה ביותר שעוקפת אותם/);
+  const [, lat, lng] = osmLog.overpass.at(-1).match(/around:\d+,([\d.]+),([\d.]+)/);
+  assert.equal(await beyondLine({ lat: Number(lat), lng: Number(lng) }), false);
+  assert.ok((await page.locator('#place-list .place-card').count()) >= 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Green Line filter, Google mode: the same way round, and places timed from it', async () => {
+  const { page, errors, context } = await openApp({ key: 'TEST_KEY', google: {} });
+  await pickSuggestion(page, 'a', 'ירושלים');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('#only-green-line').check({ force: true });
+  await search(page);
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  const routes = calls.filter((c) => c.startsWith('route:'));
+  assert.deepEqual(routes.length, 2, calls.join(','));
+  assert.equal(routes[0], 'route:alternatives');
+  assert.match(routes[1], /^route:via\d+$/);
+  // From three points along the route near the middle, not from Jerusalem and Be'er Sheva.
+  assert.ok(calls.some((c) => /^matrix:DRIVING:3x\d+$/.test(c)), calls.join(','));
+  assert.match(await page.locator('#status').textContent(), /עוקפת אותם/);
+  assert.ok((await page.locator('#place-list .place-card').count()) >= 1);
+  assert.deepEqual(errors, []);
+  await context.close();
 });
 
 test('closed on Shabbat: only cafes whose hours show it, other kinds of places untouched', async () => {

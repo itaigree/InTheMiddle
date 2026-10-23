@@ -8,7 +8,7 @@
 // small. Nominatim is deliberately not used: its policy forbids autocomplete.
 
 import { ProviderRequestError, isAbortError } from './errors.js';
-import { haversine } from '../core/geo.js';
+import { haversine, bearing } from '../core/geo.js';
 import { closedOnShabbat, intervalsFromOsm } from '../core/shabbat.js';
 
 const PHOTON_URL = 'https://photon.komoot.io/api/';
@@ -237,22 +237,45 @@ async function photonSearch(query, { limit, signal }) {
 
 const lngLat = (p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`;
 
-async function osrmRoute(a, b) {
+/**
+ * Driving routes from a to b, best first: through the `via` points in order,
+ * or with up to two `alternatives` (OSRM gives those only without via points).
+ */
+async function osrmRoutes(a, b, { via = [], alternatives = false } = {}) {
+  const points = [a, ...via, b];
+  let params = 'overview=full&geometries=geojson&annotations=duration';
+  if (via.length) {
+    // A via point on a divided road snaps to the carriageway going the way the
+    // route goes there (between the way in and the way out), not the other one,
+    // which would mean a U-turn.
+    const bearings = points.map((p, i) => {
+      if (i === 0 || i === points.length - 1) return '';
+      const [into, out] = [bearing(points[i - 1], p), bearing(p, points[i + 1])].map((d) => (d * Math.PI) / 180);
+      const x = Math.cos(into) + Math.cos(out);
+      const y = Math.sin(into) + Math.sin(out);
+      const heading = Math.hypot(x, y) < 1e-6 ? out : Math.atan2(y, x);
+      return `${Math.round(((heading * 180) / Math.PI + 360) % 360)},90`;
+    });
+    params += `&bearings=${bearings.join(';')}`;
+  } else if (alternatives) {
+    params += '&alternatives=3';
+  }
   return withMirrors(
     OSRM_URLS,
     async (base) => {
-      const url = `${base}/route/v1/driving/${lngLat(a)};${lngLat(b)}?overview=full&geometries=geojson&annotations=duration`;
+      const url = `${base}/route/v1/driving/${points.map(lngLat).join(';')}?${params}`;
       const data = await osrmGate(() => fetchJson(url));
-      if (data.code !== 'Ok' || !data.routes?.length) return null;
-      const r = data.routes[0];
-      const path = r.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-      const durations = (r.legs || []).flatMap((leg) => leg.annotation?.duration || []);
-      let timeline;
-      if (durations.length === path.length - 1) {
-        timeline = [0];
-        for (const d of durations) timeline.push(timeline[timeline.length - 1] + Math.max(0, d));
-      }
-      return { path, timeline, distanceMeters: r.distance, durationSec: r.duration };
+      if (data.code !== 'Ok' || !data.routes?.length) return [];
+      return data.routes.map((r) => {
+        const path = r.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        const durations = (r.legs || []).flatMap((leg) => leg.annotation?.duration || []);
+        let timeline;
+        if (durations.length === path.length - 1) {
+          timeline = [0];
+          for (const d of durations) timeline.push(timeline[timeline.length - 1] + Math.max(0, d));
+        }
+        return { path, timeline, distanceMeters: r.distance, durationSec: r.duration };
+      });
     },
     'לא הצלחנו לחשב את הדרך כרגע. כדאי לנסות שוב בעוד דקה.',
   );
@@ -580,7 +603,8 @@ export function createOsmProvider() {
       }
     },
 
-    route: (a, b) => osrmRoute(a, b),
+    route: async (a, b) => (await osrmRoutes(a, b))[0] || null,
+    routes: (a, b, options) => osrmRoutes(a, b, options),
 
     async travelTimes(origins, destinations, mode, { departure } = {}) {
       if (!destinations.length) return origins.map(() => []);

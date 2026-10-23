@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { findMiddle, selectCandidates, MAX_CANDIDATES } from '../../site/js/core/search.js';
 import { haversine } from '../../site/js/core/geo.js';
 import { searchRadii } from '../../site/js/core/midpoint.js';
+import { prepare, beyondGreenLine } from '../../site/js/core/green-line.js';
+import { crossesLine } from '../../site/js/core/detour.js';
+import fs from 'node:fs';
 import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
 const HAIFA = { label: 'חיפה', lat: 32.794, lng: 34.9896 };
@@ -177,15 +180,15 @@ test('places nobody can reach send the search further out, checking only new pla
 test('what matters more changes the order, not the places', async () => {
   // A 3x faster side: the middle is off-center, so places differ in both total and balance.
   const results = {};
-  for (const priority of ['equal', 'balanced', 'short']) {
+  for (const priority of ['equal', 'balanced', 'gap']) {
     results[priority] = await findMiddle({ ...baseQuery, priority }, fakeProvider({ speedA: 30, speedB: 10 }));
   }
   const ids = (r) => r.places.map((p) => p.id);
-  assert.deepEqual(ids(results.equal).slice().sort(), ids(results.short).slice().sort());
-  assert.equal(results.short.priority, 'short');
+  assert.deepEqual(ids(results.equal).slice().sort(), ids(results.gap).slice().sort());
+  assert.equal(results.gap.priority, 'gap');
   const meanOfTop = (r) => (r.places[0].timeA + r.places[0].timeB) / 2;
-  assert.ok(results.equal.places[0].diff <= results.short.places[0].diff);
-  assert.ok(meanOfTop(results.short) <= meanOfTop(results.equal));
+  assert.ok(results.equal.places[0].diff <= results.gap.places[0].diff);
+  assert.ok(meanOfTop(results.gap) <= meanOfTop(results.equal));
 });
 
 test('provider unavailability propagates so the app can switch providers', async () => {
@@ -321,4 +324,77 @@ test('a place filter drops places before travel times are asked for', async () =
   assert.ok(result.places.length > 0);
   assert.ok(result.places.every((p) => Number(p.id.split('-')[1]) % 2 === 0));
   assert.equal(provider.calls.travelTimes.at(-1).destinations, result.places.length);
+});
+
+// ------------------------------------------------- the Green Line filter's route
+
+const greenLine = prepare(
+  Object.values(JSON.parse(fs.readFileSync(new URL('../../site/data/green-line.json', import.meta.url), 'utf8')).areas).flat(),
+);
+const JERUSALEM = { label: 'ירושלים', lat: 31.7784, lng: 35.2066 };
+const BEERSHEBA = { label: 'באר שבע', lat: 31.2518, lng: 34.7913 };
+const ARIEL = { label: 'אריאל', lat: 32.1047, lng: 35.1873 };
+
+/** A route along straight lines through `points`, at 20 m/s, with its timeline. */
+function straightRoute(points) {
+  const timeline = [0];
+  for (let i = 1; i < points.length; i++) timeline.push(timeline[i - 1] + haversine(points[i - 1], points[i]) / 20);
+  const total = timeline[timeline.length - 1];
+  return { path: points, timeline, distanceMeters: total * 20, durationSec: total };
+}
+
+/** The fake provider, with routes(): straight lines, through the via points if any. */
+function routingProvider({ cleanAlternative = false } = {}) {
+  const provider = fakeProvider();
+  provider.calls.routes = [];
+  provider.routes = async (a, b, { via = [], alternatives = false } = {}) => {
+    provider.calls.routes.push({ via: via.length, alternatives });
+    if (via.length) return [straightRoute([a, ...via, b])];
+    const usual = straightRoute([a, b]);
+    // A slower way round, west of the West Bank.
+    const round = straightRoute([a, { lat: 31.81, lng: 35.02 }, { lat: 31.6, lng: 34.81 }, b]);
+    return alternatives && cleanAlternative ? [usual, round] : [usual];
+  };
+  return provider;
+}
+
+const insideQuery = {
+  ...baseQuery,
+  a: JERUSALEM,
+  b: BEERSHEBA,
+  avoidAreas: greenLine,
+  placeFilter: (p) => !beyondGreenLine(greenLine, p),
+};
+
+test('Green Line filter: a route through the West Bank gives way to one through gates, the middle inside', async () => {
+  const provider = routingProvider();
+  const result = await findMiddle(insideQuery, provider);
+  assert.deepEqual(provider.calls.routes.map((c) => c.alternatives), [true, false]);
+  assert.ok(provider.calls.routes[1].via >= 1);
+  assert.equal(result.bypass, 'gates');
+  assert.ok(result.notices.includes('bypass'));
+  assert.equal(crossesLine(greenLine, result.route), false);
+  assert.equal(beyondGreenLine(greenLine, result.midpoint), false);
+  assert.ok(result.places.length > 0);
+  // Places are timed from the route: from points along it near the middle.
+  const candidateCalls = provider.calls.travelTimes.filter((c) => c.destinations !== 8 && c.destinations !== 49);
+  assert.ok(candidateCalls.every((c) => c.origins === 3), JSON.stringify(provider.calls.travelTimes));
+});
+
+test('Green Line filter: a clean alternative is used without forcing gates', async () => {
+  const provider = routingProvider({ cleanAlternative: true });
+  const result = await findMiddle(insideQuery, provider);
+  assert.equal(provider.calls.routes.length, 1);
+  assert.equal(result.bypass, 'alternative');
+  assert.equal(crossesLine(greenLine, result.route), false);
+});
+
+test('without the filter, or from beyond the line, the usual route is used', async () => {
+  const provider = routingProvider();
+  const plain = await findMiddle({ ...insideQuery, avoidAreas: undefined }, provider);
+  assert.equal(plain.bypass, null);
+  assert.equal(provider.calls.routes.length, 0);
+  const fromAriel = await findMiddle({ ...insideQuery, a: ARIEL }, provider);
+  assert.equal(fromAriel.bypass, null);
+  assert.equal(provider.calls.routes.length, 0);
 });
