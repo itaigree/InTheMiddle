@@ -1188,6 +1188,28 @@ test('Green Line filter, Google mode: the same way round, and places timed from 
   await context.close();
 });
 
+test('the Green Line and Shabbat filters are remembered from visit to visit, but a shared link brings its own', async () => {
+  const { page, context, server } = await openApp();
+  assert.equal(await page.locator('#only-green-line').isChecked(), false);
+  await page.locator('#only-green-line').check({ force: true });
+  await page.locator('#only-shabbat-closed').check({ force: true });
+  await page.reload();
+  assert.equal(await page.locator('#only-green-line').isChecked(), true);
+  assert.equal(await page.locator('#only-shabbat-closed').isChecked(), true);
+  await page.locator('#only-shabbat-closed').uncheck({ force: true });
+  // A link to a search without the filters: shown without them...
+  const linked = await context.newPage();
+  await linked.goto(`${server.url}?a=${encodeURIComponent('חיפה')}&b=${encodeURIComponent('תל אביב')}`);
+  await linked.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await linked.locator('#only-green-line').isChecked(), false);
+  // ...but that doesn't change what's remembered.
+  const later = await context.newPage();
+  await later.goto(server.url);
+  assert.equal(await later.locator('#only-green-line').isChecked(), true);
+  assert.equal(await later.locator('#only-shabbat-closed').isChecked(), false);
+  await context.close();
+});
+
 test('closed on Shabbat: only cafes whose hours show it, other kinds of places untouched', async () => {
   const { page, context } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');

@@ -959,6 +959,32 @@ function isFramed() {
   }
 }
 
+/** The filters remembered in this browser: the user's own choice, kept from visit to visit. */
+const FILTERS_KEY = 'inthemiddle.filters';
+
+function savedFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTERS_KEY)) || {};
+    return { greenLine: saved.greenLine === true, shabbat: saved.shabbat === true };
+  } catch {
+    return { greenLine: false, shabbat: false };
+  }
+}
+
+function saveFilters() {
+  try {
+    localStorage.setItem(
+      FILTERS_KEY,
+      JSON.stringify({ greenLine: $('only-green-line').checked, shabbat: $('only-shabbat-closed').checked }),
+    );
+  } catch {
+    // Storage off (private mode etc.): the filters just aren't remembered.
+  }
+}
+
+// Only a change the user makes is remembered, not filters a shared link brought.
+for (const id of ['only-green-line', 'only-shabbat-closed']) $(id).addEventListener('change', saveFilters);
+
 function init() {
   // A search link opened in this tab earlier (or the search shown before a reload or
   // a return to this page) lives in history.state: the address bar is the plain site.
@@ -980,8 +1006,11 @@ function init() {
   }
   setMode('a', state.modeA);
   setMode('b', state.modeB);
-  $('only-green-line').checked = state.greenLine;
-  $('only-shabbat-closed').checked = state.shabbat;
+  // A search (from a link, or this tab's last one) brings its own filters;
+  // otherwise the ones this browser used last time.
+  const filters = state.a && state.b ? state : savedFilters();
+  $('only-green-line').checked = filters.greenLine;
+  $('only-shabbat-closed').checked = filters.shabbat;
   setPriority(state.priority);
   if (state.departure) {
     // A time that has passed is reset to "now" by the search, with a notice.
