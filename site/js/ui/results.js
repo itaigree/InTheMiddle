@@ -183,12 +183,11 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     fairEl.dataset.level = fairness.level;
     fairEl.textContent = fairness.text;
 
-    const sameMode = modeA === modeB ? modeA : undefined;
     const waze = node.querySelector('.waze');
     waze.href = wazeUrl(place);
     waze.setAttribute('aria-label', `ניווט ב-Waze אל ${place.name}`);
     const gmaps = node.querySelector('.gmaps');
-    gmaps.href = googleMapsUrl(place, { mode: sameMode });
+    gmaps.href = googleMapsUrl(place);
     gmaps.setAttribute('aria-label', `פתיחה ב-Google Maps: ${place.name}`);
     const share = node.querySelector('.share-place');
     share.setAttribute('aria-label', `שיתוף ${place.name}`);

@@ -922,11 +922,10 @@ function selectPlace(place, { from }) {
 }
 
 async function sharePlace(place) {
-  const mode = lastResult && lastResult.modeA === lastResult.modeB ? lastResult.modeA : undefined;
   const outcome = await shareOrCopy({
     title: place.name,
     text: `נפגשים באמצע? מה דעתך על ${place.name}`,
-    url: googleMapsUrl(place, { mode }),
+    url: googleMapsUrl(place),
   });
   if (outcome === 'copied') toast('הקישור הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');

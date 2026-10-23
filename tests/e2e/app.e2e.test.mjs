@@ -134,6 +134,11 @@ test('free mode: autocomplete, search, results and Leaflet map', async () => {
   assert.equal(osmLog.osrmTable.length, 1);
   assert.equal(osmLog.overpass.length, 1);
 
+  // Waze navigates to the place; Google Maps only shows it (no directions).
+  const first = cards.first();
+  assert.match(await first.locator('.waze').getAttribute('href'), /navigate=yes/);
+  assert.match(await first.locator('.gmaps').getAttribute('href'), /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/);
+
   // Selecting a card highlights its marker.
   await cards.nth(1).locator('.place-main').click();
   assert.equal(await page.locator('#map .pin-place.is-active').count(), 1);

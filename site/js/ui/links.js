@@ -1,16 +1,19 @@
 // Deep links to navigation apps and sharing.
 
+/** Waze: navigation to the place. */
 export function wazeUrl(place) {
   return `https://waze.com/ul?ll=${place.lat}%2C${place.lng}&navigate=yes`;
 }
 
-/** Google Maps: the place page when we know it, otherwise directions to the coordinates. */
-export function googleMapsUrl(place, { mode } = {}) {
+/**
+ * Google Maps: the place itself, not directions to it. Its page when Google
+ * gave one; otherwise a pin at its coordinates (a search by name could find
+ * another place of the same name).
+ */
+export function googleMapsUrl(place) {
   if (place.mapsUrl) return place.mapsUrl;
-  const params = new URLSearchParams({ api: '1', destination: `${place.lat},${place.lng}` });
-  if (mode === 'transit') params.set('travelmode', 'transit');
-  else if (mode === 'car') params.set('travelmode', 'driving');
-  return `https://www.google.com/maps/dir/?${params}`;
+  const params = new URLSearchParams({ api: '1', query: `${place.lat},${place.lng}` });
+  return `https://www.google.com/maps/search/?${params}`;
 }
 
 /**
