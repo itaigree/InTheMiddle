@@ -842,6 +842,7 @@ function displayedPlaces() {
 }
 
 function renderList() {
+  showPicked(null);
   const places = displayedPlaces();
   const numbering = new Map(places.map((p, i) => [p.id, i + 1]));
   shown = { places, numbering };
@@ -910,15 +911,35 @@ async function drawOnMap(result, provider) {
   });
 }
 
+const isPhone = () => window.matchMedia('(max-width: 959px)').matches;
+
 function selectPlace(place, { from }) {
   // A place picked from the list is zoomed in on (with the whole search in the
   // corner); one picked on the map stays where the user is looking.
   onMap((map) => map.highlight(place.id, { focus: from === 'list' }));
-  setActiveCard($('place-list'), place.id, { scroll: from === 'map' });
-  // On phones the map can be far above the tapped card: bring it into view.
-  if (from === 'list' && window.matchMedia('(max-width: 959px)').matches) {
-    document.querySelector('.map-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const phone = isPhone();
+  setActiveCard($('place-list'), place.id, { scroll: from === 'map' && !phone });
+  if (!phone) return;
+  // On phones the map and the list are far apart: the picked place's card comes
+  // up under the map, so the map and its links (Waze etc.) are on screen together.
+  showPicked(place);
+  if (from === 'list') document.querySelector('.map-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** A copy of the place's card under the map (phones), or none. */
+function showPicked(place) {
+  const box = $('picked');
+  const card = place && $('place-list').querySelector(`.place-card[data-place-id="${CSS.escape(place.id)}"]`);
+  if (!card) {
+    box.hidden = true;
+    box.firstElementChild.replaceChildren();
+    return;
   }
+  const copy = card.cloneNode(true);
+  copy.classList.remove('is-active');
+  copy.querySelector('.share-place')?.addEventListener('click', () => sharePlace(place));
+  box.firstElementChild.replaceChildren(copy);
+  box.hidden = false;
 }
 
 async function sharePlace(place) {

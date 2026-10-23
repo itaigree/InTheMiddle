@@ -265,6 +265,47 @@ test('a search link with a priority opens with it chosen', async () => {
   await context.close();
 });
 
+test('phone: a place picked in the list comes up under the map, with its links, both on screen', async () => {
+  const { page, errors, context } = await openApp({ viewport: { width: 390, height: 844 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const picked = page.locator('#picked');
+  assert.equal(await picked.isVisible(), false);
+  const card = page.locator('#place-list .place-card').nth(4);
+  const name = await card.locator('.place-name').textContent();
+  await card.locator('.place-main').click();
+  await picked.waitFor({ state: 'visible' });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  assert.match(await picked.locator('.waze').getAttribute('href'), /navigate=yes/);
+  // Once the page has scrolled up: the map, and the card's links right under it.
+  await page.waitForFunction(() => Math.abs(document.querySelector('.map-wrap').getBoundingClientRect().top) < 12);
+  const [mapBottom, linksBottom] = await page.evaluate(() => [
+    document.querySelector('.map-wrap').getBoundingClientRect().bottom,
+    document.querySelector('#picked .waze').getBoundingClientRect().bottom,
+  ]);
+  assert.ok(linksBottom > mapBottom && linksBottom <= 844, `map ends at ${mapBottom}, links at ${linksBottom}`);
+  // Sharing from it works like from the list.
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await picked.locator('.share-place').click();
+  await page.waitForFunction(() => window.copied !== null);
+  // A pin tapped on the map shows its place there too.
+  await page.locator('#map .leaflet-marker-icon:has(.pin-place:not(.is-active))').first().dispatchEvent('click');
+  assert.notEqual(await picked.locator('.place-name').textContent(), name);
+  await shot(page, 'osm-phone-picked');
+  // A new filter of the list clears it.
+  await page.locator('#result-filters .filter-chip', { hasText: 'פארקים' }).click();
+  assert.equal(await picked.isVisible(), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('free mode: public transit through Transitous', async () => {
   const { page, context, osmLog, errors } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');

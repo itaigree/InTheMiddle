@@ -330,6 +330,22 @@ body.has-map .map-placeholder {
   }
 }
 
+/* The place picked, under the map on phones (beside the list on wider screens, it isn't needed). */
+.picked {
+  order: 2;
+  margin-top: calc(-1 * var(--gap) + 10px);
+}
+
+.picked .place-list {
+  margin: 0;
+}
+
+@media (min-width: 960px) {
+  .picked {
+    display: none;
+  }
+}
+
 @media (min-width: 960px) {
   .layout {
     flex-direction: row;
