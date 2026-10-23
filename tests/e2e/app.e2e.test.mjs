@@ -137,7 +137,7 @@ test('free mode: autocomplete, search, results and Leaflet map', async () => {
   // Waze navigates to the place; Google Maps only shows it (no directions).
   const first = cards.first();
   assert.match(await first.locator('.waze').getAttribute('href'), /navigate=yes/);
-  assert.match(await first.locator('.gmaps').getAttribute('href'), /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/);
+  assert.match(await first.locator('.gmaps').getAttribute('href'), /^https:\/\/www\.google\.com\/maps\/search\/[^/?]+\/@[\d.]+,[\d.]+,17z$/);
 
   // Selecting a card highlights its marker.
   await cards.nth(1).locator('.place-main').click();
