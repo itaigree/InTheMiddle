@@ -1287,6 +1287,35 @@ body.has-map .map-placeholder {
   color: var(--muted);
 }
 
+/* A page of text (the privacy policy). */
+.doc {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  line-height: 1.6;
+}
+
+.doc h1 {
+  margin: 16px 0 4px;
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.doc h2 {
+  margin: 28px 0 6px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.doc p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.doc a {
+  color: var(--text);
+}
+
 /* Map markers (Leaflet and Google share these) */
 
 .pin {
