@@ -1,0 +1,65 @@
+name: Android app
+
+# Builds the Android app (android/): a test APK to install on a phone, and the
+# bundle (AAB) to upload to Google Play. Both are under the run's "Artifacts".
+on:
+  push:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'Version name shown in the store (e.g. 1.1)'
+        required: false
+        default: '1.0'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '8.14.3'
+
+      # The upload key, once it's in the repository's secrets (see android/README.md).
+      - name: Upload key
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "UPLOAD_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+          else
+            echo "::notice::No upload key in the secrets yet: the bundle is unsigned (fine for testing, not for Google Play)."
+          fi
+
+      - name: Build
+        working-directory: android
+        env:
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: >
+          gradle assembleDebug bundleRelease --no-daemon
+          -PversionCode=${{ github.run_number }}
+          -PversionName=${{ inputs.versionName || '1.0' }}
+          -PadmobAppId=${{ vars.ADMOB_APP_ID }}
+          -PadmobBannerId=${{ vars.ADMOB_BANNER_ID }}
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: test-apk (test ads, install on a phone)
+          path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v5
+        with:
+          name: play-bundle (upload to Google Play)
+          path: android/app/build/outputs/bundle/release/*.aab
