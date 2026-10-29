@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Notion__notion-fetch",
+      "mcp__Notion__notion-query-data-sources",
+      "mcp__Notion__notion-update-page",
+      "mcp__Notion__notion-create-pages"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/appdash-hook.sh\" init"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/appdash-hook.sh\" check"
+          }
+        ]
+      }
+    ]
+  }
+}
