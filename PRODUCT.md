@@ -1,86 +1,104 @@
-# מקום באמצע (A Place in the Middle)
+# Product
 
-Product context for design work. Read this before changing how the app looks or reads.
-The current visual system is described in `site/styles.css` (and in `DESIGN.md` once it exists).
+<!-- impeccable:product-schema 1 -->
 
 ## Platform
 
 web
 
-A static, phone-first web app in Hebrew (RTL), served from GitHub Pages:
-https://itaigree.github.io/InTheMiddle/. The Android app in `android/` is the same site in a
-WebView, with an AdMob banner below it. It is not a native UI, so web conventions apply, not
-Material.
+## Users
 
-## What it does
+- **Families on an outing.** Relatives or families with kids who live in different towns and
+  want a park, a nature spot or a mall to meet at.
+- **Friends in different cities.** Two friends or groups looking for a place that is fair to
+  both sides, usually a café or somewhere to eat.
 
-Two people type where each is leaving from. The app finds the point on the route where both
-sides' **travel time** is about equal (not the midpoint of the distance), then lists places to
-meet near that point: cafés, malls, parks, nature and views (selected by default), plus
-restaurants and attractions. Results show on a map and as a list ranked by travel time on both
-sides, how fair the split is, and rating. Each place links to Waze and Google Maps, and the
-whole search can be shared as a link.
+Either way, the job is the same: agree on one place both sides accept as fair, then go.
 
-Each side picks car or public transport, and can pick a departure time in the future (this
-matters on Shabbat). Filters: "only inside the Green Line" and "closed on Shabbat" (for cafés
-and restaurants). A "what matters more" control re-ranks the results without a new search:
-equal time, balanced (the default), or a flexible gap in exchange for a closer place.
+## Product Purpose
 
-## Who it is for
+מקום באמצע ("a place in the middle") takes two starting points and finds places to meet that are
+about the same travel time from both sides: cafés, malls, parks, nature and views (selected by
+default), restaurants and attractions. Success is both sides saying yes to one place and opening
+navigation (Waze or Google Maps). The midpoint math is how you get there; picking the place is
+the goal.
 
-- **Families on an outing.** Relatives or families with kids living in different towns, looking
-  for a park, a nature spot or a mall to meet at. They often go on weekends, often with kids in
-  the car, and sometimes on Shabbat or by public transport.
-- **Friends in different cities.** Two friends or groups who want somewhere that is fair to both
-  sides, usually a café or a place to eat.
+## Positioning
 
-They use it on a phone. Typically one person runs the search and sends the share link to the
-other side, and it ends with a tap on Waze.
+**Fairness you can see.** Every result shows how long each side travels to it, and the user
+chooses the trade-off: equal time, balanced, or a flexible gap for a closer place. A map search
+gives you places; this gives you places together with how fair each one is, so two people can
+agree.
 
-## The job
+## Operating Context
 
-Agree on a place quickly, where both sides feel the drive is fair, and then go. A good session
-ends with both sides saying yes to one place and opening navigation. Picking the place is the
-real goal; the midpoint math only gets you there.
+- The Android app is meant to be the main channel. It shows the website
+  (https://itaigree.github.io/InTheMiddle/) in a WebView, with an AdMob banner at the bottom of
+  the screen. The website itself has no ads. Because it is a wrapper, the design language is web,
+  not Material.
+- Used on phones. Each side picks car or public transport, and can set a future departure time,
+  which matters for public transport on Shabbat.
+- A search can be shared as a link from the share button next to the results. The address bar
+  always stays the site's own address, so sharing it shares the app.
+- Results end in a hand-off to Waze or Google Maps.
 
-## Personality
+## Capabilities and Constraints
 
-**Going out.** The app should feel like planning an outing: the places and the anticipation of
-the day are the main thing, not the route math. Inviting, lively and local, while staying fair
-and trustworthy about the numbers (travel times on both sides are what people decide by).
-
-This is a deliberate change. The current look is "one quiet surface, hairlines instead of boxes,
-two colors" (`site/styles.css`), a quiet utility. That is no longer the target. The one part of
-it with real meaning is the pair of colors: side א is blue and side ב is orange, and they meet in
-the ink of the middle (the brand mark in the header). Keep or replace that idea on purpose, not by
-accident.
-
-## Constraints
-
-- **It must look complete without photos or ratings.** Google mode (ratings, photos, opening
-  hours, traffic-aware times, public transport) is capped at about 8 searches a day by the free
-  quota. After that the app switches to OpenStreetMap: no photos, no ratings, few opening hours,
-  and Leaflet instead of Google's map. A design that leans on photos has to have a strong
-  no-photo state, because that state is what most visitors see most of the day.
-- Hebrew only, right to left. Font: IBM Plex Sans Hebrew.
-- Phones first, including inside the Android WebView, where a banner ad takes the bottom of the
-  screen. The site itself has no ads.
-- Light and dark mode are both supported, following the system setting.
-- No build step and no framework. Plain HTML, CSS and ES modules in `site/`. The only vendored
-  library is Leaflet (`site/vendor/leaflet`), for the map.
-- Two map renderers (`site/js/ui/map-google.js`, `site/js/ui/map-leaflet.js`). Markers and
-  colors should look like one product in both.
-- No accounts and no server of its own. Filters and the last search are kept on the device
-  only. Don't design features that assume a login or a backend.
+- **Travel time, not distance.** The app finds the point on the route where both sides' travel
+  time is equal, then widens the search around it (up to a quarter of the route, 5–30 km) until
+  places turn up. Results are ranked by average travel time, the gap between the sides, and
+  rating.
+- **Two data modes.** Google Maps mode (ratings, photos, opening hours, traffic-aware times,
+  public transport) is limited by the free quota to about 8 searches a day. After that, the app
+  switches automatically to OpenStreetMap: no photos, no ratings, few opening hours, and a
+  Leaflet map. Every surface has to be complete in OpenStreetMap mode, because that is what most
+  visitors get most of the day.
+- **Filters.** "Only inside the Green Line" leaves out places in Judea and Samaria and Gaza (and
+  keeps the route out of Judea and Samaria). "Closed on Shabbat" keeps only cafés and restaurants
+  whose hours show them closed from Friday 19:00 to Saturday 17:00. That is a hint about
+  kashrut, not a certification, and the UI must not present it as one.
+- Hebrew only, right to left.
+- No accounts and no server of its own. Filters and the last search are kept on the device only.
+- No build step and no framework: plain HTML, CSS and ES modules in `site/`, deployed to GitHub
+  Pages. Leaflet (`site/vendor/leaflet`) is the only vendored library.
+- Two map renderers (`site/js/ui/map-google.js`, `site/js/ui/map-leaflet.js`) that must read as
+  one product.
 - The Transitous data-source link in the footer is a license condition and must stay visible.
-- The address bar stays the site's own address, so sharing it shares the app. A specific search
-  is shared from the share button next to the results.
-- Accessibility: the place inputs are ARIA comboboxes with autocomplete. Keep keyboard and
-  screen-reader behavior working, and keep text contrast at WCAG AA.
+- Light and dark mode both exist, following the system setting.
 
-## Open questions
+## Brand Commitments
 
-These were not asked during setup. Raise them when they matter:
+- Name: מקום באמצע. Tagline: "נפגשים בדיוק באמצע הדרך".
+- Brand mark: two endpoints, א and ב, meeting at a larger middle dot (the header SVG in
+  `site/index.html` and `site/icons/icon.svg`). Whether it carries into a redesign is undecided.
+- Personality, as the owner stated it for the next design: **going out**. Planning an outing,
+  where the places and the day ahead come first and the route math stays in the background. This
+  replaces the current quiet-utility look.
 
-- Is the Android app (with ads) the main channel, or the website?
-- How much should the "going out" direction change the search form, compared with the results?
+## Evidence on Hand
+
+- Place data (names, ratings, photos, hours) comes only from Google Places or OpenStreetMap at
+  runtime. The project has no photos of its own.
+- Category list and emoji: `site/js/core/categories.js`. App icons: `site/icons/`. Privacy policy:
+  `site/privacy.html`.
+- There are no user counts, reviews, testimonials, press or store ratings. Don't make any up.
+
+## Product Principles
+
+1. **Show the fairness.** Both sides' travel times are what people decide by. Never hide them or
+   the trade-off behind a single score.
+2. **The place is the goal.** Every step should move two people toward one agreed place and a tap
+   on navigation.
+3. **Complete in free mode.** A screen that only works with Google's photos and ratings is
+   broken for most visitors.
+4. **Built for the app.** Design for a phone inside the Android WebView, with the banner at the
+   bottom.
+5. **Nothing to sign up for.** No accounts, no backend, nothing that assumes either.
+
+## Accessibility & Inclusion
+
+- The place inputs are ARIA comboboxes with autocomplete, and controls have screen-reader labels.
+  Keep keyboard and screen-reader behavior working.
+- Public-transport users and Shabbat observers are part of the audience: the transit mode,
+  future departure time and Shabbat filter are product features, not extras.
+- No specific WCAG level has been set.
