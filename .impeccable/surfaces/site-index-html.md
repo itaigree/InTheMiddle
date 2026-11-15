@@ -25,5 +25,5 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 ## Build progress (for the next session)
 
 - [x] Chunk 1: tokens and category colours, category icons, list as strip map, picked card with header band, full-width yellow Waze, chips with roundels.
-- [ ] Chunk 2: map pins as station roundels (Leaflet and Google), selected legs brightest, start-screen line with the search button as the middle station, share text with the line, sliding re-sort motion, brand mark redrawn.
+- [x] Chunk 2 (the selected place's two legs are not drawn: there is no per-place route geometry; the route itself is split blue/orange at the middle instead): map pins as station roundels (Leaflet and Google), selected legs brightest, start-screen line with the search button as the middle station, share text with the line, sliding re-sort motion, brand mark redrawn.
 - [ ] Chunk 3: inspection rounds, detector, finish review, DESIGN.md by the documenter.

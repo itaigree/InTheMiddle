@@ -1,6 +1,9 @@
 // Map view on Leaflet + OpenStreetMap tiles, used in the free (OSM) mode.
 // Same interface as map-google.js: showSearch / showPlaces / highlight / destroy.
 
+import { categoryIconMarkup } from './category-icons.js';
+import { splitAtNearest } from '../core/geo.js';
+
 const LEAFLET_JS = new URL('../../vendor/leaflet/leaflet.js', import.meta.url).href;
 const LEAFLET_CSS = new URL('../../vendor/leaflet/leaflet.css', import.meta.url).href;
 
@@ -41,6 +44,13 @@ function pinIcon(L, className, text, size = 30) {
   // The pin is a rotated square; its tip sits ~size/√2 below its center.
   const tip = Math.round(size / 2 + size / Math.SQRT2);
   return L.divIcon({ className: 'pin-icon', html, iconSize: [size, size], iconAnchor: [size / 2, tip], popupAnchor: [0, -tip] });
+}
+
+/** A place: a station in its category's colour, centered on its position, with its number. */
+function stationIcon(L, category, number, active) {
+  const size = active ? 40 : 32;
+  const html = `<div class="pin pin-place${active ? ' is-active' : ''}" data-category="${category}" style="width:${size}px;height:${size}px">${categoryIconMarkup(category)}<span>${number}</span></div>`;
+  return L.divIcon({ className: 'pin-icon', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2] });
 }
 
 /** A round dot centered on its position (the overview's markers). */
@@ -87,7 +97,7 @@ export async function createLeafletMap(container, { overview } = {}) {
   function setMarkerIcon(id, active) {
     const entry = markers.get(id);
     if (!entry) return;
-    entry.marker.setIcon(pinIcon(L, `pin-place${active ? ' is-active' : ''}`, entry.number, active ? 36 : 30));
+    entry.marker.setIcon(stationIcon(L, entry.category, entry.number, active));
     entry.marker.setZIndexOffset(active ? 1000 : 0);
   }
 
@@ -192,8 +202,11 @@ export async function createLeafletMap(container, { overview } = {}) {
       miniStale = true;
       const color = css().getPropertyValue('--mid').trim() || '#161616';
       if (route?.length >= 2) {
-        const routeColor = css().getPropertyValue('--route').trim() || '#161616';
-        L.polyline(route.map((p) => [p.lat, p.lng]), { color: routeColor, weight: 4, opacity: 0.45 }).addTo(searchLayer);
+        // The line itself: א's half in its blue, ב's half in its orange, meeting at the middle.
+        splitAtNearest(route, a, midpoint).forEach((half, i) => {
+          const sideColor = css().getPropertyValue(i ? '--side-b' : '--side-a').trim();
+          L.polyline(half.map((p) => [p.lat, p.lng]), { color: sideColor, weight: 5, opacity: 0.85 }).addTo(searchLayer);
+        });
       }
       L.circle([midpoint.lat, midpoint.lng], {
         radius,
@@ -227,11 +240,11 @@ export async function createLeafletMap(container, { overview } = {}) {
       miniStale = true;
       for (const place of list) {
         const number = numbering.get(place.id);
-        const marker = L.marker([place.lat, place.lng], { icon: pinIcon(L, 'pin-place', number), title: place.name, riseOnHover: true });
+        const marker = L.marker([place.lat, place.lng], { icon: stationIcon(L, place.category, number, false), title: place.name, riseOnHover: true });
         marker.bindPopup(`<div class="map-popup" dir="rtl"><strong>${escapeHtml(place.name)}</strong></div>`, { closeButton: false });
         marker.on('click', () => onSelect(place, { from: 'map' }));
         marker.addTo(placesLayer);
-        markers.set(place.id, { marker, number });
+        markers.set(place.id, { marker, number, category: place.category });
       }
       if (search) {
         wholeBounds = L.latLngBounds([search.a.lat, search.a.lng], [search.b.lat, search.b.lng]);

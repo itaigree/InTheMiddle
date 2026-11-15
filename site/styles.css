@@ -514,10 +514,12 @@ body.has-map .map-placeholder {
 .endpoints::before {
   content: '';
   position: absolute;
-  inset-inline-start: 23px;
+  inset-inline-start: 22.5px;
   top: 30px;
   bottom: 30px;
-  border-inline-start: 1.5px dotted var(--line-strong);
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(var(--side-a), var(--side-b));
 }
 
 .endpoint {
@@ -1716,19 +1718,41 @@ body.has-map .map-placeholder {
   background: var(--side-b);
 }
 
+/* A place on the map: a station in its category's colour, its number on a tag. */
 .pin-place {
-  background: var(--mid);
-  color: var(--on-ink);
-  border-color: var(--bg);
+  position: relative;
+  border-radius: 50%;
+  transform: none;
+  background: var(--cat, var(--mid));
+  border: 2px solid #fff;
+}
+
+.pin-place .cat-icon {
+  width: 58%;
+  height: 58%;
+}
+
+.pin-place > span {
+  position: absolute;
+  bottom: -5px;
+  inset-inline-start: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  border-radius: 9px;
+  border: 1.5px solid #fff;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  transform: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .pin-place.is-active {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--mid);
-  width: 36px;
-  height: 36px;
-  font-size: 14px;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 3px var(--cat, var(--mid)), 0 4px 12px rgb(0 0 0 / 35%);
 }
 
 .pin-mid {
@@ -1890,4 +1914,20 @@ body.has-map .map-placeholder {
 .picked .photo-credit,
 .picked .place-actions {
   padding-inline-start: 16px;
+}
+
+/* The search button is the line's middle station. */
+#submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#submit::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 3px solid var(--on-ink);
 }

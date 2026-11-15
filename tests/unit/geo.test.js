@@ -114,3 +114,16 @@ test('timelineFromSteps merges junctions and spreads time by distance', () => {
   assert.ok(Math.abs(timeline[3] - 160) < 1e-9);
   assert.ok(Math.abs(timeline[4] - 180) < 1e-9);
 });
+
+test('splitAtNearest: halves meet at the point nearest the middle, starting from a', async () => {
+  const { splitAtNearest } = await import('../../site/js/core/geo.js');
+  const path = [0, 1, 2, 3, 4].map((i) => ({ lat: 32 + i * 0.1, lng: 35 }));
+  const a = { lat: 32, lng: 35 };
+  const [toMiddle, fromMiddle] = splitAtNearest(path, a, { lat: 32.21, lng: 35.01 });
+  assert.deepEqual(toMiddle.map((p) => p.lat.toFixed(1)), ['32.0', '32.1', '32.2']);
+  assert.deepEqual(fromMiddle.map((p) => p.lat.toFixed(1)), ['32.2', '32.3', '32.4']);
+  // A path stored from b to a comes out the same way round.
+  const [back] = splitAtNearest([...path].reverse(), a, { lat: 32.21, lng: 35 });
+  assert.equal(back[0].lat, 32);
+  assert.deepEqual(splitAtNearest([], a, a), [[], []]);
+});

@@ -5,7 +5,7 @@ import { encodeState, decodeState } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
 import { pickTop, rerankPlaces } from './core/ranking.js';
-import { formatDistance } from './core/format.js';
+import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
@@ -280,7 +280,26 @@ function priorityChanged() {
   shownLink = searchLink(lastQuery);
   history.replaceState({ search: searchLink(lastQuery, { own: true }) }, '');
   renderSummary($('results-summary'), lastResult);
-  renderList();
+  slideIntoNewOrder($('place-list'), renderList);
+}
+
+/**
+ * Re-render the list, then let each station slide from where it was to its new place
+ * on the line (none of it when the visitor asked for reduced motion).
+ */
+function slideIntoNewOrder(list, render) {
+  const before = new Map([...list.children].map((card) => [card.dataset.placeId, card.getBoundingClientRect().top]));
+  render();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const card of list.children) {
+    const from = before.get(card.dataset.placeId);
+    const shift = from === undefined ? 0 : from - card.getBoundingClientRect().top;
+    if (Math.abs(shift) < 1) continue;
+    card.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }], {
+      duration: 520,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    });
+  }
 }
 
 for (const radio of document.querySelectorAll('input[name="priority"]')) radio.addEventListener('change', priorityChanged);
@@ -963,7 +982,21 @@ function selectPlace(place, { from }) {
   // On phones the map and the list are far apart: the picked place's card comes
   // up under the map, so the map and its links (Waze etc.) are on screen together.
   showPicked(place);
-  if (from === 'list') document.querySelector('.map-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (from === 'list') scrollToMap();
+}
+
+/**
+ * Bring the map up (phones). A smooth scroll that starts right after another scroll can
+ * end without moving; if it ends with the map still out of view, go there directly.
+ */
+function scrollToMap() {
+  const wrap = document.querySelector('.map-wrap');
+  if (!wrap) return;
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const landed = () => {
+    if (Math.abs(wrap.getBoundingClientRect().top) > 24) wrap.scrollIntoView({ block: 'start' });
+  };
+  window.addEventListener('scrollend', landed, { once: true, signal: AbortSignal.timeout(1500) });
 }
 
 /** A copy of the place's card under the map (phones), or none. */
@@ -983,9 +1016,14 @@ function showPicked(place) {
 }
 
 async function sharePlace(place) {
+  // The proof that it's fair goes with it: how long each side travels.
+  const label = (loc) => forLink(loc).label;
+  const times = lastQuery
+    ? `\n${formatDuration(place.timeA)} מ${label(lastQuery.a)} · ${formatDuration(place.timeB)} מ${label(lastQuery.b)}`
+    : '';
   const outcome = await shareOrCopy({
     title: place.name,
-    text: `נפגשים באמצע? מה דעתך על ${place.name}`,
+    text: `נפגשים באמצע? מה דעתך על ${place.name}${times}`,
     url: googleMapsUrl(place),
   });
   if (outcome === 'copied') toast('הקישור הועתק');

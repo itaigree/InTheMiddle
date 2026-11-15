@@ -172,3 +172,19 @@ export function isValidLatLng(p) {
     Math.abs(p.lng) <= 180
   );
 }
+
+/**
+ * The path split at its point nearest `middle`: [from a's end to that point, from that
+ * point to the other end]. The path may run either way; the first half always starts
+ * at the end nearer `a`. Both halves share the split point.
+ */
+export function splitAtNearest(path, a, middle) {
+  if (!path?.length) return [[], []];
+  const d2 = (p, q) => (p.lat - q.lat) ** 2 + (p.lng - q.lng) ** 2;
+  const fromA = d2(path[0], a) <= d2(path[path.length - 1], a) ? path : [...path].reverse();
+  let k = 0;
+  fromA.forEach((p, i) => {
+    if (d2(p, middle) < d2(fromA[k], middle)) k = i;
+  });
+  return [fromA.slice(0, k + 1), fromA.slice(k)];
+}
