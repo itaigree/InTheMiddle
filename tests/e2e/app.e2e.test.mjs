@@ -54,6 +54,16 @@ async function openApp({ key = '', google = null, osm = {}, viewport = { width: 
   return { page, context, osmLog, googleLog, errors, server };
 }
 
+/** The search options are folded into one row: open it (as a person would) to reach them. */
+async function openOptions(page) {
+  if (!(await page.locator('#options').evaluate((d) => d.open))) await page.locator('#options summary').click();
+}
+
+/** What the folded options row says, with its no-break spaces read as spaces. */
+async function optionsSummary(page) {
+  return (await page.locator('#options-values').textContent()).replaceAll('\u00a0', ' ');
+}
+
 async function pickSuggestion(page, side, text) {
   const input = page.locator(`#input-${side}`);
   await input.fill(text);
@@ -246,6 +256,7 @@ test('free mode: nothing in the middle itself → the search widens until it fin
 
   // "Flexible gap": the same places in a new order, right away, without asking any server again.
   const requests = osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length;
+  await openOptions(page);
   await page.locator('input[name="priority"][value="gap"]').check({ force: true });
   assert.match(await page.locator('#priority-hint').textContent(), /פער גדול יותר/);
   assert.match(await page.locator('#results-summary').textContent(), /גם אם יש פער בין הצדדים/);
@@ -416,6 +427,7 @@ test('Overpass busy with "closed on Shabbat": the notice says the hours are unkn
   const { page, context, osmLog } = await openApp({ osm: { failOverpass: true } });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
+  await openOptions(page);
   await page.locator('#only-shabbat-closed').check({ force: true });
   await search(page);
   // Overpass is asked once, not again for the widened search.
@@ -1156,6 +1168,7 @@ test('Green Line filter: places beyond the line are left out, and the link keeps
   const { page, context } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
+  await openOptions(page);
   await page.locator('#only-green-line').check({ force: true });
   await search(page);
   // Hadera, the midpoint, is well inside the line: all places stay, no notice.
@@ -1196,6 +1209,7 @@ test('Green Line filter, free mode: Jerusalem–Be\'er Sheva goes around the Wes
   const { page, osmLog, errors, context } = await openApp();
   await pickSuggestion(page, 'a', 'ירושלים');
   await pickSuggestion(page, 'b', 'באר שבע');
+  await openOptions(page);
   await page.locator('#only-green-line').check({ force: true });
   await search(page);
   // The straight way (the mock's route) crosses; the next try goes through gates.
@@ -1214,6 +1228,7 @@ test('Green Line filter, Google mode: the same way round, and places timed from 
   const { page, errors, context } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'ירושלים');
   await pickSuggestion(page, 'b', 'באר שבע');
+  await openOptions(page);
   await page.locator('#only-green-line').check({ force: true });
   await search(page);
   const calls = await page.evaluate(() => window.__fakeGoogleCalls);
@@ -1232,11 +1247,19 @@ test('Green Line filter, Google mode: the same way round, and places timed from 
 test('the Green Line and Shabbat filters are remembered from visit to visit, but a shared link brings its own', async () => {
   const { page, context, server } = await openApp();
   assert.equal(await page.locator('#only-green-line').isChecked(), false);
+  // The options row starts folded, and says no filter is on.
+  assert.equal(await page.locator('#options').evaluate((d) => d.open), false);
+  assert.match(await optionsSummary(page), /בלי סינון/);
+  await openOptions(page);
   await page.locator('#only-green-line').check({ force: true });
   await page.locator('#only-shabbat-closed').check({ force: true });
+  assert.equal(await optionsSummary(page), 'מאוזן · יוצאים עכשיו · בתוך הקו הירוק · סגור בשבת');
   await page.reload();
   assert.equal(await page.locator('#only-green-line').isChecked(), true);
   assert.equal(await page.locator('#only-shabbat-closed').isChecked(), true);
+  // Folded again after the reload, but the row still says which filters are on.
+  assert.match(await optionsSummary(page), /בתוך הקו הירוק · סגור בשבת/);
+  await openOptions(page);
   await page.locator('#only-shabbat-closed').uncheck({ force: true });
   // A link to a search without the filters: shown without them...
   const linked = await context.newPage();
@@ -1255,6 +1278,7 @@ test('closed on Shabbat: only cafes whose hours show it, other kinds of places u
   const { page, context } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
+  await openOptions(page);
   await page.locator('#only-shabbat-closed').check({ force: true });
   await search(page);
   const names = await page.locator('#place-list .place-name').allTextContents();
@@ -1272,6 +1296,7 @@ test('Google mode, closed on Shabbat: from Google opening hours', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
+  await openOptions(page);
   await page.locator('#only-shabbat-closed').check({ force: true });
   await search(page);
   const names = await page.locator('#place-list .place-name').allTextContents();

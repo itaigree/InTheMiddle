@@ -374,12 +374,6 @@ body.has-map .map-placeholder {
   gap: 24px;
 }
 
-.group {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
 .categories {
   border: 0;
   margin: 0;
@@ -653,10 +647,6 @@ body.has-map .map-placeholder {
   outline-offset: 1px;
 }
 
-.priority {
-  padding: 8px;
-}
-
 .segmented {
   display: flex;
 }
@@ -684,7 +674,7 @@ body.has-map .map-placeholder {
 }
 
 .priority-hint {
-  margin: 8px 8px 2px;
+  margin: 8px 2px 0;
   font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--muted);
@@ -842,6 +832,97 @@ body.has-map .map-placeholder {
   min-width: 190px;
 }
 
+/* Options: one row that says how the search is set, and opens to change it. */
+
+.options {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.options-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.options-summary::-webkit-details-marker {
+  display: none;
+}
+
+.options-summary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.options-label {
+  flex: none;
+  font-weight: 500;
+}
+
+.options-values {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.options-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.options[open] .options-chevron {
+  transform: rotate(180deg);
+}
+
+/* Each option below the row: a hairline above (a shadow, so a legend can't cut it). */
+.option {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 0;
+  box-shadow: inset 0 1px var(--line);
+}
+
+/* Floated, so the legend sits inside the padding like any heading. */
+.option legend:not(.sr-only) {
+  float: right;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.option legend + * {
+  clear: both;
+}
+
+.option-filters {
+  padding: 0;
+}
+
+.option.when {
+  padding: 8px;
+  padding-inline-start: 16px;
+}
+
 /* Buttons */
 
 .primary-button {
@@ -855,6 +936,19 @@ body.has-map .map-placeholder {
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: opacity 0.15s, transform 0.1s;
+}
+
+/* While the open options run below the screen, the search stays in reach at its bottom,
+   on a strip of the page that the form fades into. Out of that state the strip is invisible. */
+.submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  margin: -12px -16px;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 12px);
 }
 
 .primary-button:hover {

@@ -475,7 +475,37 @@ function departureValue() {
 function resetDepartureToNow() {
   departureChoice.value = 'now';
   departureInput.hidden = true;
+  updateOptionsSummary();
 }
+
+// ------------------------------------------------------------------ options
+// The options stay folded into one row; the row says how the search is set.
+
+const PRIORITY_LABEL = { equal: 'זמן שווה', balanced: 'מאוזן', gap: 'פער גמיש' };
+
+function departureSummary() {
+  const date = departureChoice.value === 'later' && departureInput.value ? new Date(departureInput.value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'יוצאים עכשיו';
+  const format = (options) => new Intl.DateTimeFormat('he-IL', options).format(date);
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((dayStart(date) - dayStart(new Date())) / 86_400_000);
+  const day =
+    days === 0 ? 'היום' : days === 1 ? 'מחר' : `ב${format({ weekday: 'short' })} ${format({ day: 'numeric', month: 'numeric' })}`;
+  return `יוצאים ${day} ב-${format({ hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function updateOptionsSummary() {
+  const filters = [];
+  if ($('only-green-line').checked) filters.push('בתוך הקו הירוק');
+  if ($('only-shabbat-closed').checked) filters.push('סגור בשבת');
+  const parts = [PRIORITY_LABEL[getPriority()], departureSummary(), ...(filters.length ? filters : ['בלי סינון'])];
+  // Lines break between the parts, never inside one.
+  $('options-values').textContent = parts.map((part) => part.replaceAll(' ', ' ')).join(' · ');
+}
+
+// Typing a time fires `input`; everything else in the form fires `change`.
+$('search-form').addEventListener('change', updateOptionsSummary);
+departureInput.addEventListener('input', updateOptionsSummary);
 
 // ------------------------------------------------------------------- status
 
@@ -1039,6 +1069,7 @@ function init() {
     departureInput.hidden = false;
     departureInput.value = state.departure;
   }
+  updateOptionsSummary();
   // A search link was opened: its search runs below, and the address bar goes back
   // to the plain site, so sharing the page from the browser shares the app itself.
   if (linkSearch !== null) history.replaceState({ search: linkSearch }, '', plainAddress());

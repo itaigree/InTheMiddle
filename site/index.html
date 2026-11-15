@@ -106,21 +106,27 @@
             <div id="category-chips" class="chips"></div>
           </fieldset>
 
-          <fieldset class="categories" aria-describedby="priority-hint">
-            <legend>מה חשוב יותר?</legend>
-            <div class="group priority">
+          <!-- Everything past the two points and the kinds of places: one row that says how
+               the search is set, and opens to change it. -->
+          <details id="options" class="options">
+            <summary class="options-summary">
+              <span class="options-label">אפשרויות</span>
+              <span id="options-values" class="options-values">מאוזן · יוצאים עכשיו · בלי סינון</span>
+              <svg class="options-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+            </summary>
+
+            <fieldset class="option" aria-describedby="priority-hint">
+              <legend>מה חשוב יותר?</legend>
               <div class="segmented">
                 <label><input type="radio" name="priority" value="equal" /><span>זמן שווה</span></label>
                 <label><input type="radio" name="priority" value="balanced" checked /><span>מאוזן</span></label>
                 <label><input type="radio" name="priority" value="gap" /><span>פער גמיש</span></label>
               </div>
               <p id="priority-hint" class="priority-hint">זמן דומה לשני הצדדים, בלי להאריך את הדרך.</p>
-            </div>
-          </fieldset>
+            </fieldset>
 
-          <fieldset class="categories">
-            <legend>סינון</legend>
-            <div class="group">
+            <fieldset class="option option-filters">
+              <legend class="sr-only">סינון</legend>
               <label class="switch-row">
                 <span class="switch-text">
                   רק בתוך הקו הירוק
@@ -135,21 +141,23 @@
                 </span>
                 <input type="checkbox" class="switch" id="only-shabbat-closed" />
               </label>
-            </div>
-          </fieldset>
+            </fieldset>
 
-          <div class="when group">
-            <label for="departure-choice">מתי יוצאים</label>
-            <div class="when-row">
-              <select id="departure-choice" aria-label="זמן יציאה">
-                <option value="now">עכשיו</option>
-                <option value="later">בזמן אחר…</option>
-              </select>
-              <input id="departure" type="datetime-local" hidden />
+            <div class="option when">
+              <label for="departure-choice">מתי יוצאים</label>
+              <div class="when-row">
+                <select id="departure-choice" aria-label="זמן יציאה">
+                  <option value="now">עכשיו</option>
+                  <option value="later">בזמן אחר…</option>
+                </select>
+                <input id="departure" type="datetime-local" hidden />
+              </div>
             </div>
+          </details>
+
+          <div class="submit-bar">
+            <button type="submit" id="submit" class="primary-button">מצאו לנו מקום באמצע</button>
           </div>
-
-          <button type="submit" id="submit" class="primary-button">מצאו לנו מקום באמצע</button>
         </form>
 
         <div class="status-region" role="status" aria-live="polite">
