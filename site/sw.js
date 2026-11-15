@@ -35,6 +35,7 @@ const SHELL = [
   'js/providers/google.js',
   'js/providers/osm.js',
   'js/ui/autocomplete.js',
+  'js/ui/category-icons.js',
   'js/ui/links.js',
   'js/ui/map-google.js',
   'js/ui/map-leaflet.js',

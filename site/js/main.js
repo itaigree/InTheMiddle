@@ -11,6 +11,7 @@ import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
+import { categoryRoundel } from './ui/category-icons.js';
 
 const config = window.APP_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -299,7 +300,7 @@ function renderCategoryChips(selected) {
       input.value = cat.id;
       input.checked = selected.includes(cat.id);
       const span = document.createElement('span');
-      span.textContent = cat.label;
+      span.append(categoryRoundel(cat.id, 'roundel roundel-sm'), cat.label);
       label.append(input, span);
       return label;
     }),
@@ -892,6 +893,14 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
+/** Once there is a trip, the header carries it: א's place, the line with its middle, ב's place. */
+function showTrip(a, b) {
+  $('trip-a').textContent = a;
+  $('trip-b').textContent = b;
+  $('trip').hidden = false;
+  document.querySelector('.tagline').hidden = true;
+}
+
 async function showResult(result, provider, { scroll = true, status = true } = {}) {
   lastResult = result;
   shownProvider = provider;
@@ -900,6 +909,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   // result only, however the list is filtered later.
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
+  showTrip(sides.a.input.value, sides.b.input.value);
 
   const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {

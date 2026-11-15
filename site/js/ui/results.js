@@ -4,6 +4,7 @@ import { categoryById } from '../core/categories.js';
 import { formatDuration, formatCount, formatRating } from '../core/format.js';
 import { fairnessLevel } from '../core/ranking.js';
 import { wazeUrl, googleMapsUrl } from './links.js';
+import { categoryRoundel } from './category-icons.js';
 
 /** Line icons for the two ways of getting there (the same as in the form). */
 const MODE_ICON = {
@@ -96,6 +97,7 @@ export function renderFilters(container, places, active, onChange) {
     b.type = 'button';
     b.dataset.filter = id;
     b.setAttribute('aria-pressed', String(active === id));
+    if (id !== 'all') b.append(categoryRoundel(id, 'roundel roundel-sm'));
     b.append(label, ' ', el('span', 'count', `(${formatCount(count)})`));
     b.addEventListener('click', () => onChange(id));
     return b;
@@ -136,7 +138,9 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
   places.forEach((place, index) => {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.placeId = place.id;
+    node.dataset.category = place.category;
     const cat = categoryById(place.category);
+    node.querySelector('.place-station').prepend(categoryRoundel(place.category));
 
     const number = numbering.get(place.id) ?? '';
     node.querySelector('.place-rank').textContent = number;
@@ -178,6 +182,9 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     };
     fillTime('.time-a', 'א׳', modeA, place.timeA);
     fillTime('.time-b', 'ב׳', modeB, place.timeB);
+    // The station sits on the place's own א–ב line where the trip splits: nearer the side that travels less.
+    const total = place.timeA + place.timeB;
+    node.querySelector('.place-line').style.setProperty('--split', `${total > 0 ? (place.timeA / total) * 100 : 50}%`);
     const fairness = fairnessText(place);
     const fairEl = node.querySelector('.fairness');
     fairEl.dataset.level = fairness.level;

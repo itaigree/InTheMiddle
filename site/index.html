@@ -29,9 +29,15 @@
       <div class="panel">
         <header class="app-header">
           <svg class="brand-mark" viewBox="0 0 44 16" aria-hidden="true"><path class="brand-line" d="M6 8h32" /><circle class="brand-a" cx="38" cy="8" r="4" /><circle class="brand-b" cx="6" cy="8" r="4" /><circle class="brand-mid" cx="22" cy="8" r="5.5" /></svg>
-          <div>
+          <div class="app-title">
             <h1>מקום באמצע</h1>
             <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
+            <!-- After a search: the trip itself, from א to ב, with the middle on the line. -->
+            <p id="trip" class="trip" hidden>
+              <span class="trip-end"><span class="side-badge side-a" aria-hidden="true">א</span><span id="trip-a" class="trip-name"></span></span>
+              <span class="trip-line" aria-hidden="true"><i></i></span>
+              <span class="trip-end"><span id="trip-b" class="trip-name"></span><span class="side-badge side-b" aria-hidden="true">ב</span></span>
+            </p>
           </div>
         </header>
         <form id="search-form" class="card search-form" novalidate>
@@ -215,21 +221,22 @@
     <template id="place-card-template">
       <li class="place-card">
         <button type="button" class="place-main">
-          <span class="place-rank" aria-hidden="true"></span>
+          <span class="place-station" aria-hidden="true"><span class="place-rank"></span></span>
           <span class="place-photo" aria-hidden="true"></span>
           <span class="place-body">
             <span class="place-number sr-only"></span>
             <span class="place-name"></span>
             <span class="place-meta"></span>
-            <span class="place-times">
-              <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
-              <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
-              <span class="fairness"></span>
-            </span>
           </span>
         </button>
+        <div class="place-times">
+          <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
+          <span class="place-line" aria-hidden="true"><i></i></span>
+          <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
+        </div>
+        <p class="fairness"></p>
         <div class="place-actions">
-          <a class="action waze" target="_blank" rel="noopener">Waze</a>
+          <a class="action waze" target="_blank" rel="noopener"><span class="action-long">ניווט ב-</span>Waze</a>
           <a class="action gmaps" target="_blank" rel="noopener">Google Maps</a>
           <button type="button" class="action share-place">שיתוף</button>
         </div>

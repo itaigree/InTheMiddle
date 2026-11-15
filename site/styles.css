@@ -3,25 +3,39 @@
 
 :root {
   color-scheme: light;
-  --bg: #f6f5f2;
+  /* One cool concrete ramp carries every neutral. */
+  --bg: #e9ecee;
   --surface: #ffffff;
-  --surface-2: #efeeea;
-  --text: #161616;
-  --muted: #6b6a66;
-  --faint: #a3a19c;
-  --line: #e5e3de;
-  --line-strong: #d3d1cb;
-  --ink: #161616;
+  --surface-2: #f2f4f5;
+  --text: #11161b;
+  --muted: #545e67;
+  --faint: #6b747d;
+  --line: #d6dbdf;
+  --line-strong: #b8c0c7;
+  --ink: #11161b;
   --on-ink: #ffffff;
   --seg-on: #ffffff;
-  --side-a: #2f5bff;
-  --side-b: #ff5b26;
-  --mid: #161616;
-  --route: #161616;
-  --good: #1f8a4c;
-  --warn: #a8640a;
-  --danger: #d23b2a;
-  --pop: 0 12px 32px rgb(0 0 0 / 9%), 0 1px 3px rgb(0 0 0 / 6%);
+  /* The line's two ends; the -text shades are for the letters on light ground. */
+  --side-a: #2459ff;
+  --side-b: #ff6512;
+  --side-a-text: #1f4fe0;
+  --side-b-text: #c44a00;
+  --mid: #11161b;
+  --route: #11161b;
+  /* Signal yellow: only on buttons that act. */
+  --go: #ffc61a;
+  --on-go: #11161b;
+  /* Each kind of place is a line colour. */
+  --cat-cafe: #8a4b25;
+  --cat-mall: #6d3fd1;
+  --cat-park: #19784a;
+  --cat-nature: #0b6f74;
+  --cat-food: #c0352b;
+  --cat-attraction: #b02a78;
+  --good: #1a7f45;
+  --warn: #9a5b06;
+  --danger: #c8341f;
+  --pop: 0 12px 32px rgb(17 22 27 / 12%), 0 1px 3px rgb(17 22 27 / 8%);
   --radius: 14px;
   --radius-sm: 10px;
   --gap: 20px;
@@ -31,25 +45,53 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #0e0e0f;
-    --surface: #161618;
-    --surface-2: #1f1f22;
-    --text: #f1f0ec;
-    --muted: #9c9a95;
-    --faint: #6a6965;
-    --line: #26262a;
-    --line-strong: #36363b;
-    --ink: #f1f0ec;
-    --on-ink: #0e0e0f;
-    --seg-on: #34343a;
-    --side-a: #7b96ff;
-    --side-b: #ff7f4f;
-    --mid: #f1f0ec;
-    --route: #f1f0ec;
+    --bg: #0d1013;
+    --surface: #161a1e;
+    --surface-2: #1e2328;
+    --text: #eef1f3;
+    --muted: #a3acb4;
+    --faint: #8a939b;
+    --line: #262c32;
+    --line-strong: #3a434c;
+    --ink: #05080a;
+    --on-ink: #eef1f3;
+    --seg-on: #343b42;
+    --side-a: #6f93ff;
+    --side-b: #ff8a4d;
+    --side-a-text: #8eabff;
+    --side-b-text: #ff9a63;
+    --mid: #eef1f3;
+    --route: #eef1f3;
+    --cat-cafe: #c06a38;
+    --cat-mall: #9070f0;
+    --cat-park: #2f9e62;
+    --cat-nature: #1a9aa1;
+    --cat-food: #e0584c;
+    --cat-attraction: #d24e9a;
     --good: #4cc27f;
     --warn: #e5a23b;
     --danger: #ff6b5b;
     --pop: 0 12px 32px rgb(0 0 0 / 50%);
+  }
+}
+
+/* A place's colour follows its category; the band under a picked place's name is a deeper
+   shade, so white text holds its contrast in both themes. */
+[data-category] {
+  --cat: var(--muted);
+  --cat-band: color-mix(in srgb, var(--cat) 82%, #000);
+}
+
+[data-category='cafe'] { --cat: var(--cat-cafe); }
+[data-category='mall'] { --cat: var(--cat-mall); }
+[data-category='park'] { --cat: var(--cat-park); }
+[data-category='nature'] { --cat: var(--cat-nature); }
+[data-category='food'] { --cat: var(--cat-food); }
+[data-category='attraction'] { --cat: var(--cat-attraction); }
+
+@media (prefers-color-scheme: light) {
+  [data-category] {
+    --cat-band: var(--cat);
   }
 }
 
@@ -155,7 +197,15 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 22px 0 2px;
+  margin-inline: -16px;
+  padding: 18px 16px 16px;
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.app-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .app-header h1 {
@@ -167,9 +217,70 @@ select {
 }
 
 .tagline {
-  margin: 0;
-  color: var(--muted);
+  margin: 2px 0 0;
+  color: rgb(255 255 255 / 72%);
   font-size: 0.875rem;
+}
+
+/* On the ink, the mark's line is white and its middle station is ringed. */
+.app-header .brand-line {
+  stroke: rgb(255 255 255 / 70%);
+}
+
+.app-header .brand-mid {
+  fill: var(--ink);
+  stroke: var(--on-ink);
+  stroke-width: 2.5;
+}
+
+/* The trip: א's place, the line with its middle station, ב's place. */
+.trip {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(40px, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.trip-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.trip-line {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to left, var(--side-a), rgb(255 255 255 / 85%) 50%, var(--side-b));
+}
+
+.trip-line i {
+  position: absolute;
+  top: 50%;
+  right: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 3px solid var(--on-ink);
+  transform: translate(50%, -50%);
+}
+
+@media (min-width: 960px) {
+  .app-header {
+    margin: 20px 0 0;
+    border-radius: var(--radius);
+  }
 }
 
 /* Layout */
@@ -460,11 +571,11 @@ body.has-map .map-placeholder {
 }
 
 .side-a {
-  background: var(--side-a);
+  background: #1f4fe0;
 }
 
 .side-b {
-  background: var(--side-b);
+  background: #c44a00;
 }
 
 .combo {
@@ -698,7 +809,7 @@ body.has-map .map-placeholder {
   pointer-events: none;
 }
 
-.chip span,
+.chip > span,
 .filter-chip {
   display: inline-flex;
   align-items: center;
@@ -715,7 +826,7 @@ body.has-map .map-placeholder {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.chip span:hover,
+.chip > span:hover,
 .filter-chip:hover {
   border-color: var(--muted);
 }
@@ -725,6 +836,22 @@ body.has-map .map-placeholder {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--on-ink);
+}
+
+.chip > span:has(.roundel),
+.filter-chip:has(.roundel) {
+  padding-inline-start: 6px;
+}
+
+.roundel.roundel-sm {
+  width: 24px;
+  height: 24px;
+  box-shadow: none;
+}
+
+.roundel.roundel-sm .cat-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .chip input:focus-visible + span {
@@ -1095,7 +1222,12 @@ body.has-map .map-placeholder {
   }
 }
 
+/* The list is a strip map: one line runs down its start edge, and every place is a
+   station on it, in its category's colour. Under its name, each place has its own short
+   א–ב line, with its station pushed toward the side that travels less. */
+
 .place-list {
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1107,50 +1239,91 @@ body.has-map .map-placeholder {
 
 .place-card {
   position: relative;
-  transition: background 0.15s;
 }
 
-.place-card + .place-card {
-  border-top: 1px solid var(--line);
-}
-
-.place-card.is-active {
-  background: var(--surface-2);
-}
-
-.place-card.is-active::before {
+/* The strip's line, station to station: it starts at the first and ends at the last. */
+.place-list > .place-card::before {
   content: '';
   position: absolute;
   inset-block: 0;
-  inset-inline-start: 0;
+  inset-inline-start: 30.5px;
   width: 3px;
-  background: var(--ink);
+  background: var(--line-strong);
+}
+
+.place-list > .place-card:first-child::before {
+  top: 30px;
+}
+
+.place-list > .place-card:last-child::before {
+  bottom: calc(100% - 30px);
+}
+
+.place-list > .place-card:only-child::before {
+  display: none;
 }
 
 .place-main {
+  position: relative;
   display: flex;
+  align-items: flex-start;
   gap: 12px;
   width: 100%;
-  padding: 16px 16px 6px;
+  padding: 14px 16px 2px;
   border: 0;
   background: none;
+  color: inherit;
   text-align: start;
   cursor: pointer;
-  align-items: flex-start;
+  transition: background 0.2s;
 }
 
-.place-rank {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
-  border-radius: 50%;
-  background: var(--mid);
-  color: var(--on-ink);
-  font-weight: 600;
-  font-size: 0.6875rem;
+.place-station {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   flex: none;
+  width: 32px;
+}
+
+.roundel {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--cat);
+  box-shadow: 0 0 0 3px var(--surface);
+  flex: none;
+}
+
+.cat-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The station's number: the same as its pin on the map. */
+.place-rank {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.place-rank:empty {
+  display: none;
 }
 
 .place-photo {
@@ -1180,12 +1353,13 @@ body.has-map .map-placeholder {
   gap: 2px;
   min-width: 0;
   flex: 1;
+  padding-top: 4px;
 }
 
 .place-name {
   font-weight: 600;
-  font-size: 1rem;
-  line-height: 1.35;
+  font-size: 1.0625rem;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -1200,7 +1374,6 @@ body.has-map .map-placeholder {
 .place-meta > * + *::before {
   content: '·';
   margin-inline: 6px;
-  color: var(--faint);
 }
 
 .place-meta .rating {
@@ -1224,36 +1397,41 @@ body.has-map .map-placeholder {
   color: var(--text);
 }
 
+/* Both times, large, with the place's own line between them. */
 .place-times {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(48px, 1fr) auto;
   align-items: center;
-  gap: 4px 14px;
-  margin-top: 6px;
-  font-size: 0.875rem;
+  gap: 10px;
+  padding: 8px 16px 0;
+  padding-inline-start: 60px;
 }
 
 .time {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 500;
+  gap: 5px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* In the times, the side is its letter in its color. */
+/* In the times, the side is its letter in its colour. */
 .time .side-badge {
   width: auto;
   height: auto;
   background: none;
   font-size: 0.8125rem;
+  font-weight: 700;
 }
 
 .time-a .side-badge {
-  color: var(--side-a);
+  color: var(--side-a-text);
 }
 
 .time-b .side-badge {
-  color: var(--side-b);
+  color: var(--side-b-text);
 }
 
 .time-value {
@@ -1268,10 +1446,33 @@ body.has-map .map-placeholder {
   color: var(--muted);
 }
 
+/* א's blue runs from the start to the station, ב's orange from the station to the end. */
+.place-line {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to left, var(--side-a) 0 var(--split, 50%), var(--side-b) var(--split, 50%) 100%);
+}
+
+.place-line i {
+  position: absolute;
+  top: 50%;
+  right: var(--split, 50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--text);
+  transform: translate(50%, -50%);
+  transition: right 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .fairness {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
+  margin: 6px 0 0;
+  padding-inline: 60px 16px;
   font-size: 0.8125rem;
   color: var(--muted);
 }
@@ -1281,7 +1482,8 @@ body.has-map .map-placeholder {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--muted);
+  flex: none;
 }
 
 .fairness[data-level='great']::before {
@@ -1297,10 +1499,10 @@ body.has-map .map-placeholder {
 }
 
 .photo-credit {
-  margin: 0 16px 6px;
-  padding-inline-start: 34px;
-  font-size: 0.6875rem;
-  color: var(--faint);
+  margin: 4px 0 0;
+  padding-inline: 60px 16px;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .photo-credit a {
@@ -1309,34 +1511,109 @@ body.has-map .map-placeholder {
 
 .place-actions {
   display: flex;
-  gap: 2px;
-  padding-block: 0 12px;
-  padding-inline: 50px 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  padding-inline-start: 60px;
 }
 
 .place-actions .action {
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  font-size: 0.8125rem;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.place-actions .action:first-child {
-  margin-inline-start: -8px;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .place-actions .action:hover {
-  background: var(--surface-2);
-  color: var(--text);
+  border-color: var(--muted);
 }
 
-.place-card.is-active .place-actions .action:hover {
-  background: var(--line);
+.action-long {
+  display: none;
+}
+
+/* The place you picked: its category's colour as a band, and the yellow way out. */
+.place-card.is-active .place-main,
+.picked .place-main {
+  background: var(--cat-band);
+  color: #fff;
+  padding-bottom: 14px;
+}
+
+.place-card.is-active .place-meta,
+.picked .place-meta,
+.place-card.is-active .place-meta .rating,
+.picked .place-meta .rating,
+.place-card.is-active .place-meta .shabbat,
+.picked .place-meta .shabbat {
+  color: rgb(255 255 255 / 88%);
+}
+
+.place-card.is-active .place-meta .open,
+.picked .place-meta .open,
+.place-card.is-active .place-meta .closed,
+.picked .place-meta .closed {
+  color: #fff;
+  font-weight: 600;
+}
+
+.place-card.is-active .roundel,
+.picked .roundel {
+  background: #fff;
+  box-shadow: none;
+}
+
+.place-card.is-active .roundel .cat-icon,
+.picked .roundel .cat-icon {
+  stroke: var(--cat-band);
+}
+
+.place-card.is-active .place-rank,
+.picked .place-rank {
+  background: none;
+  color: #fff;
+}
+
+.place-card.is-active .place-times,
+.picked .place-times {
+  padding-top: 14px;
+}
+
+.place-card.is-active .time,
+.picked .time {
+  font-size: 1.25rem;
+}
+
+.place-card.is-active .place-actions .action,
+.picked .place-actions .action {
+  flex: 1;
+  min-height: 44px;
+}
+
+.place-card.is-active .place-actions .waze,
+.picked .place-actions .waze {
+  flex-basis: 100%;
+  min-height: 52px;
+  border-color: var(--go);
+  background: var(--go);
+  color: var(--on-go);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.place-card.is-active .action-long,
+.picked .action-long {
+  display: inline;
 }
 
 .empty-results {
@@ -1596,4 +1873,21 @@ body.has-map .map-placeholder {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* In the strip, a row is a station to compare; its ways out appear once it's picked. */
+#place-list > .place-card:not(.is-active) .place-actions {
+  display: none;
+}
+
+#place-list > .place-card:not(.is-active) {
+  padding-bottom: 14px;
+}
+
+/* The picked card under the map has no strip line beside it: its rows start at the edge. */
+.picked .place-times,
+.picked .fairness,
+.picked .photo-credit,
+.picked .place-actions {
+  padding-inline-start: 16px;
 }
