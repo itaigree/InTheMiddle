@@ -27,7 +27,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - [x] Chunk 1: tokens and category colours, category icons, list as strip map, picked card with header band, full-width yellow Waze, chips with roundels.
 - [x] Chunk 2 (the selected place's two legs are not drawn: there is no per-place route geometry; the route itself is split blue/orange at the middle instead): map pins as station roundels (Leaflet and Google), selected legs brightest, start-screen line with the search button as the middle station, share text with the line, sliding re-sort motion, brand mark redrawn.
 - [x] Chunk 3a: inspection round, detector (only the old .endpoints padding finding remains), finish review. Verdict: **fix**.
-- [ ] Chunk 3b: apply the reviewer's fix batch in one go, rebuild once, recapture the same 9 viewports into .impeccable/review/, then a fresh verdict pass (the first reviewer can't be continued after the container restart: use degraded/finish-reviewer.md's Verdict Pass or spawn a fresh reviewer with the fix list).
+- [x] Chunk 3b (commit bb5bad0): apply the reviewer's fix batch in one go, rebuild once, recapture the same 9 viewports into .impeccable/review/, then a fresh verdict pass (the first reviewer can't be continued after the container restart: use degraded/finish-reviewer.md's Verdict Pass or spawn a fresh reviewer with the fix list).
 - [ ] Chunk 3c: DESIGN.md and .impeccable/design.json by the impeccable-documenter.
 
 ### Finish review: fix list (round 1)
@@ -44,3 +44,14 @@ Keep: the hard-split blue/orange line with the ink-ringed middle station everywh
 8. Floor: self-host IBM Plex Sans Hebrew under site/vendor (and add it to sw.js); theme ::selection and caret-color.
 
 Logged, not on the list: on desktop the picked card's times and Waze sit below the fold (secondary channel).
+
+### Verdict pass (round 2): fix
+
+Resolved: 1 (pinned compact band, chips, map, picked card in one phone view), 2 (legs), 3 (middle station on top), 4 (picked card line), 7 (SVG star), 8 (self-hosted font, selection, caret).
+Partial: 5 (start screen: the form's vertical א–ב connector and the search station are still two separate lines), 6 (Google-mode rows still ~120–140px; free-mode rows are fine).
+New regressions from the fix batch:
+- R1: .submit-line and .how::before use a smooth blue→orange gradient (muddy purple middle); the signature line is hard-split. Two near-identical lines are stacked on the start screen.
+- R2: phones after results hide the page's h1 with display:none; use the sr-only treatment instead.
+- R3: desktop: #result-filters now sits above the "מקומות באמצע" heading, cut off from the list it filters; keep the phone placement, put it back under the heading on desktop.
+
+Remaining work (round 3, the user's call): join the form connector and the search station into one line; tighten Google rows to 7 per phone view; hard stops on the start-screen lines and drop one; sr-only h1; desktop chip placement. Then DESIGN.md by the documenter.
