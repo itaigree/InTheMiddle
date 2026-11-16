@@ -110,12 +110,24 @@ export function renderFilters(container, places, active, onChange) {
   if (focused) [...container.children].find((b) => b.dataset.filter === focused)?.focus();
 }
 
-function fairnessText(place) {
+/** How fair a place is, said as the difference itself: "7 דק׳ יותר מתל אביב". */
+function fairnessText(place, labels) {
   const level = fairnessLevel(place.timeA, place.timeB);
-  if (level === 'great') return { level, text: 'מאוזן מאוד' };
-  if (level === 'good') return { level, text: 'מאוזן' };
-  const longer = place.timeA > place.timeB ? 'א׳' : 'ב׳';
-  return { level, text: `+${formatDuration(place.diff)} לצד ${longer}` };
+  if (place.diff < 60) return { level, text: 'אותו זמן נסיעה משני הצדדים' };
+  const aLonger = place.timeA > place.timeB;
+  const from = aLonger ? labels?.a : labels?.b;
+  const longer = from ? `מ${from}` : `לצד ${aLonger ? 'א׳' : 'ב׳'}`;
+  return { level, text: `${formatDuration(place.diff)} יותר ${longer}` };
+}
+
+/** A drawn star for ratings, in the icons' stroke. */
+function starIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'star');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />';
+  return svg;
 }
 
 function openText(place) {
@@ -129,7 +141,7 @@ function openText(place) {
  * `numbering` maps place id → the number shown on its map marker; `photoIds`
  * are the places allowed to show a photo (default: the first MAX_PHOTOS).
  */
-export function renderPlaces(list, template, places, { modeA, modeB, numbering, photoIds, showOpenState, onSelect, onShare }) {
+export function renderPlaces(list, template, places, { modeA, modeB, labels, numbering, photoIds, showOpenState, onSelect, onShare }) {
   list.replaceChildren();
   if (!places.length) {
     list.append(el('li', 'empty-results', 'לא מצאנו מקומות מתאימים, גם אחרי שהרחבנו את החיפוש סביב האמצע. אפשר לבחור עוד סוגי מקומות, או לכבות סינון אם הוא פעיל.'));
@@ -162,6 +174,7 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     meta.append(el('span', null, place.typeLabel || cat?.singular || ''));
     if (Number.isFinite(place.rating) && place.rating > 0) {
       const rating = el('span', 'rating', formatRating(place.rating));
+      rating.append(starIcon());
       if (place.ratingCount) rating.append(` (${formatCount(place.ratingCount)})`);
       meta.append(rating);
     }
@@ -175,17 +188,21 @@ export function renderPlaces(list, template, places, { modeA, modeB, numbering, 
     if (place.address) meta.append(el('span', null, place.address));
 
     // The א/ב badges and mode icons are visual; screen readers get the words.
-    const fillTime = (selector, sideName, mode, seconds) => {
+    // A mode icon only says something when the two sides travel differently.
+    const showModes = modeA !== modeB;
+    const fillTime = (selector, sideName, from, mode, seconds) => {
       const box = node.querySelector(selector);
+      box.dataset.mode = mode;
       box.querySelector('.time-who').textContent = `מנקודה ${sideName} ${MODE_TITLE[mode]}: `;
-      box.querySelector('.time-value').replaceChildren(modeIcon(mode), formatDuration(seconds));
+      box.querySelector('.time-from').textContent = from ? `מ${from}` : '';
+      box.querySelector('.time-value').replaceChildren(...(showModes ? [modeIcon(mode)] : []), formatDuration(seconds));
     };
-    fillTime('.time-a', 'א׳', modeA, place.timeA);
-    fillTime('.time-b', 'ב׳', modeB, place.timeB);
+    fillTime('.time-a', 'א׳', labels?.a, modeA, place.timeA);
+    fillTime('.time-b', 'ב׳', labels?.b, modeB, place.timeB);
     // The station sits on the place's own א–ב line where the trip splits: nearer the side that travels less.
     const total = place.timeA + place.timeB;
     node.querySelector('.place-line').style.setProperty('--split', `${total > 0 ? (place.timeA / total) * 100 : 50}%`);
-    const fairness = fairnessText(place);
+    const fairness = fairnessText(place, labels);
     const fairEl = node.querySelector('.fairness');
     fairEl.dataset.level = fairness.level;
     fairEl.textContent = fairness.text;

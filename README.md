@@ -168,7 +168,7 @@ tests/unit/                   בדיקות יחידה (node --test)
 
 ## רישיון
 
-הקוד מופץ ברישיון [MIT](LICENSE). Leaflet, שנמצא ב-`site/vendor/leaflet`, מופץ ברישיון BSD-2-Clause משלו.
+הקוד מופץ ברישיון [MIT](LICENSE). Leaflet, שנמצא ב-`site/vendor/leaflet`, מופץ ברישיון BSD-2-Clause משלו. הגופן IBM Plex Sans Hebrew, שנמצא ב-`site/vendor/plex-hebrew` (כדי שהאתר לא יטען גופנים משרתי Google), מופץ ברישיון SIL Open Font License 1.1.
 
 חישוב התחבורה הציבורית במצב החינמי נעשה דרך [Transitous](https://transitous.org/). השירות מותר לשימוש בפרויקטים
 בקוד פתוח ולא מסחריים, ובתנאי שמוצג קישור למקורות הנתונים שלו (הקישור מופיע בתחתית האתר).

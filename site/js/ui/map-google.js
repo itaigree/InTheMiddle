@@ -127,6 +127,8 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
 
   const info = new InfoWindow({ headerDisabled: true });
   let searchOverlays = [];
+  let routeLines = [];
+  let legs = [];
   let placeMarkers = new Map();
   let activeId = null;
   let search = null;
@@ -138,6 +140,18 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       if ('setMap' in o) o.setMap(null);
       else o.map = null;
     }
+  }
+
+  /** The picked place's legs: straight, from א in its blue and on to ב in its orange; the route dims under them. */
+  function drawLegs(place) {
+    clear(legs);
+    legs = [];
+    for (const line of routeLines) line.setOptions({ strokeOpacity: place ? 0.3 : 0.85 });
+    if (!place || !search) return;
+    const dot = { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2 };
+    const leg = (from, to, name, fallback) =>
+      new Polyline({ map, path: [from, to], strokeColor: cssVar(name, fallback), strokeOpacity: 0, strokeWeight: 4, clickable: false, icons: [{ icon: dot, offset: '0', repeat: '10px' }] });
+    legs = [leg({ lat: search.a.lat, lng: search.a.lng }, place, '--side-a', '#2459ff'), leg(place, { lat: search.b.lat, lng: search.b.lng }, '--side-b', '#ff6512')];
   }
 
   function marker(position, content, { title, zIndex, clickable = false, on = map } = {}) {
@@ -289,12 +303,16 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       info.close();
       const color = cssVar('--mid', '#161616');
       searchOverlays = [];
+      clear(legs);
+      legs = [];
+      routeLines = [];
       if (route?.length >= 2) {
         // The line itself: א's half in its blue, ב's half in its orange, meeting at the middle.
-        splitAtNearest(route, a, midpoint).forEach((path, i) => {
+        routeLines = splitAtNearest(route, a, midpoint).map((path, i) => {
           const strokeColor = cssVar(i ? '--side-b' : '--side-a', i ? '#ff6512' : '#2459ff');
-          searchOverlays.push(new Polyline({ map, path, strokeColor, strokeOpacity: 0.85, strokeWeight: 5, clickable: false }));
+          return new Polyline({ map, path, strokeColor, strokeOpacity: 0.85, strokeWeight: 5, clickable: false });
         });
+        searchOverlays.push(...routeLines);
       }
       searchOverlays.push(
         new Circle({
@@ -308,7 +326,8 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
           fillOpacity: 0.06,
           clickable: false,
         }),
-        marker(midpoint, midContent(), { title: 'נקודת האמצע', zIndex: 1 }),
+        // Places gather around the middle: its station stays above theirs (below only the picked one).
+        marker(midpoint, midContent(), { title: 'נקודת האמצע', zIndex: 900 }),
         marker({ lat: a.lat, lng: a.lng }, pinContent('pin-a', 'א'), { title: a.label, zIndex: 2000 }),
         marker({ lat: b.lat, lng: b.lng }, pinContent('pin-b', 'ב'), { title: b.label, zIndex: 2000 }),
       );
@@ -319,6 +338,7 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
     },
 
     showPlaces(list, { numbering, onSelect }) {
+      drawLegs(null);
       clear([...placeMarkers.values()].map((e) => e.marker));
       placeMarkers = new Map();
       activeId = null;
@@ -354,6 +374,7 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       activeId = placeId;
       miniStale = true;
       const entry = placeId && placeMarkers.get(placeId);
+      drawLegs(entry ? entry.position : null);
       if (!entry) return updateOverview();
       setPlaceIcon(placeId, true);
       if (focus) {

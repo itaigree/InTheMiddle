@@ -106,8 +106,8 @@ async function sharedLink(page) {
   return new URL((await page.evaluate(() => window.copied)).split('\n').pop());
 }
 
-/** How side `side` gets to the first place in the list, by its time's icon. */
-const travelMode = (page, side) => page.locator(`#place-list .time-${side} .mode-icon`).first().getAttribute('data-mode');
+/** How side `side` gets to the first place in the list (its icon shows only when the sides differ). */
+const travelMode = (page, side) => page.locator(`#place-list .time-${side}`).first().getAttribute('data-mode');
 
 async function shot(page, name) {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true });
@@ -289,8 +289,13 @@ test('phone: a place picked in the list comes up under the map, with its links, 
   await picked.waitFor({ state: 'visible' });
   assert.equal(await picked.locator('.place-name').textContent(), name);
   assert.match(await picked.locator('.waze').getAttribute('href'), /navigate=yes/);
-  // Once the page has scrolled up: the map, and the card's links right under it.
-  await page.waitForFunction(() => Math.abs(document.querySelector('.map-wrap').getBoundingClientRect().top) < 12);
+  // Once the page has scrolled: the pinned header, the result chips right under it,
+  // then the map, and the card's links under the map, all on one screen.
+  await page.waitForFunction(() => {
+    const header = document.querySelector('.app-header').getBoundingClientRect();
+    const chips = document.querySelector('#result-filters').getBoundingClientRect();
+    return Math.abs(header.top) < 1 && Math.abs(chips.top - header.bottom) < 24;
+  });
   const [mapBottom, linksBottom] = await page.evaluate(() => [
     document.querySelector('.map-wrap').getBoundingClientRect().bottom,
     document.querySelector('#picked .waze').getBoundingClientRect().bottom,
@@ -782,14 +787,21 @@ test('Google error screen appearing late in a search: the search is redone on Op
   await context.close();
 });
 
-test('phones, free mode: the first search scrolls to the map', async () => {
+test('phones, free mode: the first search scrolls to the results, under the pinned header', async () => {
   const { page, context } = await openApp({ viewport: { width: 390, height: 844 } });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
   await search(page);
   await page.waitForTimeout(900); // smooth scroll
-  const top = await page.locator('.map-wrap').evaluate((el) => el.getBoundingClientRect().top);
-  assert.ok(top >= -1 && top < 100, `map top at ${top}px`);
+  const [headerTop, headerBottom, chipsTop, mapTop] = await page.evaluate(() =>
+    ['.app-header', '#result-filters', '.map-wrap'].flatMap((s, i) => {
+      const r = document.querySelector(s).getBoundingClientRect();
+      return i === 0 ? [r.top, r.bottom] : [r.top];
+    }),
+  );
+  assert.ok(Math.abs(headerTop) < 1, `header top at ${headerTop}px`);
+  assert.ok(Math.abs(chipsTop - headerBottom) < 24, `chips at ${chipsTop}px, header ends at ${headerBottom}px`);
+  assert.ok(mapTop > chipsTop && mapTop < 250, `map top at ${mapTop}px`);
   await context.close();
 });
 

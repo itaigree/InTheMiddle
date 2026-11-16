@@ -13,12 +13,6 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon-180.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap"
-    />
     <link rel="stylesheet" href="styles.css" />
     <script src="config.js"></script>
     <script type="module" src="js/main.js"></script>
@@ -33,11 +27,13 @@
             <h1>מקום באמצע</h1>
             <p class="tagline">נפגשים בדיוק באמצע הדרך</p>
             <!-- After a search: the trip itself, from א to ב, with the middle on the line. -->
-            <p id="trip" class="trip" hidden>
+            <button type="button" id="trip" class="trip" hidden>
+              <span class="sr-only">שינוי החיפוש: </span>
               <span class="trip-end"><span class="side-badge side-a" aria-hidden="true">א</span><span id="trip-a" class="trip-name"></span></span>
               <span class="trip-line" aria-hidden="true"><i></i></span>
               <span class="trip-end"><span id="trip-b" class="trip-name"></span><span class="side-badge side-b" aria-hidden="true">ב</span></span>
-            </p>
+              <svg class="trip-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" /></svg>
+            </button>
           </div>
         </header>
         <form id="search-form" class="card search-form" novalidate>
@@ -162,13 +158,24 @@
           </details>
 
           <div class="submit-bar">
+            <span class="submit-line" aria-hidden="true"></span>
             <button type="submit" id="submit" class="primary-button">מצאו לנו מקום באמצע</button>
           </div>
+
+          <!-- Before the first search: how it works, on the same line. -->
+          <ol class="how">
+            <li class="how-a">יוצאים משתי נקודות</li>
+            <li class="how-mid">מוצאים איפה זמן הנסיעה שווה</li>
+            <li class="how-b">ומקומות לבלות בהם סביב האמצע</li>
+          </ol>
         </form>
 
         <div class="status-region" role="status" aria-live="polite">
           <div id="status" class="status" hidden></div>
         </div>
+
+        <!-- After a search: the kinds of places found, right under the header and above the map. -->
+        <div id="result-filters" class="chips result-filters" role="group" aria-label="סינון התוצאות" hidden></div>
 
         <section id="results" class="results" hidden aria-labelledby="results-title">
           <div class="results-head">
@@ -179,7 +186,6 @@
             </button>
           </div>
           <p id="results-summary" class="results-summary"></p>
-          <div id="result-filters" class="chips result-filters" role="group" aria-label="סינון התוצאות"></div>
           <ol id="place-list" class="place-list"></ol>
         </section>
       </div>
@@ -230,9 +236,9 @@
           </span>
         </button>
         <div class="place-times">
-          <span class="time time-a"><span class="side-badge side-a" aria-hidden="true">א</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
+          <span class="time time-a"><span class="time-who sr-only"></span><span class="time-from" aria-hidden="true"></span><span class="time-value"></span></span>
           <span class="place-line" aria-hidden="true"><i></i></span>
-          <span class="time time-b"><span class="side-badge side-b" aria-hidden="true">ב</span><span class="time-who sr-only"></span><span class="time-value"></span></span>
+          <span class="time time-b"><span class="time-who sr-only"></span><span class="time-from" aria-hidden="true"></span><span class="time-value"></span></span>
         </div>
         <p class="fairness"></p>
         <div class="place-actions">

@@ -903,6 +903,7 @@ function renderList() {
   renderPlaces($('place-list'), $('place-card-template'), places, {
     modeA: lastResult.modeA,
     modeB: lastResult.modeB,
+    labels: tripLabels(),
     numbering,
     photoIds,
     showOpenState: !lastResult.departure,
@@ -912,13 +913,23 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
+/** The two starting points' names, as the search was made (or as typed, before one). */
+function tripLabels() {
+  if (lastQuery) return { a: forLink(lastQuery.a).label, b: forLink(lastQuery.b).label };
+  return { a: sides.a.input.value.trim(), b: sides.b.input.value.trim() };
+}
+
 /** Once there is a trip, the header carries it: א's place, the line with its middle, ב's place. */
 function showTrip(a, b) {
   $('trip-a').textContent = a;
   $('trip-b').textContent = b;
   $('trip').hidden = false;
   document.querySelector('.tagline').hidden = true;
+  document.body.classList.add('has-results');
 }
+
+// The trip in the header is the way back to the search form.
+$('trip').addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
 
 async function showResult(result, provider, { scroll = true, status = true } = {}) {
   lastResult = result;
@@ -950,8 +961,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   document.body.classList.add('has-map');
   if (scroll && window.matchMedia('(max-width: 959px)').matches) {
     // A notice explains the results, so show it first; otherwise go to the map.
-    const target = notices.length ? $('status') : document.querySelector('.map-wrap');
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollIntoPlace(notices.length ? $('status') : resultsTop());
   }
   await drawOnMap(result, provider);
 }
@@ -982,19 +992,26 @@ function selectPlace(place, { from }) {
   // On phones the map and the list are far apart: the picked place's card comes
   // up under the map, so the map and its links (Waze etc.) are on screen together.
   showPicked(place);
-  if (from === 'list') scrollToMap();
+  if (from === 'list') scrollIntoPlace(resultsTop());
+}
+
+/** Where the results begin on a phone: their category chips, or the map when there are none. */
+function resultsTop() {
+  const filters = $('result-filters');
+  return filters.hidden ? document.querySelector('.map-wrap') : filters;
 }
 
 /**
- * Bring the map up (phones). A smooth scroll that starts right after another scroll can
- * end without moving; if it ends with the map still out of view, go there directly.
+ * Scroll `target` to the top of the screen, under the pinned header (phones). A smooth
+ * scroll that starts right after another scroll can end without moving; if it ends
+ * short, go there directly.
  */
-function scrollToMap() {
-  const wrap = document.querySelector('.map-wrap');
-  if (!wrap) return;
-  wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+function scrollIntoPlace(target) {
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
   const landed = () => {
-    if (Math.abs(wrap.getBoundingClientRect().top) > 24) wrap.scrollIntoView({ block: 'start' });
+    if (Math.abs(target.getBoundingClientRect().top - margin) > 24) target.scrollIntoView({ block: 'start' });
   };
   window.addEventListener('scrollend', landed, { once: true, signal: AbortSignal.timeout(1500) });
 }

@@ -42,6 +42,12 @@ const SHELL = [
   'js/ui/results.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-400.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-500.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-600.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-400.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-500.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-600.woff2',
 ];
 
 self.addEventListener('install', (event) => {
