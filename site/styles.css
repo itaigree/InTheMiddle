@@ -68,8 +68,12 @@
   --faint: #6b747d;
   --line: #d6dbdf;
   --line-strong: #b8c0c7;
+  /* Ink: the strong fill for buttons and chosen chips (inverted in dark mode).
+     Band: the header strip, dark in both themes. */
   --ink: #11161b;
   --on-ink: #ffffff;
+  --band: #11161b;
+  --on-band: #ffffff;
   --seg-on: #ffffff;
   /* The line's two ends; the -text shades are for the letters on light ground. */
   --side-a: #2459ff;
@@ -109,8 +113,10 @@
     --faint: #8a939b;
     --line: #262c32;
     --line-strong: #3a434c;
-    --ink: #05080a;
-    --on-ink: #eef1f3;
+    --ink: #eef1f3;
+    --on-ink: #0d1013;
+    --band: #05080a;
+    --on-band: #eef1f3;
     --seg-on: #343b42;
     --side-a: #6f93ff;
     --side-b: #ff8a4d;
@@ -266,8 +272,8 @@ select {
   gap: 12px;
   margin-inline: -16px;
   padding: 18px 16px 16px;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--band);
+  color: var(--on-band);
 }
 
 .app-title {
@@ -295,8 +301,8 @@ select {
 }
 
 .app-header .brand-mid {
-  fill: var(--ink);
-  stroke: var(--on-ink);
+  fill: var(--band);
+  stroke: var(--on-band);
   stroke-width: 2.5;
 }
 
@@ -320,7 +326,7 @@ select {
 }
 
 .trip:focus-visible {
-  outline: 2px solid var(--on-ink);
+  outline: 2px solid var(--on-band);
   outline-offset: 4px;
   border-radius: 4px;
 }
@@ -362,8 +368,8 @@ select {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--ink);
-  border: 3px solid var(--on-ink);
+  background: var(--band);
+  border: 3px solid var(--on-band);
   transform: translate(50%, -50%);
 }
 
@@ -607,10 +613,9 @@ body.has-map .map-placeholder {
   position: absolute;
   inset-inline-start: 22.5px;
   top: 30px;
-  bottom: 30px;
+  bottom: -1px;
   width: 3px;
-  border-radius: 2px;
-  background: linear-gradient(var(--side-a), var(--side-b));
+  background: linear-gradient(var(--side-a) 0 60px, var(--side-b) 60px 100%);
 }
 
 .endpoint {
@@ -1825,7 +1830,7 @@ body.has-map .map-placeholder {
   padding: 0 3px;
   border-radius: 9px;
   border: 1.5px solid #fff;
-  background: var(--ink);
+  background: var(--band);
   color: #fff;
   font-size: 10px;
   line-height: 14px;
@@ -1997,99 +2002,68 @@ body.has-map .map-placeholder {
   padding-inline-start: 16px;
 }
 
-/* The search button is the station on the line: a pill ringed in the page's ground,
-   sitting on א's blue running into ב's orange. */
-.submit-line {
-  position: absolute;
-  inset-inline: 22px;
-  top: 50%;
-  height: 4px;
-  margin-top: -2px;
-  border-radius: 2px;
-  background: linear-gradient(to left, var(--side-a), var(--side-b));
+/* The start screen is one line: it runs down the form's start edge from א (blue), turns
+   orange at ב, and ends in the station beside the search button. The kinds of places and
+   the options hang off it like stops, in a lane aligned with the inputs' text. */
+.search-form {
+  position: relative;
 }
 
-.submit-line::before,
-.submit-line::after {
+.search-form::before {
   content: '';
   position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
-  border-radius: 50%;
+  inset-inline-start: 22.5px;
+  top: 30px;
+  bottom: 28px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(var(--side-a) 0 60px, var(--side-b) 60px 100%);
 }
 
-.submit-line::before {
-  inset-inline-start: -6px;
-  background: var(--side-a);
+.search-form > .categories,
+.search-form > .options {
+  margin-inline-start: 48px;
 }
 
-.submit-line::after {
-  inset-inline-end: -6px;
+.submit-bar {
+  padding-inline-start: 64px;
+}
+
+/* The bar's own ground hides the spine behind it, so the bar draws its last stretch
+   (::before) and the station on it (::after), ringed in ink, level with the button.
+   Both are centered on the spine: the bar starts 16px before the form, the spine's
+   center is 24px into it. */
+.submit-bar::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 38.5px;
+  top: 0;
+  height: 50%;
+  width: 3px;
   background: var(--side-b);
 }
 
-.submit-bar .primary-button {
-  position: relative;
-  align-self: center;
-  padding-inline: 28px;
-  border-radius: 999px;
-  box-shadow: 0 0 0 5px var(--bg);
-}
-
-/* How it works: three stops on a short line, until the first results arrive. */
-.how {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin: 4px 0 0;
-  padding: 26px 0 0;
-  list-style: none;
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  color: var(--muted);
-  text-align: center;
-}
-
-.how::before {
+.submit-bar::after {
   content: '';
   position: absolute;
-  top: 9px;
-  inset-inline: 16.6%;
-  height: 3px;
-  border-radius: 2px;
-  background: linear-gradient(to left, var(--side-a), var(--side-b));
-}
-
-.how li {
-  position: relative;
-}
-
-.how li::before {
-  content: '';
-  position: absolute;
-  top: -24px;
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  margin-left: -7px;
+  inset-inline-start: 31px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
   border-radius: 50%;
+  background: var(--bg);
+  border: 4px solid var(--text);
   box-sizing: border-box;
 }
 
-.how-a::before {
-  background: var(--side-a);
-}
-
-.how-mid::before {
-  background: var(--bg);
-  border: 4px solid var(--text);
-}
-
-.how-b::before {
-  background: var(--side-b);
+/* Under the line, until the first results: what the search does. */
+.how {
+  margin: -8px 0 0;
+  padding-inline-start: 48px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 body.has-results .how {
@@ -2175,8 +2149,14 @@ body.has-results .how {
     padding-block: 12px;
   }
 
+  /* Out of sight, still the page's heading for screen readers. */
   body.has-results .app-header h1 {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   body.has-results .trip {
@@ -2188,4 +2168,28 @@ body.has-results .how {
   body.has-results .map-wrap {
     scroll-margin-top: 64px;
   }
+}
+
+/* Rows stay one station tall in Google mode too: a smaller photo, the meta on one line
+   (the picked card shows it all), the photo credit small. */
+#place-list > .place-card:not(.is-active) .place-photo {
+  width: 44px;
+  height: 44px;
+}
+
+#place-list > .place-card:not(.is-active) .place-meta {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+#place-list > .place-card:not(.is-active) .place-meta > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#place-list > .place-card:not(.is-active) .photo-credit {
+  margin-top: 2px;
+  font-size: 0.6875rem;
 }

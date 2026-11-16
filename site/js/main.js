@@ -928,6 +928,15 @@ function showTrip(a, b) {
   document.body.classList.add('has-results');
 }
 
+// The result chips sit above the map on phones, and under the results heading on wider screens.
+const wideScreen = matchMedia('(min-width: 960px)');
+function placeResultFilters() {
+  if (wideScreen.matches) $('results-summary').after($('result-filters'));
+  else document.querySelector('.status-region').after($('result-filters'));
+}
+wideScreen.addEventListener('change', placeResultFilters);
+placeResultFilters();
+
 // The trip in the header is the way back to the search form.
 $('trip').addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
 
