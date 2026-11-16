@@ -2170,11 +2170,12 @@ body.has-results .how {
   }
 }
 
-/* Rows stay one station tall in Google mode too: a smaller photo, the meta on one line
-   (the picked card shows it all), the photo credit small. */
-#place-list > .place-card:not(.is-active) .place-photo {
-  width: 44px;
-  height: 44px;
+/* A row is one station tall in every mode: its photo and the photo's credit show once the
+   place is picked; the meta keeps to one line, without the address (the picked card has it). */
+#place-list > .place-card:not(.is-active) .place-photo,
+#place-list > .place-card:not(.is-active) .photo-credit,
+#place-list > .place-card:not(.is-active) .place-meta .address {
+  display: none;
 }
 
 #place-list > .place-card:not(.is-active) .place-meta {
@@ -2183,13 +2184,3 @@ body.has-results .how {
   white-space: nowrap;
 }
 
-#place-list > .place-card:not(.is-active) .place-meta > :last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#place-list > .place-card:not(.is-active) .photo-credit {
-  margin-top: 2px;
-  font-size: 0.6875rem;
-}

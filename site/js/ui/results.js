@@ -185,7 +185,7 @@ export function renderPlaces(list, template, places, { modeA, modeB, labels, num
     if (place.closedOnShabbat === true && (place.category === 'cafe' || place.category === 'food')) {
       meta.append(el('span', 'shabbat', 'סגור בשבת'));
     }
-    if (place.address) meta.append(el('span', null, place.address));
+    if (place.address) meta.append(el('span', 'address', place.address));
 
     // The א/ב badges and mode icons are visual; screen readers get the words.
     // A mode icon only says something when the two sides travel differently.
@@ -218,6 +218,7 @@ export function renderPlaces(list, template, places, { modeA, modeB, labels, num
     share.addEventListener('click', () => onShare(place));
 
     if (withPhoto && place.photoCredit?.name) {
+      // Google asks for the photographer's name wherever the photo shows (the picked place).
       const credit = el('p', 'photo-credit', 'צילום: ');
       if (place.photoCredit.uri) {
         const link = el('a', null, place.photoCredit.name);
