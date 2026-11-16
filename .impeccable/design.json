@@ -1,0 +1,779 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T00:00:00Z",
+  "title": "Design System: מקום באמצע",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Concrete Ground",
+        "canonical": "#e9ecee",
+        "dark": "#0d1013",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Page ground."
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "White Surface",
+        "canonical": "#ffffff",
+        "dark": "#161a1e",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Panels, lists, chips."
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Pale Concrete",
+        "canonical": "#f2f4f5",
+        "dark": "#1e2328",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Focused rows, segment tracks, map placeholder."
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Ink Text",
+        "canonical": "#11161b",
+        "dark": "#eef1f3",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Body text, focus outline, station rings."
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Concrete Muted",
+        "canonical": "#545e67",
+        "dark": "#a3acb4",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Meta, legends, summary."
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Concrete Faint",
+        "canonical": "#6b747d",
+        "dark": "#8a939b",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Placeholders and footer."
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#d6dbdf",
+        "dark": "#262c32",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Panel borders and dividers."
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "#b8c0c7",
+        "dark": "#3a434c",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Chip outlines, list spine."
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#11161b",
+        "dark": "#eef1f3",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Search button, selected chips, switch on, toast; inverts in dark."
+      },
+      "on-ink": {
+        "role": "neutral",
+        "displayName": "On Ink",
+        "canonical": "#ffffff",
+        "dark": "#0d1013",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ]
+      },
+      "band": {
+        "role": "neutral",
+        "displayName": "Band",
+        "canonical": "#11161b",
+        "dark": "#05080a",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ],
+        "purpose": "Header strip and pin number tags; dark in both themes."
+      },
+      "on-band": {
+        "role": "neutral",
+        "displayName": "On Band",
+        "canonical": "#ffffff",
+        "dark": "#eef1f3",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ]
+      },
+      "side-a": {
+        "role": "primary",
+        "displayName": "Side A Blue",
+        "canonical": "#2459ff",
+        "dark": "#6f93ff",
+        "tonalRamp": [
+          "#030920",
+          "#02087a",
+          "#0b2eb2",
+          "#1e4fed",
+          "#427bff",
+          "#70a7ff",
+          "#9ccdff",
+          "#dfefff"
+        ],
+        "oklch": "oklch(54.5% 0.251 264.9)",
+        "purpose": "א's end of every line, route half, pin and leg."
+      },
+      "side-b": {
+        "role": "primary",
+        "displayName": "Side B Orange",
+        "canonical": "#ff6512",
+        "dark": "#ff8a4d",
+        "tonalRamp": [
+          "#150703",
+          "#4e0600",
+          "#7c2000",
+          "#ae3a00",
+          "#e25602",
+          "#ff7c3d",
+          "#ffa975",
+          "#ffe4d4"
+        ],
+        "oklch": "oklch(69.5% 0.204 42.2)",
+        "purpose": "ב's end of every line, route half, pin and leg."
+      },
+      "side-a-text": {
+        "role": "primary",
+        "displayName": "Side A Letter Blue",
+        "canonical": "#1f4fe0",
+        "dark": "#8eabff",
+        "tonalRamp": [
+          "#03091f",
+          "#020d77",
+          "#0d31ad",
+          "#2354e3",
+          "#4d80fc",
+          "#7aaaff",
+          "#a5cfff",
+          "#e1efff"
+        ],
+        "oklch": "oklch(49.8% 0.226 264.7)",
+        "purpose": "א letters and badges on light ground; caret."
+      },
+      "side-b-text": {
+        "role": "primary",
+        "displayName": "Side B Letter Orange",
+        "canonical": "#c44a00",
+        "dark": "#ff9a63",
+        "tonalRamp": [
+          "#160602",
+          "#4f0300",
+          "#7c2000",
+          "#ac3c00",
+          "#d56230",
+          "#f58f66",
+          "#ffb894",
+          "#ffe8dd"
+        ],
+        "oklch": "oklch(56.7% 0.170 42.5)",
+        "purpose": "ב letters and badges on light ground."
+      },
+      "go": {
+        "role": "secondary",
+        "displayName": "Signal Yellow",
+        "canonical": "#ffc61a",
+        "dark": "#ffc61a",
+        "tonalRamp": [
+          "#0e0b05",
+          "#332400",
+          "#584100",
+          "#806100",
+          "#ab8301",
+          "#d7a60e",
+          "#ffc823",
+          "#feedc6"
+        ],
+        "oklch": "oklch(85.4% 0.171 86.9)",
+        "purpose": "The Waze button on the picked place only."
+      },
+      "on-go": {
+        "role": "secondary",
+        "displayName": "On Signal Yellow",
+        "canonical": "#11161b",
+        "dark": "#11161b",
+        "tonalRamp": [
+          "#05080a",
+          "#0d1013",
+          "#161a1e",
+          "#262c32",
+          "#545e67",
+          "#b8c0c7",
+          "#e9ecee",
+          "#ffffff"
+        ]
+      },
+      "cat-cafe": {
+        "role": "tertiary",
+        "displayName": "Café Brown",
+        "canonical": "#8a4b25",
+        "dark": "#c06a38",
+        "tonalRamp": [
+          "#130804",
+          "#421800",
+          "#6a3411",
+          "#925430",
+          "#b27a5b",
+          "#d3a187",
+          "#f2c7b0",
+          "#f9ebe5"
+        ],
+        "oklch": "oklch(48.2% 0.100 49.6)"
+      },
+      "cat-mall": {
+        "role": "tertiary",
+        "displayName": "Mall Violet",
+        "canonical": "#6d3fd1",
+        "dark": "#9070f0",
+        "tonalRamp": [
+          "#0c071c",
+          "#2d006a",
+          "#4c209c",
+          "#6d40d1",
+          "#8d6fed",
+          "#b09aff",
+          "#d2c1ff",
+          "#eeebff"
+        ],
+        "oklch": "oklch(50.8% 0.211 291.5)"
+      },
+      "cat-park": {
+        "role": "tertiary",
+        "displayName": "Park Green",
+        "canonical": "#19784a",
+        "dark": "#2f9e62",
+        "tonalRamp": [
+          "#040e07",
+          "#003214",
+          "#00542e",
+          "#1a794b",
+          "#539b71",
+          "#82be99",
+          "#addfbf",
+          "#e4f3e9"
+        ],
+        "oklch": "oklch(50.8% 0.112 156.6)"
+      },
+      "cat-nature": {
+        "role": "tertiary",
+        "displayName": "Nature Teal",
+        "canonical": "#0b6f74",
+        "dark": "#1a9aa1",
+        "tonalRamp": [
+          "#030d0e",
+          "#002f32",
+          "#005054",
+          "#197478",
+          "#52969a",
+          "#81babd",
+          "#acdbde",
+          "#e4f2f2"
+        ],
+        "oklch": "oklch(49.4% 0.081 200.5)"
+      },
+      "cat-food": {
+        "role": "tertiary",
+        "displayName": "Food Red",
+        "canonical": "#c0352b",
+        "dark": "#e0584c",
+        "tonalRamp": [
+          "#180504",
+          "#540000",
+          "#82100c",
+          "#b42e25",
+          "#d95c4e",
+          "#f88a7c",
+          "#ffb4a6",
+          "#ffe7e2"
+        ],
+        "oklch": "oklch(53.9% 0.177 28.6)"
+      },
+      "cat-attraction": {
+        "role": "tertiary",
+        "displayName": "Attraction Magenta",
+        "canonical": "#b02a78",
+        "dark": "#d24e9a",
+        "tonalRamp": [
+          "#16050d",
+          "#4f002f",
+          "#7c0751",
+          "#ac2775",
+          "#ce5997",
+          "#ee88ba",
+          "#ffb2dc",
+          "#ffe6f2"
+        ],
+        "oklch": "oklch(52.1% 0.184 349.9)"
+      },
+      "good": {
+        "role": "state",
+        "displayName": "Open Green",
+        "canonical": "#1a7f45",
+        "dark": "#4cc27f",
+        "tonalRamp": [
+          "#040e06",
+          "#00320d",
+          "#005526",
+          "#167a41",
+          "#4e9d67",
+          "#7ec091",
+          "#a9e1b8",
+          "#e3f3e7"
+        ],
+        "oklch": "oklch(52.7% 0.127 152.5)"
+      },
+      "warn": {
+        "role": "state",
+        "displayName": "Caution Amber",
+        "canonical": "#9a5b06",
+        "dark": "#e5a23b",
+        "tonalRamp": [
+          "#120903",
+          "#411a00",
+          "#683700",
+          "#925500",
+          "#b57b3f",
+          "#d6a271",
+          "#f4c79e",
+          "#faecdf"
+        ],
+        "oklch": "oklch(53.1% 0.118 64.4)"
+      },
+      "danger": {
+        "role": "state",
+        "displayName": "Closed Red",
+        "canonical": "#c8341f",
+        "dark": "#ff6b5b",
+        "tonalRamp": [
+          "#180503",
+          "#550000",
+          "#840a00",
+          "#b62a16",
+          "#dd5843",
+          "#fd8773",
+          "#ffb29e",
+          "#ffe6e0"
+        ],
+        "oklch": "oklch(55.1% 0.188 31.3)"
+      }
+    },
+    "derivedColors": [
+      {
+        "name": "--cat-band",
+        "light": "var(--cat)",
+        "dark": "color-mix(in srgb, var(--cat) 82%, #000)",
+        "purpose": "Picked place header band under white text; --cat is set per element from data-category, falling back to --muted."
+      },
+      {
+        "name": "--mid / --route",
+        "light": "#11161b",
+        "dark": "#eef1f3",
+        "purpose": "Ring of the middle station and the overview map's route."
+      },
+      {
+        "name": "--seg-on",
+        "light": "#ffffff",
+        "dark": "#343b42",
+        "purpose": "Selected segment fill."
+      },
+      {
+        "name": "::selection",
+        "value": "color-mix(in srgb, var(--side-a) 28%, transparent)",
+        "purpose": "Text selection; caret is --side-a-text."
+      }
+    ],
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "App name in the band."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section headings."
+      },
+      "place-name": {
+        "displayName": "Place name",
+        "purpose": "A station's name."
+      },
+      "minutes": {
+        "displayName": "Minutes",
+        "purpose": "Both sides' times in list rows; larger than the name."
+      },
+      "minutes-picked": {
+        "displayName": "Minutes (picked)",
+        "purpose": "Times on the picked place."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Text and inputs; tabular figures set globally."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Chips, segments, status, summary."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Legends, meta, 'from' names; muted."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Credits, footer, counts."
+      }
+    },
+    "fonts": [
+      {
+        "family": "IBM Plex Sans Hebrew",
+        "weights": [
+          400,
+          500,
+          600
+        ],
+        "source": "site/vendor/plex-hebrew (woff2, Hebrew and Latin subsets, font-display: swap, OFL 1.1)"
+      }
+    ],
+    "shadows": [
+      {
+        "name": "pop",
+        "value": "0 12px 32px rgb(17 22 27 / 12%), 0 1px 3px rgb(17 22 27 / 8%)",
+        "dark": "0 12px 32px rgb(0 0 0 / 50%)",
+        "purpose": "Suggestions, toast, map popups."
+      },
+      {
+        "name": "segment-lift",
+        "value": "0 1px 2px rgb(0 0 0 / 12%)",
+        "purpose": "Selected segment."
+      },
+      {
+        "name": "pin",
+        "value": "0 1px 4px rgb(0 0 0 / 30%)",
+        "purpose": "Map pins."
+      },
+      {
+        "name": "pin-active",
+        "value": "0 0 0 3px var(--cat), 0 4px 12px rgb(0 0 0 / 35%)",
+        "purpose": "Picked place's pin."
+      },
+      {
+        "name": "station-cutout",
+        "value": "0 0 0 3px var(--surface)",
+        "purpose": "Cuts list roundels out of the spine; not elevation."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state",
+        "value": "0.15s ease",
+        "purpose": "Background, border and colour changes."
+      },
+      {
+        "name": "ease-route",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Re-sort slide, station slide, options chevron."
+      },
+      {
+        "name": "re-sort",
+        "value": "520ms ease-route, translateY from old to new position (WAAPI)",
+        "purpose": "Rows slide into their new order when the priority changes."
+      },
+      {
+        "name": "station-slide",
+        "value": "right 0.5s ease-route",
+        "purpose": "A place line's station moves along its line."
+      },
+      {
+        "name": "switch",
+        "value": "0.2s",
+        "purpose": "Switch track and knob."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Slide skipped, CSS animations and transitions removed, map moves jump."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "960px",
+        "purpose": "Panel 420px beside a sticky map; picked card hidden."
+      },
+      {
+        "name": "fine-pointer",
+        "value": "(hover: hover) and (pointer: fine)",
+        "purpose": "Result chips wrap instead of scrolling."
+      }
+    ],
+    "map": {
+      "route": "Two halves split at the middle: side-a then side-b, 5px, opacity 0.85; dims to 0.3 when a place is picked.",
+      "legs": "Straight A-to-place (side-a) and place-to-B (side-b), 4px round-dotted (Leaflet dashArray '1 9'; Google 10px repeat).",
+      "middle": "16px bg disc, 3px --mid ring; above place pins, below the active pin.",
+      "tiles": "Leaflet: saturate(0.5) contrast(0.92) brightness(1.03); dark: invert(1) hue-rotate(180deg) brightness(1.4) contrast(0.75) saturate(0.55). Google: colorScheme FOLLOW_SYSTEM."
+    },
+    "icons": {
+      "grid": 24,
+      "categoryStroke": 1.8,
+      "interfaceStroke": 1.6,
+      "caps": "round",
+      "source": "site/js/ui/category-icons.js"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button (search)",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The search: ink fill, the start screen's last station.",
+      "html": "<button class=\"ds-btn-primary\">מצאו לנו מקום באמצע</button>",
+      "css": ".ds-btn-primary{height:56px;padding:0 32px;border:0;border-radius:var(--radius,14px);background:var(--ink,#11161b);color:var(--on-ink,#fff);font-family:var(--font);font-size:1rem;font-weight:500;letter-spacing:.01em;cursor:pointer;transition:opacity .15s,transform .1s}.ds-btn-primary:hover{opacity:.88}.ds-btn-primary:active{transform:scale(.995)}.ds-btn-primary:focus-visible{outline:2px solid var(--text,#11161b);outline-offset:2px}.ds-btn-primary:disabled{opacity:.45;cursor:progress}"
+    },
+    {
+      "name": "Go Button (Waze)",
+      "kind": "button",
+      "refersTo": "button-go",
+      "description": "Signal yellow, full width, on the picked place only.",
+      "html": "<a class=\"ds-btn-go\" href=\"#\">ניווט ב-Waze</a>",
+      "css": ".ds-btn-go{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border:1px solid var(--go,#ffc61a);border-radius:var(--radius-sm,10px);background:var(--go,#ffc61a);color:var(--on-go,#11161b);font-family:var(--font);font-size:1rem;font-weight:600;text-decoration:none;transition:background .15s,border-color .15s}.ds-btn-go:hover{filter:brightness(.97)}.ds-btn-go:focus-visible{outline:2px solid var(--text,#11161b);outline-offset:2px}"
+    },
+    {
+      "name": "Place Action",
+      "kind": "button",
+      "refersTo": "place-action",
+      "description": "Outlined secondary actions on a picked place (Google Maps, share).",
+      "html": "<a class=\"ds-action\" href=\"#\">Google Maps</a>",
+      "css": ".ds-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:1px solid var(--line-strong,#b8c0c7);border-radius:var(--radius-sm,10px);background:var(--surface,#fff);color:var(--text,#11161b);font-family:var(--font);font-size:.875rem;font-weight:500;text-decoration:none;transition:border-color .15s}.ds-action:hover{border-color:var(--muted,#545e67)}.ds-action:focus-visible{outline:2px solid var(--text,#11161b);outline-offset:2px}"
+    },
+    {
+      "name": "Filter Chip with Roundel",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Result filter: category roundel, label, count; ink when pressed.",
+      "html": "<div dir=\"rtl\" style=\"display:flex;gap:8px\"><button class=\"ds-chip\" aria-pressed=\"true\">הכל <span class=\"ds-count\">(15)</span></button><button class=\"ds-chip\" aria-pressed=\"false\"><span class=\"ds-roundel-sm\" style=\"--cat:var(--cat-park,#19784a)\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 21v-7M12 14l-3-2.5M12 15.5l2.5-2M7.5 13.5a4.5 4.5 0 0 1 .7-8.9 4.5 4.5 0 0 1 7.6 0 4.5 4.5 0 0 1 .7 8.9z\"/></svg></span>פארקים <span class=\"ds-count\">(5)</span></button></div>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid var(--line-strong,#b8c0c7);border-radius:var(--radius-sm,10px);background:var(--surface,#fff);color:var(--text,#11161b);font-family:var(--font);font-size:.875rem;white-space:nowrap;cursor:pointer;transition:background .15s,color .15s,border-color .15s}.ds-chip:has(.ds-roundel-sm){padding-inline-start:6px}.ds-chip:hover{border-color:var(--muted,#545e67)}.ds-chip[aria-pressed=true]{background:var(--ink,#11161b);border-color:var(--ink,#11161b);color:var(--on-ink,#fff)}.ds-chip:focus-visible{outline:2px solid var(--text,#11161b);outline-offset:2px}.ds-count{font-size:.75rem;opacity:.6}.ds-roundel-sm{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--cat)}.ds-roundel-sm svg{width:14px;height:14px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}"
+    },
+    {
+      "name": "Station Roundel",
+      "kind": "custom",
+      "refersTo": "station-roundel",
+      "description": "A place as a station: category colour, drawn icon in white at a 1.8 stroke.",
+      "html": "<div style=\"display:flex;gap:10px\"><span class=\"ds-roundel\" style=\"--cat:var(--cat-cafe,#8a4b25)\"><svg viewBox=\"0 0 24 24\"><path d=\"M5 10h11v4a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 11h1.5a2.5 2.5 0 0 1 0 5H16M8.5 3.5c-.8 1 .8 2 0 3M12 3.5c-.8 1 .8 2 0 3\"/></svg></span><span class=\"ds-roundel\" style=\"--cat:var(--cat-mall,#6d3fd1)\"><svg viewBox=\"0 0 24 24\"><path d=\"M5.5 8h13l-1 12h-11zM9 8V6.5a3 3 0 0 1 6 0V8\"/></svg></span><span class=\"ds-roundel\" style=\"--cat:var(--cat-nature,#0b6f74)\"><svg viewBox=\"0 0 24 24\"><path d=\"M2.5 19l6-9 4 5.5 2.5-3.5 6.5 7zM16.5 7.5a1.8 1.8 0 1 0 0 .1\"/></svg></span><span class=\"ds-roundel\" style=\"--cat:var(--cat-food,#c0352b)\"><svg viewBox=\"0 0 24 24\"><path d=\"M7 3v7M5 3v4.5a2 2 0 0 0 4 0V3M7 10v11M16.5 21V3c-2 1.5-3 4-3 7v2.5h3\"/></svg></span></div>",
+      "css": ".ds-roundel{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--cat);box-shadow:0 0 0 3px var(--surface,#fff)}.ds-roundel svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}"
+    },
+    {
+      "name": "Place Line",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "The signature: hard split blue/orange with an ink-ringed station at the split, placed by timeA/(timeA+timeB).",
+      "html": "<div dir=\"rtl\" class=\"ds-times\"><span class=\"ds-time\">28 דק׳</span><span class=\"ds-line\" style=\"--split:42%\"><i></i></span><span class=\"ds-time\">38 דק׳</span></div>",
+      "css": ".ds-times{display:grid;grid-template-columns:auto minmax(48px,1fr) auto;align-items:center;gap:10px;font-family:var(--font);color:var(--text,#11161b)}.ds-time{font-size:1.125rem;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-line{position:relative;height:4px;border-radius:2px;background:linear-gradient(to left,var(--side-a,#2459ff) 0 var(--split,50%),var(--side-b,#ff6512) var(--split,50%) 100%)}.ds-line i{position:absolute;top:50%;right:var(--split,50%);width:14px;height:14px;border-radius:50%;background:var(--surface,#fff);border:3px solid var(--text,#11161b);transform:translate(50%,-50%);box-sizing:border-box;transition:right .5s cubic-bezier(.22,1,.36,1)}.ds-times:hover .ds-line{--split:58%}@media (prefers-reduced-motion:reduce){.ds-line i{transition:none}}"
+    },
+    {
+      "name": "Strip-Map Row",
+      "kind": "card",
+      "refersTo": "strip-list",
+      "description": "A list row: station on the spine, name, meta, both times on the place's own line.",
+      "html": "<ol dir=\"rtl\" class=\"ds-strip\"><li class=\"ds-row\"><span class=\"ds-st\"><span class=\"ds-r\" style=\"--cat:var(--cat-park,#19784a)\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 21v-7M12 14l-3-2.5M12 15.5l2.5-2M7.5 13.5a4.5 4.5 0 0 1 .7-8.9 4.5 4.5 0 0 1 7.6 0 4.5 4.5 0 0 1 .7 8.9z\"/></svg></span><b>1</b></span><span class=\"ds-b\"><span class=\"ds-n\">פארק הירקון</span><span class=\"ds-m\">פארק</span><span class=\"ds-t\"><span>32 דק׳</span><span class=\"ds-l\" style=\"--split:47%\"><i></i></span><span>36 דק׳</span></span></span></li><li class=\"ds-row\"><span class=\"ds-st\"><span class=\"ds-r\" style=\"--cat:var(--cat-cafe,#8a4b25)\"><svg viewBox=\"0 0 24 24\"><path d=\"M5 10h11v4a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 11h1.5a2.5 2.5 0 0 1 0 5H16\"/></svg></span><b>2</b></span><span class=\"ds-b\"><span class=\"ds-n\">קפה 5</span><span class=\"ds-m\">בית קפה</span><span class=\"ds-t\"><span>34 דק׳</span><span class=\"ds-l\"><i></i></span><span>34 דק׳</span></span></span></li></ol>",
+      "css": ".ds-strip{list-style:none;margin:0;padding:0;background:var(--surface,#fff);border:1px solid var(--line,#d6dbdf);border-radius:var(--radius,14px);overflow:hidden;font-family:var(--font);color:var(--text,#11161b)}.ds-row{position:relative;display:flex;gap:12px;padding:10px 16px 12px}.ds-row::before{content:'';position:absolute;inset-block:0;inset-inline-start:30.5px;width:3px;background:var(--line-strong,#b8c0c7)}.ds-row:first-child::before{top:26px}.ds-row:last-child::before{bottom:calc(100% - 26px)}.ds-st{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:3px;width:32px}.ds-st b{padding:0 4px;border-radius:4px;background:var(--surface,#fff);color:var(--muted,#545e67);font-size:.6875rem}.ds-r{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--cat);box-shadow:0 0 0 3px var(--surface,#fff)}.ds-r svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ds-b{flex:1;display:flex;flex-direction:column;gap:2px}.ds-n{font-weight:600;font-size:1rem}.ds-m{color:var(--muted,#545e67);font-size:.8125rem}.ds-t{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin-top:6px;font-size:1.125rem;font-weight:600;font-variant-numeric:tabular-nums}.ds-l{position:relative;height:4px;border-radius:2px;background:linear-gradient(to left,var(--side-a,#2459ff) 0 var(--split,50%),var(--side-b,#ff6512) var(--split,50%) 100%)}.ds-l i{position:absolute;top:50%;right:var(--split,50%);width:14px;height:14px;box-sizing:border-box;border-radius:50%;background:var(--surface,#fff);border:3px solid var(--text,#11161b);transform:translate(50%,-50%)}.ds-row:hover{background:var(--surface-2,#f2f4f5)}"
+    },
+    {
+      "name": "Picked Card Band",
+      "kind": "card",
+      "refersTo": null,
+      "description": "The picked place's header: full band in --cat-band, white text, inverted roundel.",
+      "html": "<div dir=\"rtl\" class=\"ds-picked\" style=\"--cat:var(--cat-park,#19784a)\"><div class=\"ds-band\"><span class=\"ds-inv\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 21v-7M12 14l-3-2.5M12 15.5l2.5-2M7.5 13.5a4.5 4.5 0 0 1 .7-8.9 4.5 4.5 0 0 1 7.6 0 4.5 4.5 0 0 1 .7 8.9z\"/></svg></span><span><b>פארק הירקון</b><small>פארק · פתוח עכשיו</small></span></div><div class=\"ds-pt\"><span><small>מחיפה</small>32 דק׳</span><span><small>מתל אביב</small>36 דק׳</span></div></div>",
+      "css": ".ds-picked{--cat-band:var(--cat);background:var(--surface,#fff);border:1px solid var(--line,#d6dbdf);border-radius:var(--radius,14px);overflow:hidden;font-family:var(--font);color:var(--text,#11161b)}@media (prefers-color-scheme:dark){.ds-picked{--cat-band:color-mix(in srgb,var(--cat) 82%,#000)}}.ds-band{display:flex;gap:12px;padding:10px 16px 14px;background:var(--cat-band);color:#fff}.ds-band b{display:block;font-size:1rem}.ds-band small{color:rgb(255 255 255/88%);font-size:.8125rem}.ds-inv{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#fff}.ds-inv svg{width:18px;height:18px;fill:none;stroke:var(--cat-band);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ds-pt{display:grid;grid-template-columns:1fr 1fr;padding:14px 16px 16px;font-size:1.5rem;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}.ds-pt span:last-child{text-align:left}.ds-pt small{display:block;font-size:.8125rem;font-weight:500;color:var(--muted,#545e67)}"
+    },
+    {
+      "name": "Trip Band",
+      "kind": "nav",
+      "refersTo": "trip-band",
+      "description": "The always-dark header strip carrying the trip line; one button back to the form.",
+      "html": "<button dir=\"rtl\" class=\"ds-trip\"><span class=\"ds-badge\" style=\"background:#1f4fe0\">א</span><span>חיפה</span><span class=\"ds-tl\"><i></i></span><span>תל אביב</span><span class=\"ds-badge\" style=\"background:#c44a00\">ב</span></button>",
+      "css": ".ds-trip{display:grid;grid-template-columns:auto auto minmax(40px,1fr) auto auto;align-items:center;gap:8px;width:100%;padding:12px 16px;border:0;background:var(--band,#11161b);color:var(--on-band,#fff);font-family:var(--font);font-size:.875rem;font-weight:500;cursor:pointer}.ds-trip:focus-visible{outline:2px solid var(--on-band,#fff);outline-offset:-4px}.ds-badge{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;color:#fff;font-size:.6875rem;font-weight:600}.ds-tl{position:relative;height:4px;border-radius:2px;background:linear-gradient(to left,var(--side-a,#2459ff) 0 50%,var(--side-b,#ff6512) 50% 100%)}.ds-tl i{position:absolute;top:50%;right:50%;width:12px;height:12px;box-sizing:border-box;border-radius:50%;background:var(--band,#11161b);border:3px solid var(--on-band,#fff);transform:translate(50%,-50%)}"
+    },
+    {
+      "name": "Map Pins",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "A/B teardrops, a place station with its number tag (rest and active), the ink-ringed middle station.",
+      "html": "<div style=\"display:flex;gap:22px;align-items:center;padding:12px;background:var(--surface-2,#f2f4f5)\"><span class=\"ds-pin ds-pa\"><span>א</span></span><span class=\"ds-pp\" style=\"--cat:var(--cat-park,#19784a)\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 21v-7M12 14l-3-2.5M12 15.5l2.5-2M7.5 13.5a4.5 4.5 0 0 1 .7-8.9 4.5 4.5 0 0 1 7.6 0 4.5 4.5 0 0 1 .7 8.9z\"/></svg><b>2</b></span><span class=\"ds-pp is-active\" style=\"--cat:var(--cat-cafe,#8a4b25)\"><svg viewBox=\"0 0 24 24\"><path d=\"M5 10h11v4a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 11h1.5a2.5 2.5 0 0 1 0 5H16\"/></svg><b>1</b></span><span class=\"ds-mid\"></span><span class=\"ds-pin ds-pb\"><span>ב</span></span></div>",
+      "css": ".ds-pin{display:grid;place-items:center;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);color:#fff;font-family:var(--font);font-weight:600;font-size:12px;border:2px solid #fff;box-shadow:0 1px 4px rgb(0 0 0/30%)}.ds-pin>span{transform:rotate(45deg)}.ds-pa{background:var(--side-a,#2459ff)}.ds-pb{background:var(--side-b,#ff6512)}.ds-pp{position:relative;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--cat);border:2px solid #fff;box-shadow:0 1px 4px rgb(0 0 0/30%);font-family:var(--font)}.ds-pp svg{width:58%;height:58%;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ds-pp b{position:absolute;bottom:-5px;inset-inline-start:-6px;min-width:17px;height:17px;padding:0 3px;box-sizing:border-box;border-radius:9px;border:1.5px solid #fff;background:var(--band,#11161b);color:#fff;font-size:10px;line-height:14px;text-align:center}.ds-pp.is-active{border:3px solid #fff;box-shadow:0 0 0 3px var(--cat),0 4px 12px rgb(0 0 0/35%)}.ds-mid{width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--bg,#e9ecee);border:3px solid var(--mid,#11161b)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Route Line",
+    "overview": "Every place is a station on the line between א and ב, and fairness is where its station sits on that line. The world is the Israeli bus-line strip: an ink band carrying the trip, one cool concrete-grey ramp for every neutral, white surfaces, א blue and ב orange as the line's two ends, six category line colours each with a drawn roundel, and signal yellow reserved for the one button that acts. Minutes are what people compare, so they are set large in tabular figures and sit directly on each place's own line.\n\nThe surface is a working tool on a phone inside an Android WebView, Hebrew and right to left, complete in the free OpenStreetMap mode with no photos or ratings. It is flat: hairlines and white panels on concrete ground, with depth spent only on things that float over the map or the page. The signature is a line that runs blue from א, stops hard, and continues orange to ב, with an ink-ringed station at the meeting point. It recurs as the start screen's spine, the map route, the trip band, each place's own short line and the picked card's full-width line; the strip-map list hangs every result off one spine as a station.\n\nThe direction refuses the category default of a map over a list of identical text cards. It is not a bus app: no route numbers, no bus livery.",
+    "keyCharacteristics": [
+      "A hard-split blue/orange line with an ink-ringed station as the recurring mark.",
+      "Every place drawn as a station roundel in its category's colour, with one drawn icon in a 1.8 stroke.",
+      "Lists as strip maps: one spine down the start edge, stations on it.",
+      "One cool concrete ramp for all neutrals; white surfaces; an always-dark band.",
+      "Signal yellow on the act of going (Waze) and nowhere else.",
+      "Minutes larger than names, in tabular figures."
+    ],
+    "rules": [
+      {
+        "name": "The Hard Split Rule",
+        "body": "Blue meets orange at a hard colour stop, and the station sits on the stop. The line is never a blend; a purple or white middle is a defect.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal Yellow Rule",
+        "body": "Yellow marks the act of going. The search button is ink, the place actions are outlined; only Waze on the picked place is yellow.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Versus Band Rule",
+        "body": "`ink` is a fill that follows the theme; `band` is the strip that stays dark in both. Never swap them: a light band in dark mode loses the bus strip, a dark ink button in dark mode disappears.",
+        "section": "colors"
+      },
+      {
+        "name": "The Line Colour Rule",
+        "body": "Category colours live on roundels, pins and the picked band, always under white. They never colour body text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Minutes First Rule",
+        "body": "On any place, the two times are the largest type in the row, in tabular figures, with the place's own line between them.",
+        "section": "typography"
+      },
+      {
+        "name": "The Three Weights Rule",
+        "body": "400, 500 and 600 only; 600 is for names, headings and minutes.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "Panels never carry shadows. A shadow means the thing floats over the map or the page.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** draw every א-to-ב line with a hard stop between `side-a` and `side-b`, the ink-ringed station sitting on the stop.",
+      "**Do** put a place on screen as a station roundel in its category colour, with its icon in white at the 1.8 stroke.",
+      "**Do** set both travel times larger than the place's name, in tabular figures, with the place's own line between them.",
+      "**Do** hang lists of places off one spine as a strip map, and hold extras (photo, address, actions) until a row is picked.",
+      "**Do** keep `band` dark in both themes and let `ink` invert.",
+      "**Do** derive a picked header from `--cat-band` so white text holds in both themes.",
+      "**Do** make every surface complete in OpenStreetMap mode, without photos or ratings.",
+      "**Do** keep the re-sort slide and every transition behind `prefers-reduced-motion`."
+    ],
+    "donts": [
+      "**Don't** blend blue into orange; a smooth gradient between the two ends is a defect.",
+      "**Don't** use signal yellow on anything but the button that sends people on their way.",
+      "**Don't** use category colours for text, or `side-b` as a text colour on light ground; use `side-b-text`.",
+      "**Don't** give panels shadows; shadows are for things that float.",
+      "**Don't** add route numbers or bus livery; the car and transit mode icons stay, as functional marks.",
+      "**Don't** use glyph or emoji icons; icons are drawn SVG in the shared strokes.",
+      "**Don't** add kickers or eyebrow labels over headings."
+    ]
+  }
+}

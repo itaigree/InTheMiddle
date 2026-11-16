@@ -248,8 +248,16 @@ select {
 }
 
 .brand-line {
-  stroke: var(--line-strong);
   stroke-width: 1.5;
+}
+
+/* The mark's line is the hard split: א's blue to the middle, ב's orange from it. */
+.brand-line-a {
+  stroke: var(--side-a);
+}
+
+.brand-line-b {
+  stroke: var(--side-b);
 }
 
 .brand-a {
@@ -296,10 +304,6 @@ select {
 }
 
 /* On the ink, the mark's line is white and its middle station is ringed. */
-.app-header .brand-line {
-  stroke: rgb(255 255 255 / 70%);
-}
-
 .app-header .brand-mid {
   fill: var(--band);
   stroke: var(--on-band);
@@ -358,7 +362,7 @@ select {
   position: relative;
   height: 4px;
   border-radius: 2px;
-  background: linear-gradient(to left, var(--side-a), rgb(255 255 255 / 85%) 50%, var(--side-b));
+  background: linear-gradient(to left, var(--side-a) 0 50%, var(--side-b) 50% 100%);
 }
 
 .trip-line i {

@@ -28,7 +28,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - [x] Chunk 2 (the selected place's two legs are not drawn: there is no per-place route geometry; the route itself is split blue/orange at the middle instead): map pins as station roundels (Leaflet and Google), selected legs brightest, start-screen line with the search button as the middle station, share text with the line, sliding re-sort motion, brand mark redrawn.
 - [x] Chunk 3a: inspection round, detector (only the old .endpoints padding finding remains), finish review. Verdict: **fix**.
 - [x] Chunk 3b (commit bb5bad0): apply the reviewer's fix batch in one go, rebuild once, recapture the same 9 viewports into .impeccable/review/, then a fresh verdict pass (the first reviewer can't be continued after the container restart: use degraded/finish-reviewer.md's Verdict Pass or spawn a fresh reviewer with the fix list).
-- [ ] Chunk 3c: DESIGN.md and .impeccable/design.json by the impeccable-documenter.
+- [x] Chunk 3c: DESIGN.md and .impeccable/design.json by the impeccable-documenter.
 
 ### Finish review: fix list (round 1)
 
@@ -55,3 +55,9 @@ New regressions from the fix batch:
 - R3: desktop: #result-filters now sits above the "מקומות באמצע" heading, cut off from the list it filters; keep the phone placement, put it back under the heading on desktop.
 
 Remaining work (round 3, the user's call): join the form connector and the search station into one line; tighten Google rows to 7 per phone view; hard stops on the start-screen lines and drop one; sr-only h1; desktop chip placement. Then DESIGN.md by the documenter.
+
+### Round 3 (commits 66c14f3, 33487df) and finish
+
+Round-3 verdict: 5 of 6 resolved (one spine on the start screen, hard stops, sr-only h1, desktop chip placement, dark --ink/--band split); Google-mode rows stayed partial and were fixed after the verdict (33487df): every row 105px in both modes, 7 per 390x784 view (measured, not re-reviewed). Photos and their credits now show only once a place is picked.
+DESIGN.md written from the built world. Two drift points it found (trip line blending through white, the brand mark's neutral line) were fixed to the hard split before commit.
+Still open, recorded in DESIGN.md: on desktop the picked row's times and Waze sit below the fold; the start-screen spine is drawn by three pieces that overlap over the endpoints.
