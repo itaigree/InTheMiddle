@@ -26,4 +26,21 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 - [x] Chunk 1: tokens and category colours, category icons, list as strip map, picked card with header band, full-width yellow Waze, chips with roundels.
 - [x] Chunk 2 (the selected place's two legs are not drawn: there is no per-place route geometry; the route itself is split blue/orange at the middle instead): map pins as station roundels (Leaflet and Google), selected legs brightest, start-screen line with the search button as the middle station, share text with the line, sliding re-sort motion, brand mark redrawn.
-- [ ] Chunk 3: inspection rounds, detector, finish review, DESIGN.md by the documenter.
+- [x] Chunk 3a: inspection round, detector (only the old .endpoints padding finding remains), finish review. Verdict: **fix**.
+- [ ] Chunk 3b: apply the reviewer's fix batch in one go, rebuild once, recapture the same 9 viewports into .impeccable/review/, then a fresh verdict pass (the first reviewer can't be continued after the container restart: use degraded/finish-reviewer.md's Verdict Pass or spawn a fresh reviewer with the fix list).
+- [ ] Chunk 3c: DESIGN.md and .impeccable/design.json by the impeccable-documenter.
+
+### Finish review: fix list (round 1)
+
+Keep: the hard-split blue/orange line with the ink-ringed middle station everywhere; the strip of category roundels on one spine; the picked card's category band; yellow only on Waze; the sliding re-sort.
+
+1. First viewport: once there are results, fold the form into the ink band (the trip line becomes the tap-to-edit control), pin that compact band above the map, result chips with counts right under it, so band, chips, map and picked card share one 390x784 view.
+2. Selected place's legs: draw straight lines, א blue to the place and the place to ב orange, brightest, with the split route dimmed under them.
+3. Middle station hidden under place pins: Leaflet pin-mid needs a zIndexOffset; Google gives it zIndex 1 while places use their number. Put it above all place pins, below the active one.
+4. Picked card line: full card width under the two times; label the ends with the place names instead of א/ב and car icons (keep mode icons only when the sides differ); fairness says the difference and the side ("7 דק׳ יותר לצד ב׳") instead of "מאוזן מאוד".
+5. Start screen: the form itself is the line (full blue/orange connector), the search button reads as the station on it (not a ring glyph); use the empty lower viewport.
+6. List rows: drop the repeated א/ב letters and car icons per row; minutes larger than the name; tighten rows (~138px now) so 7+ stations fit a phone view.
+7. Floor: `.place-meta .rating::after { content: ' ★' }` is a glyph; replace with an authored SVG star in the 1.8 stroke.
+8. Floor: self-host IBM Plex Sans Hebrew under site/vendor (and add it to sw.js); theme ::selection and caret-color.
+
+Logged, not on the list: on desktop the picked card's times and Waze sit below the fold (secondary channel).
