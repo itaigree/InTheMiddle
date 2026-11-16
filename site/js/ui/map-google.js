@@ -1,8 +1,10 @@
 // Map view on Google Maps (used in Google mode – Google's terms require Google
 // place/route content to be shown on a Google map). Same interface as map-leaflet.js.
 
+import { categoryIconMarkup } from './category-icons.js';
+import { splitAtNearest } from '../core/geo.js';
+
 const PIN_SIZE = 30;
-const ACTIVE_PIN_SIZE = 36;
 // Zooming in on a place shows its streets, and what else is around it.
 const PLACE_ZOOM = 15;
 // The overview's frame never shrinks below this (px), however far in the big map is.
@@ -27,6 +29,23 @@ function pinContent(className, text, size = PIN_SIZE) {
   pin.style.cssText = `width:${size}px;height:${size}px;position:absolute;top:0;left:0;`;
   const label = document.createElement('span');
   label.textContent = text;
+  pin.append(label);
+  wrap.append(pin);
+  return wrap;
+}
+
+/** A place: a station in its category's colour, centered on its position, with its number. */
+function stationContent(category, number, active) {
+  const size = active ? 40 : 32;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `width:${size}px;height:${size / 2}px;position:relative;`;
+  const pin = document.createElement('div');
+  pin.className = `pin pin-place${active ? ' is-active' : ''}`;
+  pin.dataset.category = category;
+  pin.style.cssText = `width:${size}px;height:${size}px;position:absolute;top:0;left:0;`;
+  pin.innerHTML = categoryIconMarkup(category);
+  const label = document.createElement('span');
+  label.textContent = String(number);
   pin.append(label);
   wrap.append(pin);
   return wrap;
@@ -108,6 +127,8 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
 
   const info = new InfoWindow({ headerDisabled: true });
   let searchOverlays = [];
+  let routeLines = [];
+  let legs = [];
   let placeMarkers = new Map();
   let activeId = null;
   let search = null;
@@ -119,6 +140,18 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       if ('setMap' in o) o.setMap(null);
       else o.map = null;
     }
+  }
+
+  /** The picked place's legs: straight, from א in its blue and on to ב in its orange; the route dims under them. */
+  function drawLegs(place) {
+    clear(legs);
+    legs = [];
+    for (const line of routeLines) line.setOptions({ strokeOpacity: place ? 0.3 : 0.85 });
+    if (!place || !search) return;
+    const dot = { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2 };
+    const leg = (from, to, name, fallback) =>
+      new Polyline({ map, path: [from, to], strokeColor: cssVar(name, fallback), strokeOpacity: 0, strokeWeight: 4, clickable: false, icons: [{ icon: dot, offset: '0', repeat: '10px' }] });
+    legs = [leg({ lat: search.a.lat, lng: search.a.lng }, place, '--side-a', '#2459ff'), leg(place, { lat: search.b.lat, lng: search.b.lng }, '--side-b', '#ff6512')];
   }
 
   function marker(position, content, { title, zIndex, clickable = false, on = map } = {}) {
@@ -232,7 +265,7 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
   function setPlaceIcon(id, active) {
     const entry = placeMarkers.get(id);
     if (!entry) return;
-    entry.marker.content = pinContent(`pin-place${active ? ' is-active' : ''}`, String(entry.number), active ? ACTIVE_PIN_SIZE : PIN_SIZE);
+    entry.marker.content = stationContent(entry.category, entry.number, active);
     entry.marker.zIndex = active ? 1000 : entry.number;
   }
 
@@ -270,10 +303,16 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       info.close();
       const color = cssVar('--mid', '#161616');
       searchOverlays = [];
+      clear(legs);
+      legs = [];
+      routeLines = [];
       if (route?.length >= 2) {
-        searchOverlays.push(
-          new Polyline({ map, path: route, strokeColor: cssVar('--route', '#161616'), strokeOpacity: 0.45, strokeWeight: 4, clickable: false }),
-        );
+        // The line itself: א's half in its blue, ב's half in its orange, meeting at the middle.
+        routeLines = splitAtNearest(route, a, midpoint).map((path, i) => {
+          const strokeColor = cssVar(i ? '--side-b' : '--side-a', i ? '#ff6512' : '#2459ff');
+          return new Polyline({ map, path, strokeColor, strokeOpacity: 0.85, strokeWeight: 5, clickable: false });
+        });
+        searchOverlays.push(...routeLines);
       }
       searchOverlays.push(
         new Circle({
@@ -287,7 +326,8 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
           fillOpacity: 0.06,
           clickable: false,
         }),
-        marker(midpoint, midContent(), { title: 'נקודת האמצע', zIndex: 1 }),
+        // Places gather around the middle: its station stays above theirs (below only the picked one).
+        marker(midpoint, midContent(), { title: 'נקודת האמצע', zIndex: 900 }),
         marker({ lat: a.lat, lng: a.lng }, pinContent('pin-a', 'א'), { title: a.label, zIndex: 2000 }),
         marker({ lat: b.lat, lng: b.lng }, pinContent('pin-b', 'ב'), { title: b.label, zIndex: 2000 }),
       );
@@ -298,6 +338,7 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
     },
 
     showPlaces(list, { numbering, onSelect }) {
+      drawLegs(null);
       clear([...placeMarkers.values()].map((e) => e.marker));
       placeMarkers = new Map();
       activeId = null;
@@ -306,8 +347,8 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       info.close();
       for (const place of list) {
         const number = numbering.get(place.id);
-        const entry = { number, marker: null };
-        entry.marker = marker({ lat: place.lat, lng: place.lng }, pinContent('pin-place', String(number)), {
+        const entry = { number, category: place.category, marker: null };
+        entry.marker = marker({ lat: place.lat, lng: place.lng }, stationContent(place.category, number, false), {
           title: place.name,
           zIndex: number,
           clickable: true,
@@ -333,6 +374,7 @@ export async function createGoogleMapView(container, { mapId, onError, isCancell
       activeId = placeId;
       miniStale = true;
       const entry = placeId && placeMarkers.get(placeId);
+      drawLegs(entry ? entry.position : null);
       if (!entry) return updateOverview();
       setPlaceIcon(placeId, true);
       if (focus) {

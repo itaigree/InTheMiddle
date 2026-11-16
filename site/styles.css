@@ -1,27 +1,101 @@
 /* מקום באמצע: one quiet surface, hairlines instead of boxes, and only two colors,
    point א's blue and point ב's orange, which meet in the ink of the middle. */
 
+/* IBM Plex Sans Hebrew, self-hosted (SIL Open Font License 1.1, see vendor/plex-hebrew/OFL.txt). */
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-400.woff2') format('woff2');
+  unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-500.woff2') format('woff2');
+  unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-500.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-600.woff2') format('woff2');
+  unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Hebrew';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: light;
-  --bg: #f6f5f2;
+  /* One cool concrete ramp carries every neutral. */
+  --bg: #e9ecee;
   --surface: #ffffff;
-  --surface-2: #efeeea;
-  --text: #161616;
-  --muted: #6b6a66;
-  --faint: #a3a19c;
-  --line: #e5e3de;
-  --line-strong: #d3d1cb;
-  --ink: #161616;
+  --surface-2: #f2f4f5;
+  --text: #11161b;
+  --muted: #545e67;
+  --faint: #6b747d;
+  --line: #d6dbdf;
+  --line-strong: #b8c0c7;
+  /* Ink: the strong fill for buttons and chosen chips (inverted in dark mode).
+     Band: the header strip, dark in both themes. */
+  --ink: #11161b;
   --on-ink: #ffffff;
+  --band: #11161b;
+  --on-band: #ffffff;
   --seg-on: #ffffff;
-  --side-a: #2f5bff;
-  --side-b: #ff5b26;
-  --mid: #161616;
-  --route: #161616;
-  --good: #1f8a4c;
-  --warn: #a8640a;
-  --danger: #d23b2a;
-  --pop: 0 12px 32px rgb(0 0 0 / 9%), 0 1px 3px rgb(0 0 0 / 6%);
+  /* The line's two ends; the -text shades are for the letters on light ground. */
+  --side-a: #2459ff;
+  --side-b: #ff6512;
+  --side-a-text: #1f4fe0;
+  --side-b-text: #c44a00;
+  --mid: #11161b;
+  --route: #11161b;
+  /* Signal yellow: only on buttons that act. */
+  --go: #ffc61a;
+  --on-go: #11161b;
+  /* Each kind of place is a line colour. */
+  --cat-cafe: #8a4b25;
+  --cat-mall: #6d3fd1;
+  --cat-park: #19784a;
+  --cat-nature: #0b6f74;
+  --cat-food: #c0352b;
+  --cat-attraction: #b02a78;
+  --good: #1a7f45;
+  --warn: #9a5b06;
+  --danger: #c8341f;
+  --pop: 0 12px 32px rgb(17 22 27 / 12%), 0 1px 3px rgb(17 22 27 / 8%);
   --radius: 14px;
   --radius-sm: 10px;
   --gap: 20px;
@@ -31,21 +105,31 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #0e0e0f;
-    --surface: #161618;
-    --surface-2: #1f1f22;
-    --text: #f1f0ec;
-    --muted: #9c9a95;
-    --faint: #6a6965;
-    --line: #26262a;
-    --line-strong: #36363b;
-    --ink: #f1f0ec;
-    --on-ink: #0e0e0f;
-    --seg-on: #34343a;
-    --side-a: #7b96ff;
-    --side-b: #ff7f4f;
-    --mid: #f1f0ec;
-    --route: #f1f0ec;
+    --bg: #0d1013;
+    --surface: #161a1e;
+    --surface-2: #1e2328;
+    --text: #eef1f3;
+    --muted: #a3acb4;
+    --faint: #8a939b;
+    --line: #262c32;
+    --line-strong: #3a434c;
+    --ink: #eef1f3;
+    --on-ink: #0d1013;
+    --band: #05080a;
+    --on-band: #eef1f3;
+    --seg-on: #343b42;
+    --side-a: #6f93ff;
+    --side-b: #ff8a4d;
+    --side-a-text: #8eabff;
+    --side-b-text: #ff9a63;
+    --mid: #eef1f3;
+    --route: #eef1f3;
+    --cat-cafe: #c06a38;
+    --cat-mall: #9070f0;
+    --cat-park: #2f9e62;
+    --cat-nature: #1a9aa1;
+    --cat-food: #e0584c;
+    --cat-attraction: #d24e9a;
     --good: #4cc27f;
     --warn: #e5a23b;
     --danger: #ff6b5b;
@@ -53,8 +137,39 @@
   }
 }
 
+/* A place's colour follows its category; the band under a picked place's name is a deeper
+   shade, so white text holds its contrast in both themes. */
+[data-category] {
+  --cat: var(--muted);
+  --cat-band: color-mix(in srgb, var(--cat) 82%, #000);
+}
+
+[data-category='cafe'] { --cat: var(--cat-cafe); }
+[data-category='mall'] { --cat: var(--cat-mall); }
+[data-category='park'] { --cat: var(--cat-park); }
+[data-category='nature'] { --cat: var(--cat-nature); }
+[data-category='food'] { --cat: var(--cat-food); }
+[data-category='attraction'] { --cat: var(--cat-attraction); }
+
+@media (prefers-color-scheme: light) {
+  [data-category] {
+    --cat-band: var(--cat);
+  }
+}
+
 * {
   box-sizing: border-box;
+}
+
+/* The parts the browser draws carry the palette too. */
+::selection {
+  background: color-mix(in srgb, var(--side-a) 28%, transparent);
+  color: var(--text);
+}
+
+input,
+textarea {
+  caret-color: var(--side-a-text);
 }
 
 /* Components below set `display`, which would otherwise override the attribute. */
@@ -133,8 +248,16 @@ select {
 }
 
 .brand-line {
-  stroke: var(--line-strong);
   stroke-width: 1.5;
+}
+
+/* The mark's line is the hard split: א's blue to the middle, ב's orange from it. */
+.brand-line-a {
+  stroke: var(--side-a);
+}
+
+.brand-line-b {
+  stroke: var(--side-b);
 }
 
 .brand-a {
@@ -155,7 +278,15 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 22px 0 2px;
+  margin-inline: -16px;
+  padding: 18px 16px 16px;
+  background: var(--band);
+  color: var(--on-band);
+}
+
+.app-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .app-header h1 {
@@ -167,9 +298,90 @@ select {
 }
 
 .tagline {
-  margin: 0;
-  color: var(--muted);
+  margin: 2px 0 0;
+  color: rgb(255 255 255 / 72%);
   font-size: 0.875rem;
+}
+
+/* On the ink, the mark's line is white and its middle station is ringed. */
+.app-header .brand-mid {
+  fill: var(--band);
+  stroke: var(--on-band);
+  stroke-width: 2.5;
+}
+
+/* The trip: א's place, the line with its middle station, ב's place. */
+.trip {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(40px, 1fr) minmax(0, auto) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.trip:focus-visible {
+  outline: 2px solid var(--on-band);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.trip-edit {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: rgb(255 255 255 / 75%);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trip-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.trip-line {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to left, var(--side-a) 0 50%, var(--side-b) 50% 100%);
+}
+
+.trip-line i {
+  position: absolute;
+  top: 50%;
+  right: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--band);
+  border: 3px solid var(--on-band);
+  transform: translate(50%, -50%);
+}
+
+@media (min-width: 960px) {
+  .app-header {
+    margin: 20px 0 0;
+    border-radius: var(--radius);
+  }
 }
 
 /* Layout */
@@ -374,12 +586,6 @@ body.has-map .map-placeholder {
   gap: 24px;
 }
 
-.group {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
 .categories {
   border: 0;
   margin: 0;
@@ -409,10 +615,11 @@ body.has-map .map-placeholder {
 .endpoints::before {
   content: '';
   position: absolute;
-  inset-inline-start: 23px;
+  inset-inline-start: 22.5px;
   top: 30px;
-  bottom: 30px;
-  border-inline-start: 1.5px dotted var(--line-strong);
+  bottom: -1px;
+  width: 3px;
+  background: linear-gradient(var(--side-a) 0 60px, var(--side-b) 60px 100%);
 }
 
 .endpoint {
@@ -466,11 +673,11 @@ body.has-map .map-placeholder {
 }
 
 .side-a {
-  background: var(--side-a);
+  background: #1f4fe0;
 }
 
 .side-b {
-  background: var(--side-b);
+  background: #c44a00;
 }
 
 .combo {
@@ -653,10 +860,6 @@ body.has-map .map-placeholder {
   outline-offset: 1px;
 }
 
-.priority {
-  padding: 8px;
-}
-
 .segmented {
   display: flex;
 }
@@ -684,7 +887,7 @@ body.has-map .map-placeholder {
 }
 
 .priority-hint {
-  margin: 8px 8px 2px;
+  margin: 8px 2px 0;
   font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--muted);
@@ -708,7 +911,7 @@ body.has-map .map-placeholder {
   pointer-events: none;
 }
 
-.chip span,
+.chip > span,
 .filter-chip {
   display: inline-flex;
   align-items: center;
@@ -725,7 +928,7 @@ body.has-map .map-placeholder {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.chip span:hover,
+.chip > span:hover,
 .filter-chip:hover {
   border-color: var(--muted);
 }
@@ -735,6 +938,22 @@ body.has-map .map-placeholder {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--on-ink);
+}
+
+.chip > span:has(.roundel),
+.filter-chip:has(.roundel) {
+  padding-inline-start: 6px;
+}
+
+.roundel.roundel-sm {
+  width: 24px;
+  height: 24px;
+  box-shadow: none;
+}
+
+.roundel.roundel-sm .cat-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .chip input:focus-visible + span {
@@ -842,6 +1061,97 @@ body.has-map .map-placeholder {
   min-width: 190px;
 }
 
+/* Options: one row that says how the search is set, and opens to change it. */
+
+.options {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.options-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.options-summary::-webkit-details-marker {
+  display: none;
+}
+
+.options-summary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.options-label {
+  flex: none;
+  font-weight: 500;
+}
+
+.options-values {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.options-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.options[open] .options-chevron {
+  transform: rotate(180deg);
+}
+
+/* Each option below the row: a hairline above (a shadow, so a legend can't cut it). */
+.option {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 0;
+  box-shadow: inset 0 1px var(--line);
+}
+
+/* Floated, so the legend sits inside the padding like any heading. */
+.option legend:not(.sr-only) {
+  float: right;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.option legend + * {
+  clear: both;
+}
+
+.option-filters {
+  padding: 0;
+}
+
+.option.when {
+  padding: 8px;
+  padding-inline-start: 16px;
+}
+
 /* Buttons */
 
 .primary-button {
@@ -855,6 +1165,19 @@ body.has-map .map-placeholder {
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: opacity 0.15s, transform 0.1s;
+}
+
+/* While the open options run below the screen, the search stays in reach at its bottom,
+   on a strip of the page that the form fades into. Out of that state the strip is invisible. */
+.submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  margin: -12px -16px;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 12px);
 }
 
 .primary-button:hover {
@@ -1001,7 +1324,12 @@ body.has-map .map-placeholder {
   }
 }
 
+/* The list is a strip map: one line runs down its start edge, and every place is a
+   station on it, in its category's colour. Under its name, each place has its own short
+   א–ב line, with its station pushed toward the side that travels less. */
+
 .place-list {
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1013,50 +1341,91 @@ body.has-map .map-placeholder {
 
 .place-card {
   position: relative;
-  transition: background 0.15s;
 }
 
-.place-card + .place-card {
-  border-top: 1px solid var(--line);
-}
-
-.place-card.is-active {
-  background: var(--surface-2);
-}
-
-.place-card.is-active::before {
+/* The strip's line, station to station: it starts at the first and ends at the last. */
+.place-list > .place-card::before {
   content: '';
   position: absolute;
   inset-block: 0;
-  inset-inline-start: 0;
+  inset-inline-start: 30.5px;
   width: 3px;
-  background: var(--ink);
+  background: var(--line-strong);
+}
+
+.place-list > .place-card:first-child::before {
+  top: 26px;
+}
+
+.place-list > .place-card:last-child::before {
+  bottom: calc(100% - 26px);
+}
+
+.place-list > .place-card:only-child::before {
+  display: none;
 }
 
 .place-main {
+  position: relative;
   display: flex;
+  align-items: flex-start;
   gap: 12px;
   width: 100%;
-  padding: 16px 16px 6px;
+  padding: 10px 16px 0;
   border: 0;
   background: none;
+  color: inherit;
   text-align: start;
   cursor: pointer;
-  align-items: flex-start;
+  transition: background 0.2s;
 }
 
-.place-rank {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
-  border-radius: 50%;
-  background: var(--mid);
-  color: var(--on-ink);
-  font-weight: 600;
-  font-size: 0.6875rem;
+.place-station {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   flex: none;
+  width: 32px;
+}
+
+.roundel {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--cat);
+  box-shadow: 0 0 0 3px var(--surface);
+  flex: none;
+}
+
+.cat-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The station's number: the same as its pin on the map. */
+.place-rank {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.place-rank:empty {
+  display: none;
 }
 
 .place-photo {
@@ -1086,12 +1455,13 @@ body.has-map .map-placeholder {
   gap: 2px;
   min-width: 0;
   flex: 1;
+  padding-top: 2px;
 }
 
 .place-name {
   font-weight: 600;
   font-size: 1rem;
-  line-height: 1.35;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -1106,16 +1476,21 @@ body.has-map .map-placeholder {
 .place-meta > * + *::before {
   content: '·';
   margin-inline: 6px;
-  color: var(--faint);
 }
 
 .place-meta .rating {
   color: var(--text);
 }
 
-.place-meta .rating::after {
-  content: ' ★';
-  font-size: 0.85em;
+.place-meta .rating .star {
+  width: 12px;
+  height: 12px;
+  margin-inline-start: 3px;
+  vertical-align: -1px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
 }
 
 .place-meta .open {
@@ -1130,36 +1505,33 @@ body.has-map .map-placeholder {
   color: var(--text);
 }
 
+/* Both times, large, with the place's own line between them. */
 .place-times {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(48px, 1fr) auto;
   align-items: center;
-  gap: 4px 14px;
-  margin-top: 6px;
-  font-size: 0.875rem;
+  gap: 10px;
+  padding: 6px 16px 0;
+  padding-inline-start: 60px;
 }
 
+/* The minutes are what people compare: set larger than the place's name. */
 .time {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 500;
+  gap: 5px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* In the times, the side is its letter in its color. */
-.time .side-badge {
-  width: auto;
-  height: auto;
-  background: none;
+/* Where each time is from: shown on the picked place, where the line runs full width. */
+.time-from {
+  display: none;
   font-size: 0.8125rem;
-}
-
-.time-a .side-badge {
-  color: var(--side-a);
-}
-
-.time-b .side-badge {
-  color: var(--side-b);
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .time-value {
@@ -1174,10 +1546,33 @@ body.has-map .map-placeholder {
   color: var(--muted);
 }
 
+/* א's blue runs from the start to the station, ב's orange from the station to the end. */
+.place-line {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to left, var(--side-a) 0 var(--split, 50%), var(--side-b) var(--split, 50%) 100%);
+}
+
+.place-line i {
+  position: absolute;
+  top: 50%;
+  right: var(--split, 50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--text);
+  transform: translate(50%, -50%);
+  transition: right 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .fairness {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
+  margin: 6px 0 0;
+  padding-inline: 60px 16px;
   font-size: 0.8125rem;
   color: var(--muted);
 }
@@ -1187,7 +1582,8 @@ body.has-map .map-placeholder {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--muted);
+  flex: none;
 }
 
 .fairness[data-level='great']::before {
@@ -1203,10 +1599,10 @@ body.has-map .map-placeholder {
 }
 
 .photo-credit {
-  margin: 0 16px 6px;
-  padding-inline-start: 34px;
-  font-size: 0.6875rem;
-  color: var(--faint);
+  margin: 4px 0 0;
+  padding-inline: 60px 16px;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .photo-credit a {
@@ -1215,34 +1611,104 @@ body.has-map .map-placeholder {
 
 .place-actions {
   display: flex;
-  gap: 2px;
-  padding-block: 0 12px;
-  padding-inline: 50px 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  padding-inline-start: 60px;
 }
 
 .place-actions .action {
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  font-size: 0.8125rem;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.place-actions .action:first-child {
-  margin-inline-start: -8px;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .place-actions .action:hover {
-  background: var(--surface-2);
-  color: var(--text);
+  border-color: var(--muted);
 }
 
-.place-card.is-active .place-actions .action:hover {
-  background: var(--line);
+.action-long {
+  display: none;
+}
+
+/* The place you picked: its category's colour as a band, and the yellow way out. */
+.place-card.is-active .place-main,
+.picked .place-main {
+  background: var(--cat-band);
+  color: #fff;
+  padding-bottom: 14px;
+}
+
+.place-card.is-active .place-meta,
+.picked .place-meta,
+.place-card.is-active .place-meta .rating,
+.picked .place-meta .rating,
+.place-card.is-active .place-meta .shabbat,
+.picked .place-meta .shabbat {
+  color: rgb(255 255 255 / 88%);
+}
+
+.place-card.is-active .place-meta .open,
+.picked .place-meta .open,
+.place-card.is-active .place-meta .closed,
+.picked .place-meta .closed {
+  color: #fff;
+  font-weight: 600;
+}
+
+.place-card.is-active .roundel,
+.picked .roundel {
+  background: #fff;
+  box-shadow: none;
+}
+
+.place-card.is-active .roundel .cat-icon,
+.picked .roundel .cat-icon {
+  stroke: var(--cat-band);
+}
+
+.place-card.is-active .place-rank,
+.picked .place-rank {
+  background: none;
+  color: #fff;
+}
+
+.place-card.is-active .place-times,
+.picked .place-times {
+  padding-top: 14px;
+}
+
+.place-card.is-active .place-actions .action,
+.picked .place-actions .action {
+  flex: 1;
+  min-height: 44px;
+}
+
+.place-card.is-active .place-actions .waze,
+.picked .place-actions .waze {
+  flex-basis: 100%;
+  min-height: 52px;
+  border-color: var(--go);
+  background: var(--go);
+  color: var(--on-go);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.place-card.is-active .action-long,
+.picked .action-long {
+  display: inline;
 }
 
 .empty-results {
@@ -1345,19 +1811,41 @@ body.has-map .map-placeholder {
   background: var(--side-b);
 }
 
+/* A place on the map: a station in its category's colour, its number on a tag. */
 .pin-place {
-  background: var(--mid);
-  color: var(--on-ink);
-  border-color: var(--bg);
+  position: relative;
+  border-radius: 50%;
+  transform: none;
+  background: var(--cat, var(--mid));
+  border: 2px solid #fff;
+}
+
+.pin-place .cat-icon {
+  width: 58%;
+  height: 58%;
+}
+
+.pin-place > span {
+  position: absolute;
+  bottom: -5px;
+  inset-inline-start: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  border-radius: 9px;
+  border: 1.5px solid #fff;
+  background: var(--band);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  transform: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .pin-place.is-active {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--mid);
-  width: 36px;
-  height: 36px;
-  font-size: 14px;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 3px var(--cat, var(--mid)), 0 4px 12px rgb(0 0 0 / 35%);
 }
 
 .pin-mid {
@@ -1503,3 +1991,200 @@ body.has-map .map-placeholder {
     transition: none !important;
   }
 }
+
+/* In the strip, a row is a station to compare; its ways out appear once it's picked. */
+#place-list > .place-card:not(.is-active) .place-actions {
+  display: none;
+}
+
+
+/* The picked card under the map has no strip line beside it: its rows start at the edge. */
+.picked .place-times,
+.picked .fairness,
+.picked .photo-credit,
+.picked .place-actions {
+  padding-inline-start: 16px;
+}
+
+/* The start screen is one line: it runs down the form's start edge from א (blue), turns
+   orange at ב, and ends in the station beside the search button. The kinds of places and
+   the options hang off it like stops, in a lane aligned with the inputs' text. */
+.search-form {
+  position: relative;
+}
+
+.search-form::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 22.5px;
+  top: 30px;
+  bottom: 28px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(var(--side-a) 0 60px, var(--side-b) 60px 100%);
+}
+
+.search-form > .categories,
+.search-form > .options {
+  margin-inline-start: 48px;
+}
+
+.submit-bar {
+  padding-inline-start: 64px;
+}
+
+/* The bar's own ground hides the spine behind it, so the bar draws its last stretch
+   (::before) and the station on it (::after), ringed in ink, level with the button.
+   Both are centered on the spine: the bar starts 16px before the form, the spine's
+   center is 24px into it. */
+.submit-bar::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 38.5px;
+  top: 0;
+  height: 50%;
+  width: 3px;
+  background: var(--side-b);
+}
+
+.submit-bar::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 31px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 4px solid var(--text);
+  box-sizing: border-box;
+}
+
+/* Under the line, until the first results: what the search does. */
+.how {
+  margin: -8px 0 0;
+  padding-inline-start: 48px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+body.has-results .how {
+  display: none;
+}
+
+/* In the strip a row is a station to compare: name, then the two times on its line. */
+#place-list > .place-card:not(.is-active) .fairness {
+  display: none;
+}
+
+#place-list > .place-card:not(.is-active) {
+  padding-bottom: 12px;
+}
+
+/* The picked place: each time under its place's name, the line the card's full width below. */
+.place-card.is-active .place-times,
+.picked .place-times {
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    'a b'
+    'line line';
+  row-gap: 12px;
+}
+
+.place-card.is-active .time,
+.picked .time {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+
+.place-card.is-active .time-a,
+.picked .time-a {
+  grid-area: a;
+}
+
+.place-card.is-active .time-b,
+.picked .time-b {
+  grid-area: b;
+  align-items: flex-end;
+}
+
+.place-card.is-active .time-from,
+.picked .time-from {
+  display: block;
+}
+
+.place-card.is-active .place-line,
+.picked .place-line {
+  grid-area: line;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.place-card.is-active .place-line i,
+.picked .place-line i {
+  width: 18px;
+  height: 18px;
+  border-width: 4px;
+}
+
+.place-card.is-active .fairness,
+.picked .fairness {
+  margin-top: 10px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Phones, once there are results: the header pins to the top as one compact row (the mark
+   and the trip), and the results start right under it with their chips, then the map. */
+@media (max-width: 959px) {
+  .result-filters {
+    order: 1;
+  }
+
+  body.has-results .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding-block: 12px;
+  }
+
+  /* Out of sight, still the page's heading for screen readers. */
+  body.has-results .app-header h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  body.has-results .trip {
+    margin-top: 0;
+  }
+
+  body.has-results .status,
+  body.has-results .result-filters,
+  body.has-results .map-wrap {
+    scroll-margin-top: 64px;
+  }
+}
+
+/* A row is one station tall in every mode: its photo and the photo's credit show once the
+   place is picked; the meta keeps to one line, without the address (the picked card has it). */
+#place-list > .place-card:not(.is-active) .place-photo,
+#place-list > .place-card:not(.is-active) .photo-credit,
+#place-list > .place-card:not(.is-active) .place-meta .address {
+  display: none;
+}
+
+#place-list > .place-card:not(.is-active) .place-meta {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+}
+

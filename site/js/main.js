@@ -5,12 +5,13 @@ import { encodeState, decodeState } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
 import { pickTop, rerankPlaces } from './core/ranking.js';
-import { formatDistance } from './core/format.js';
+import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
+import { categoryRoundel } from './ui/category-icons.js';
 
 const config = window.APP_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -279,7 +280,26 @@ function priorityChanged() {
   shownLink = searchLink(lastQuery);
   history.replaceState({ search: searchLink(lastQuery, { own: true }) }, '');
   renderSummary($('results-summary'), lastResult);
-  renderList();
+  slideIntoNewOrder($('place-list'), renderList);
+}
+
+/**
+ * Re-render the list, then let each station slide from where it was to its new place
+ * on the line (none of it when the visitor asked for reduced motion).
+ */
+function slideIntoNewOrder(list, render) {
+  const before = new Map([...list.children].map((card) => [card.dataset.placeId, card.getBoundingClientRect().top]));
+  render();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const card of list.children) {
+    const from = before.get(card.dataset.placeId);
+    const shift = from === undefined ? 0 : from - card.getBoundingClientRect().top;
+    if (Math.abs(shift) < 1) continue;
+    card.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }], {
+      duration: 520,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    });
+  }
 }
 
 for (const radio of document.querySelectorAll('input[name="priority"]')) radio.addEventListener('change', priorityChanged);
@@ -299,7 +319,7 @@ function renderCategoryChips(selected) {
       input.value = cat.id;
       input.checked = selected.includes(cat.id);
       const span = document.createElement('span');
-      span.textContent = cat.label;
+      span.append(categoryRoundel(cat.id, 'roundel roundel-sm'), cat.label);
       label.append(input, span);
       return label;
     }),
@@ -475,7 +495,37 @@ function departureValue() {
 function resetDepartureToNow() {
   departureChoice.value = 'now';
   departureInput.hidden = true;
+  updateOptionsSummary();
 }
+
+// ------------------------------------------------------------------ options
+// The options stay folded into one row; the row says how the search is set.
+
+const PRIORITY_LABEL = { equal: 'זמן שווה', balanced: 'מאוזן', gap: 'פער גמיש' };
+
+function departureSummary() {
+  const date = departureChoice.value === 'later' && departureInput.value ? new Date(departureInput.value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'יוצאים עכשיו';
+  const format = (options) => new Intl.DateTimeFormat('he-IL', options).format(date);
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((dayStart(date) - dayStart(new Date())) / 86_400_000);
+  const day =
+    days === 0 ? 'היום' : days === 1 ? 'מחר' : `ב${format({ weekday: 'short' })} ${format({ day: 'numeric', month: 'numeric' })}`;
+  return `יוצאים ${day} ב-${format({ hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function updateOptionsSummary() {
+  const filters = [];
+  if ($('only-green-line').checked) filters.push('בתוך הקו הירוק');
+  if ($('only-shabbat-closed').checked) filters.push('סגור בשבת');
+  const parts = [PRIORITY_LABEL[getPriority()], departureSummary(), ...(filters.length ? filters : ['בלי סינון'])];
+  // Lines break between the parts, never inside one.
+  $('options-values').textContent = parts.map((part) => part.replaceAll(' ', ' ')).join(' · ');
+}
+
+// Typing a time fires `input`; everything else in the form fires `change`.
+$('search-form').addEventListener('change', updateOptionsSummary);
+departureInput.addEventListener('input', updateOptionsSummary);
 
 // ------------------------------------------------------------------- status
 
@@ -853,6 +903,7 @@ function renderList() {
   renderPlaces($('place-list'), $('place-card-template'), places, {
     modeA: lastResult.modeA,
     modeB: lastResult.modeB,
+    labels: tripLabels(),
     numbering,
     photoIds,
     showOpenState: !lastResult.departure,
@@ -862,6 +913,33 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
+/** The two starting points' names, as the search was made (or as typed, before one). */
+function tripLabels() {
+  if (lastQuery) return { a: forLink(lastQuery.a).label, b: forLink(lastQuery.b).label };
+  return { a: sides.a.input.value.trim(), b: sides.b.input.value.trim() };
+}
+
+/** Once there is a trip, the header carries it: א's place, the line with its middle, ב's place. */
+function showTrip(a, b) {
+  $('trip-a').textContent = a;
+  $('trip-b').textContent = b;
+  $('trip').hidden = false;
+  document.querySelector('.tagline').hidden = true;
+  document.body.classList.add('has-results');
+}
+
+// The result chips sit above the map on phones, and under the results heading on wider screens.
+const wideScreen = matchMedia('(min-width: 960px)');
+function placeResultFilters() {
+  if (wideScreen.matches) $('results-summary').after($('result-filters'));
+  else document.querySelector('.status-region').after($('result-filters'));
+}
+wideScreen.addEventListener('change', placeResultFilters);
+placeResultFilters();
+
+// The trip in the header is the way back to the search form.
+$('trip').addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+
 async function showResult(result, provider, { scroll = true, status = true } = {}) {
   lastResult = result;
   shownProvider = provider;
@@ -870,6 +948,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   // result only, however the list is filtered later.
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
+  showTrip(sides.a.input.value, sides.b.input.value);
 
   const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
@@ -891,8 +970,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   document.body.classList.add('has-map');
   if (scroll && window.matchMedia('(max-width: 959px)').matches) {
     // A notice explains the results, so show it first; otherwise go to the map.
-    const target = notices.length ? $('status') : document.querySelector('.map-wrap');
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollIntoPlace(notices.length ? $('status') : resultsTop());
   }
   await drawOnMap(result, provider);
 }
@@ -923,7 +1001,28 @@ function selectPlace(place, { from }) {
   // On phones the map and the list are far apart: the picked place's card comes
   // up under the map, so the map and its links (Waze etc.) are on screen together.
   showPicked(place);
-  if (from === 'list') document.querySelector('.map-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (from === 'list') scrollIntoPlace(resultsTop());
+}
+
+/** Where the results begin on a phone: their category chips, or the map when there are none. */
+function resultsTop() {
+  const filters = $('result-filters');
+  return filters.hidden ? document.querySelector('.map-wrap') : filters;
+}
+
+/**
+ * Scroll `target` to the top of the screen, under the pinned header (phones). A smooth
+ * scroll that starts right after another scroll can end without moving; if it ends
+ * short, go there directly.
+ */
+function scrollIntoPlace(target) {
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+  const landed = () => {
+    if (Math.abs(target.getBoundingClientRect().top - margin) > 24) target.scrollIntoView({ block: 'start' });
+  };
+  window.addEventListener('scrollend', landed, { once: true, signal: AbortSignal.timeout(1500) });
 }
 
 /** A copy of the place's card under the map (phones), or none. */
@@ -943,9 +1042,14 @@ function showPicked(place) {
 }
 
 async function sharePlace(place) {
+  // The proof that it's fair goes with it: how long each side travels.
+  const label = (loc) => forLink(loc).label;
+  const times = lastQuery
+    ? `\n${formatDuration(place.timeA)} מ${label(lastQuery.a)} · ${formatDuration(place.timeB)} מ${label(lastQuery.b)}`
+    : '';
   const outcome = await shareOrCopy({
     title: place.name,
-    text: `נפגשים באמצע? מה דעתך על ${place.name}`,
+    text: `נפגשים באמצע? מה דעתך על ${place.name}${times}`,
     url: googleMapsUrl(place),
   });
   if (outcome === 'copied') toast('הקישור הועתק');
@@ -1039,6 +1143,7 @@ function init() {
     departureInput.hidden = false;
     departureInput.value = state.departure;
   }
+  updateOptionsSummary();
   // A search link was opened: its search runs below, and the address bar goes back
   // to the plain site, so sharing the page from the browser shares the app itself.
   if (linkSearch !== null) history.replaceState({ search: linkSearch }, '', plainAddress());

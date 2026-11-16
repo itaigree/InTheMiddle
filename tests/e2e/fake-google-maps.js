@@ -348,6 +348,10 @@
       this.map = map;
       map?.items.add(this);
     }
+    // As on Google's overlays: change some options in place.
+    setOptions(opts) {
+      Object.assign(this.opts, opts);
+    }
   }
   class Polyline extends Overlay {}
   class Circle extends Overlay {}

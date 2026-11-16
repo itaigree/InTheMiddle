@@ -35,12 +35,19 @@ const SHELL = [
   'js/providers/google.js',
   'js/providers/osm.js',
   'js/ui/autocomplete.js',
+  'js/ui/category-icons.js',
   'js/ui/links.js',
   'js/ui/map-google.js',
   'js/ui/map-leaflet.js',
   'js/ui/results.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-400.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-500.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-600.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-400.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-500.woff2',
+  'vendor/plex-hebrew/ibm-plex-sans-hebrew-latin-600.woff2',
 ];
 
 self.addEventListener('install', (event) => {

@@ -1,6 +1,9 @@
 // Map view on Leaflet + OpenStreetMap tiles, used in the free (OSM) mode.
 // Same interface as map-google.js: showSearch / showPlaces / highlight / destroy.
 
+import { categoryIconMarkup } from './category-icons.js';
+import { splitAtNearest } from '../core/geo.js';
+
 const LEAFLET_JS = new URL('../../vendor/leaflet/leaflet.js', import.meta.url).href;
 const LEAFLET_CSS = new URL('../../vendor/leaflet/leaflet.css', import.meta.url).href;
 
@@ -43,6 +46,13 @@ function pinIcon(L, className, text, size = 30) {
   return L.divIcon({ className: 'pin-icon', html, iconSize: [size, size], iconAnchor: [size / 2, tip], popupAnchor: [0, -tip] });
 }
 
+/** A place: a station in its category's colour, centered on its position, with its number. */
+function stationIcon(L, category, number, active) {
+  const size = active ? 40 : 32;
+  const html = `<div class="pin pin-place${active ? ' is-active' : ''}" data-category="${category}" style="width:${size}px;height:${size}px">${categoryIconMarkup(category)}<span>${number}</span></div>`;
+  return L.divIcon({ className: 'pin-icon', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2] });
+}
+
 /** A round dot centered on its position (the overview's markers). */
 function dotIcon(L, className, size) {
   return L.divIcon({ className: 'pin-icon', html: `<div class="dot ${className}"></div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
@@ -76,7 +86,10 @@ export async function createLeafletMap(container, { overview } = {}) {
   L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
 
   const searchLayer = L.layerGroup().addTo(map);
+  // The picked place's two legs, from א and to ב, over the route.
+  const legsLayer = L.layerGroup().addTo(map);
   const placesLayer = L.layerGroup().addTo(map);
+  let routeLines = [];
   const markers = new Map(); // place id -> {marker, number}
   let activeId = null;
   let search = null;
@@ -84,11 +97,23 @@ export async function createLeafletMap(container, { overview } = {}) {
   let wholeBounds = null; // the two points and the places
   const css = () => getComputedStyle(document.documentElement);
 
+  /** The picked place's legs: straight, from א in its blue and on to ב in its orange; the route dims under them. */
+  function drawLegs(place) {
+    legsLayer.clearLayers();
+    for (const line of routeLines) line.setStyle({ opacity: place ? 0.3 : 0.85 });
+    if (!place || !search) return;
+    const leg = (from, to, name) =>
+      L.polyline([from, to], { color: css().getPropertyValue(name).trim(), weight: 4, opacity: 1, dashArray: '1 9', lineCap: 'round', interactive: false }).addTo(legsLayer);
+    leg([search.a.lat, search.a.lng], place, '--side-a');
+    leg(place, [search.b.lat, search.b.lng], '--side-b');
+  }
+
   function setMarkerIcon(id, active) {
     const entry = markers.get(id);
     if (!entry) return;
-    entry.marker.setIcon(pinIcon(L, `pin-place${active ? ' is-active' : ''}`, entry.number, active ? 36 : 30));
-    entry.marker.setZIndexOffset(active ? 1000 : 0);
+    entry.marker.setIcon(stationIcon(L, entry.category, entry.number, active));
+    // Above the middle station (1000), which is above every other place.
+    entry.marker.setZIndexOffset(active ? 2000 : 0);
   }
 
   function showAll() {
@@ -184,6 +209,8 @@ export async function createLeafletMap(container, { overview } = {}) {
 
     showSearch({ a, b, route, midpoint, radius }) {
       searchLayer.clearLayers();
+      legsLayer.clearLayers();
+      routeLines = [];
       placesLayer.clearLayers();
       markers.clear();
       activeId = null;
@@ -192,8 +219,11 @@ export async function createLeafletMap(container, { overview } = {}) {
       miniStale = true;
       const color = css().getPropertyValue('--mid').trim() || '#161616';
       if (route?.length >= 2) {
-        const routeColor = css().getPropertyValue('--route').trim() || '#161616';
-        L.polyline(route.map((p) => [p.lat, p.lng]), { color: routeColor, weight: 4, opacity: 0.45 }).addTo(searchLayer);
+        // The line itself: א's half in its blue, ב's half in its orange, meeting at the middle.
+        routeLines = splitAtNearest(route, a, midpoint).map((half, i) => {
+          const sideColor = css().getPropertyValue(i ? '--side-b' : '--side-a').trim();
+          return L.polyline(half.map((p) => [p.lat, p.lng]), { color: sideColor, weight: 5, opacity: 0.85 }).addTo(searchLayer);
+        });
       }
       L.circle([midpoint.lat, midpoint.lng], {
         radius,
@@ -208,6 +238,8 @@ export async function createLeafletMap(container, { overview } = {}) {
         icon: L.divIcon({ className: 'pin-icon', html: '<div class="pin pin-mid"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
         title: 'נקודת האמצע',
         keyboard: false,
+        // Places gather around the middle: its station stays on top of theirs.
+        zIndexOffset: 1000,
       }).addTo(searchLayer);
       L.marker([a.lat, a.lng], { icon: pinIcon(L, 'pin-a', 'א'), title: a.label }).addTo(searchLayer);
       L.marker([b.lat, b.lng], { icon: pinIcon(L, 'pin-b', 'ב'), title: b.label }).addTo(searchLayer);
@@ -221,17 +253,18 @@ export async function createLeafletMap(container, { overview } = {}) {
 
     showPlaces(list, { numbering, onSelect }) {
       placesLayer.clearLayers();
+      drawLegs(null);
       markers.clear();
       activeId = null;
       places = list;
       miniStale = true;
       for (const place of list) {
         const number = numbering.get(place.id);
-        const marker = L.marker([place.lat, place.lng], { icon: pinIcon(L, 'pin-place', number), title: place.name, riseOnHover: true });
+        const marker = L.marker([place.lat, place.lng], { icon: stationIcon(L, place.category, number, false), title: place.name, riseOnHover: true });
         marker.bindPopup(`<div class="map-popup" dir="rtl"><strong>${escapeHtml(place.name)}</strong></div>`, { closeButton: false });
         marker.on('click', () => onSelect(place, { from: 'map' }));
         marker.addTo(placesLayer);
-        markers.set(place.id, { marker, number });
+        markers.set(place.id, { marker, number, category: place.category });
       }
       if (search) {
         wholeBounds = L.latLngBounds([search.a.lat, search.a.lng], [search.b.lat, search.b.lng]);
@@ -247,6 +280,7 @@ export async function createLeafletMap(container, { overview } = {}) {
       activeId = placeId;
       miniStale = true;
       const entry = placeId && markers.get(placeId);
+      drawLegs(entry ? entry.marker.getLatLng() : null);
       if (!entry) return updateOverview();
       setMarkerIcon(placeId, true);
       // Zooming in brings the place to the middle, so its bubble needs no panning
