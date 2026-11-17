@@ -17,7 +17,9 @@ export function formatDuration(seconds) {
 /** "850 מ׳", "1.2 ק״מ", "37 ק״מ". */
 export function formatDistance(meters) {
   if (!Number.isFinite(meters) || meters < 0) return '—';
-  if (meters < 1000) return `${Math.round(meters / 10) * 10} מ׳`;
+  // Rounded to 10 m first: 995–999 m is "1 ק״מ", not "1000 מ׳".
+  const tens = Math.round(meters / 10) * 10;
+  if (tens < 1000) return `${tens} מ׳`;
   if (meters < 10000) return `${decimalFmt.format(meters / 1000)} ק״מ`;
   return `${numberFmt.format(Math.round(meters / 1000))} ק״מ`;
 }

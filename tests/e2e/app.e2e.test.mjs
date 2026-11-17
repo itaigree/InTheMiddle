@@ -21,6 +21,13 @@ function loadPlaywright() {
   throw new Error('Playwright not found. Install it with: npm i -D playwright');
 }
 
+// Newer Playwright routes a service worker's own requests through context.route()
+// too, which turns the HTTP cache off for them: every request then carries
+// "Pragma: no-cache", and the test server can no longer tell the worker's precache
+// (cache: 'reload') from a page load. The worker tests need the browser's real
+// requests, so leave the worker's network alone. (Read when the browser launches.)
+process.env.PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK ??= '1';
+
 const { chromium } = loadPlaywright();
 const SHOTS = process.env.E2E_SCREENSHOTS || '';
 const configJs = (key) => `window.APP_CONFIG = ${JSON.stringify({ googleMapsApiKey: key, googleMapId: '' })};`;
@@ -708,6 +715,24 @@ test('"my location" is shared with a neutral label and rounded coordinates', asy
   const params = (await sharedLink(page)).searchParams;
   assert.equal(params.get('a'), 'נקודת יציאה ששותפה');
   assert.equal(params.get('all'), '32.79400,34.99000');
+  // On the user's own screen it is still "my location": the header and the cards.
+  assert.equal(await page.locator('#trip-a').textContent(), 'המיקום שלי');
+  assert.equal(await page.locator('#place-list .place-card .time-a .time-from').first().textContent(), 'מהמיקום שלי');
+  assert.equal(await page.locator('#place-list .time-from', { hasText: 'ששותפה' }).count(), 0);
+  assert.equal(await page.locator('#place-list .fairness', { hasText: 'ששותפה' }).count(), 0);
+  await context.close();
+});
+
+test('swapping the two points clears a "missing" mark, which was about the text that moved', async () => {
+  const { page, context } = await openApp();
+  await page.locator('#input-b').fill('תל אביב');
+  await page.locator('#submit').click();
+  await page.locator('#status[data-kind="error"]').waitFor();
+  assert.equal(await page.locator('#input-a').getAttribute('aria-invalid'), 'true');
+  await page.locator('#swap').click();
+  assert.equal(await page.locator('#input-a').inputValue(), 'תל אביב');
+  assert.equal(await page.locator('#input-a').getAttribute('aria-invalid'), null);
+  assert.equal(await page.locator('#input-b').getAttribute('aria-invalid'), null);
   await context.close();
 });
 
@@ -1103,6 +1128,8 @@ test('phones: a re-run after the Google map broke shows the results on screen ag
   assert.ok((await page.locator('#place-list .place-card').count()) > 0);
   assert.equal(await page.locator('#place-list .rating').count(), 0);
   assert.notEqual(await page.locator('#input-b').getAttribute('aria-invalid'), 'true');
+  // The header names the search on screen, not what is being typed for the next one.
+  assert.match(await page.locator('#trip-b').textContent(), /^תל אביב/);
   const top = await page.locator('#input-b').evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(top >= 0 && top < 800, `field B at ${top}px`);
   await context.close();

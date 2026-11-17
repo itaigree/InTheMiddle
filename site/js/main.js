@@ -453,6 +453,8 @@ $('swap').addEventListener('click', () => {
     invalidateSide(side);
     side.location = from.location;
     side.input.value = from.text;
+    // A "missing" mark was about the text that has just moved away.
+    side.input.removeAttribute('aria-invalid');
     setMode(key, from.mode);
   }
   document.querySelectorAll('.locate').forEach((button) => button.classList.remove('is-busy'));
@@ -913,9 +915,13 @@ function renderList() {
   onMap((map) => map.showPlaces(places, { numbering, onSelect: selectPlace }));
 }
 
-/** The two starting points' names, as the search was made (or as typed, before one). */
+/**
+ * The two starting points' names, as the search on screen was made (or as typed,
+ * before one). On the user's own screen "my location" keeps its name: the neutral
+ * label is for what gets shared (see forLink).
+ */
 function tripLabels() {
-  if (lastQuery) return { a: forLink(lastQuery.a).label, b: forLink(lastQuery.b).label };
+  if (lastQuery) return { a: lastQuery.a.label, b: lastQuery.b.label };
   return { a: sides.a.input.value.trim(), b: sides.b.input.value.trim() };
 }
 
@@ -948,7 +954,9 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   // result only, however the list is filtered later.
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
-  showTrip(sides.a.input.value, sides.b.input.value);
+  // The search's own names, not the fields: a re-run may finish while the user types the next search.
+  const trip = tripLabels();
+  showTrip(trip.a, trip.b);
 
   const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
@@ -1022,7 +1030,10 @@ function scrollIntoPlace(target) {
   const landed = () => {
     if (Math.abs(target.getBoundingClientRect().top - margin) > 24) target.scrollIntoView({ block: 'start' });
   };
-  window.addEventListener('scrollend', landed, { once: true, signal: AbortSignal.timeout(1500) });
+  // Not AbortSignal.timeout(): browsers without it (Safari 15, old WebViews) would
+  // throw here, and the search would end in an error with its results half shown.
+  window.addEventListener('scrollend', landed, { once: true });
+  setTimeout(() => window.removeEventListener('scrollend', landed), 1500);
 }
 
 /** A copy of the place's card under the map (phones), or none. */

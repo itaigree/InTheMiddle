@@ -17,6 +17,8 @@ test('formatDuration in Hebrew', () => {
 
 test('formatDistance in Hebrew', () => {
   assert.equal(formatDistance(847), '850 מ׳');
+  assert.equal(formatDistance(994), '990 מ׳');
+  assert.equal(formatDistance(997), '1 ק״מ'); // not "1000 מ׳"
   assert.equal(formatDistance(1234), '1.2 ק״מ');
   assert.equal(formatDistance(37400), '37 ק״מ');
   assert.equal(formatDistance(undefined), '—');
@@ -63,6 +65,14 @@ test('decodeState drops malformed values', () => {
     priority: 'balanced',
     provider: null,
   });
+});
+
+test('decodeState drops coordinates with an empty part instead of reading it as 0', () => {
+  assert.deepEqual(decodeState('a=x&all=,').a, { label: 'x' });
+  assert.deepEqual(decodeState('a=x&all=32.1,').a, { label: 'x' });
+  assert.deepEqual(decodeState('a=x&all=,34.8').a, { label: 'x' });
+  assert.deepEqual(decodeState('a=x&all=32.1, 34.8').a, { label: 'x', lat: 32.1, lng: 34.8 });
+  assert.deepEqual(decodeState('a=x&all=0,0').a, { label: 'x', lat: 0, lng: 0 });
 });
 
 test('encodeState omits empty parts', () => {
