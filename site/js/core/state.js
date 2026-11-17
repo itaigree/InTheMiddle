@@ -10,7 +10,8 @@ function encodePoint(p) {
 
 function decodePoint(text) {
   if (!text) return null;
-  const parts = text.split(',').map(Number);
+  // Number('') is 0: an empty part ("32.1," or ",") is a broken link, not the equator.
+  const parts = text.split(',').map((part) => (part.trim() ? Number(part) : NaN));
   if (parts.length !== 2 || !parts.every(Number.isFinite)) return null;
   const [lat, lng] = parts;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
