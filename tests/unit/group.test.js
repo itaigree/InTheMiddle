@@ -12,6 +12,7 @@ const TRIANGLE = ringAround(CENTRE, 30000, 3).map((p, i) => ({ label: `נקוד�
 const TLV = { label: 'תל אביב', lat: 32.0853, lng: 34.7818 };
 const RAMAT_GAN = { label: 'רמת גן', lat: 32.0823, lng: 34.8106 };
 const BEER_SHEVA = { label: 'באר שבע', lat: 31.2518, lng: 34.7913 };
+const HAIFA = { label: 'חיפה', lat: 32.794, lng: 34.9896 };
 
 const key = (p) => `${p.lat},${p.lng}`;
 
@@ -153,6 +154,18 @@ test('fairestPoint picks the fairest point everyone can reach', () => {
   assert.equal(fairestPoint([[null], [600]], 1), -1);
 });
 
+test('fairestPoint never picks a point where everyone travels longer', () => {
+  // Point 1 has the smaller gap, but all three trips there are longer than at point 0.
+  const rows = [
+    [72 * 60, 77 * 60],
+    [10 * 60, 41 * 60],
+    [72 * 60, 80 * 60],
+  ];
+  assert.equal(fairestPoint(rows, 2), 0);
+  // The same longest trip: the one where the others travel less wins.
+  assert.equal(fairestPoint([[600, 600], [600, 300]], 2), 1);
+});
+
 // ------------------------------------------------------------- the search
 
 test('people around a point meet at that point, and places carry everyone\'s times', async () => {
@@ -180,6 +193,19 @@ test('a pair close together and one far away meet about halfway, not at the aver
   const toTlv = haversine(result.midpoint, TLV);
   const toBeerSheva = haversine(result.midpoint, BEER_SHEVA);
   assert.ok(Math.abs(toTlv - toBeerSheva) < 0.1 * (toTlv + toBeerSheva), `${toTlv} vs ${toBeerSheva}`);
+});
+
+test('one person between the others: the middle does not move to where everyone travels further', async () => {
+  // Tel Aviv between Haifa and Be'er Sheva: away from the circle's centre, Tel Aviv's
+  // trip grows faster than the others', which a "smaller gap" measure would reward.
+  const points = [HAIFA, TLV, BEER_SHEVA];
+  const result = await findGroupMiddle({ ...baseQuery, points }, fakeProvider());
+  const { center } = enclosingCircle(points);
+  const toMiddle = points.map((p) => haversine(p, result.midpoint));
+  const toCentre = points.map((p) => haversine(p, center));
+  assert.ok(!toMiddle.every((d, i) => d > toCentre[i]), `${toMiddle} vs ${toCentre}`);
+  // The centre was timed too: the longest trip is no longer than there.
+  assert.ok(Math.max(...toMiddle) <= Math.max(...toCentre) + 1, `${Math.max(...toMiddle)} vs ${Math.max(...toCentre)}`);
 });
 
 test('a slower side pulls the middle toward it', async () => {

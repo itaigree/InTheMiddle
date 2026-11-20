@@ -4,9 +4,11 @@
 //
 //   1. Start at the centre of the smallest circle around everyone: the point whose
 //      farthest person is nearest, as the crow flies.
-//   2. Time a ring of points around it from every side, and move to the fairest
-//      one (by the same measure places are ranked by, with the default priority,
-//      so changing the priority later re-sorts without searching again).
+//   2. Time a ring of points around it from every side, and move to the one whose
+//      longest trip is shortest: the same aim by road, and what the summary
+//      reports. It can never pick a point worse for everyone, and it doesn't
+//      depend on the priority, so changing that later re-sorts without searching
+//      again.
 //   3. Try a tighter ring around that point.
 //   4. Search for places around the winner and rank them as for two people, with
 //      the gap between the longest and the shortest trip in place of the
@@ -17,7 +19,7 @@
 
 import { haversine, offsetMeters, metersFrom } from './geo.js';
 import { searchRadii } from './midpoint.js';
-import { rankGroupPlaces, dedupePlaces, travelScore } from './ranking.js';
+import { rankGroupPlaces, dedupePlaces } from './ranking.js';
 import { selectCandidates, MAX_CANDIDATES, MIN_PLACES } from './search.js';
 import { beyondGreenLine } from './green-line.js';
 import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
@@ -72,19 +74,28 @@ export function ringAround(center, radius, count = RING_POINTS, rotation = 0) {
 }
 
 /**
- * Which of the sampled points is fairest for the group: the index of the lowest
- * travelScore (default priority) among the points everyone can reach, or -1.
- * `rows[side][point]` are travel times in seconds.
+ * Which of the sampled points is fairest for the group: among the points everyone
+ * can reach, the index of the one whose longest trip is shortest (on a tie, the
+ * shorter trips on average), or -1. `rows[side][point]` are travel times in seconds.
+ *
+ * The longest trip is what the enclosing circle approximates and what the summary
+ * reports, and a point worse for everyone can never win by it. The measure places
+ * are ranked by rewards a smaller gap, so it could: with one person between the
+ * others, it moved the middle off to the side, where everyone travels further.
+ * The middle doesn't depend on the priority, so changing it still only re-sorts.
  */
 export function fairestPoint(rows, count) {
   let best = -1;
-  let bestScore = Infinity;
+  let bestLongest = Infinity;
+  let bestMean = Infinity;
   for (let j = 0; j < count; j++) {
     const times = rows.map((row) => row[j]);
     if (!times.every(isTime)) continue;
-    const score = travelScore(times);
-    if (score < bestScore) {
-      bestScore = score;
+    const longest = Math.max(...times);
+    const mean = times.reduce((sum, t) => sum + t, 0) / times.length;
+    if (longest < bestLongest || (longest === bestLongest && mean < bestMean)) {
+      bestLongest = longest;
+      bestMean = mean;
       best = j;
     }
   }
