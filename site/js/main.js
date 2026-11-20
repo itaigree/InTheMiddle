@@ -1171,7 +1171,8 @@ function sharedLabels() {
 
 /** "חיפה, תל אביב ובאר שבע" */
 function joinNames(names) {
-  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names.at(-1)}`;
+  // Not names.at(-1): Safari before 15.4 and old WebViews don't have it.
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names[names.length - 1]}`;
 }
 
 async function sharePlace(place) {

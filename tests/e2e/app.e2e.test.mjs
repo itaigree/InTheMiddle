@@ -1619,6 +1619,27 @@ test('more starting points: sharing the search names everyone', async () => {
   await context.close();
 });
 
+test('more starting points: sharing the search works without Array.prototype.at (Safari 15.0–15.3, old WebViews)', async () => {
+  const { page, context, server, errors } = await openApp();
+  await context.addInitScript(() => {
+    delete Array.prototype.at;
+  });
+  await page.goto(server.url + GROUP_LINK);
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await page.locator('#share-search').click();
+  await page.waitForFunction(() => window.copied !== null, null, { timeout: 5000 });
+  assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('Google mode, more starting points: one matrix request per mode and stage, a Google pin for everyone', async () => {
   const { page, context, osmLog, errors } = await openApp({ key: 'TEST_KEY', google: {}, query: GROUP_LINK.replace(/&p3m=transit/, '') });
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
