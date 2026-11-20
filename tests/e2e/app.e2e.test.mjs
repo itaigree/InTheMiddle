@@ -1591,6 +1591,30 @@ test('a failed search while OpenStreetMap results are on screen loads no Google 
   await context.close();
 });
 
+test('back on Google after the free maps: the map boxes keep nothing of Leaflet (no extra tab stop)', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: {}, clock: true });
+  const until = await page.evaluate(() => {
+    const t = Date.now() + 60_000;
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(t).toISOString() }));
+    return t;
+  });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  // A place picked: the corner map is made too.
+  await page.locator('#place-list .place-card').nth(1).locator('.place-main').click();
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  // The block ends; the next search is on Google, in the same two boxes.
+  await jumpPast(page, until);
+  await page.locator('#submit').click();
+  await page.locator('#map .fake-google-map .pin-a').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#map').getAttribute('class'), 'map');
+  assert.equal(await page.locator('#map').getAttribute('tabindex'), null);
+  assert.equal(await page.locator('#overview .overview-map').getAttribute('class'), 'overview-map');
+  await context.close();
+});
+
 test('service worker: a version that goes live while the previous one installs: no copy mixing the two', async () => {
   const { server, context, page } = await swInstall();
   server.setVersion('v2');
