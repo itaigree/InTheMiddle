@@ -358,6 +358,17 @@ select {
   text-overflow: ellipsis;
 }
 
+/* A group's further starting points, after ב: just how many ("+2"). */
+.trip-more {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid rgb(255 255 255 / 35%);
+  border-radius: 9px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
 .trip-line {
   position: relative;
   height: 4px;
@@ -1921,6 +1932,11 @@ body.has-map .map-placeholder {
   background: var(--side-b);
 }
 
+/* A group's further starting points (ג, ד, ה): the dark band colour, in both themes. */
+.pin-extra {
+  background: var(--band);
+}
+
 /* A place on the map: a station in its category's colour, its number on a tag. */
 .pin-place {
   position: relative;
@@ -1975,8 +1991,13 @@ body.has-map .map-placeholder {
 }
 
 .dot-a,
-.dot-b {
+.dot-b,
+.dot-extra {
   border: 1.5px solid #fff;
+}
+
+.dot-extra {
+  background: var(--band);
 }
 
 .dot-a {
@@ -2247,6 +2268,51 @@ body.has-results .how {
   margin-top: 10px;
   color: var(--text);
   font-weight: 500;
+}
+
+/*
+ * A group (three or more starting points) has no א–ב line: each person's time
+ * after their letter, in a row in the list, one under the other with where from
+ * on the picked place.
+ */
+.place-times.is-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.group-time {
+  gap: 6px;
+}
+
+.group-time .side-badge {
+  width: 18px;
+  height: 18px;
+  font-size: 0.625rem;
+}
+
+.place-card.is-active .place-times.is-group,
+.picked .place-times.is-group {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.place-card.is-active .group-time,
+.picked .group-time {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.25rem;
+}
+
+.place-card.is-active .group-time .time-from,
+.picked .group-time .time-from {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
 }
 
 /* Phones, once there are results: the header pins to the top as one compact row (the mark

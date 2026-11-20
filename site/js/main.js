@@ -51,6 +51,8 @@ const NOTICE_TEXT = {
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
   shabbat:
     'נשארו מעט בתי קפה ומסעדות שסגורים בשבת: מוצגים רק מקומות ששעות הפתיחה שלהם ידועות, ולהרבה מקומות אין שעות פתיחה במפות.',
+  'green-line-places-only':
+    'בחיפוש של יותר משתי נקודות יציאה, הסינון משמיט מקומות שמעבר לקו הירוק, אבל לא בודק את הדרכים אליהם: הן עשויות לעבור ביהודה ושומרון.',
   'shabbat-busy':
     'שרת המקומות החינמי עמוס, ובינתיים אין לנו שעות פתיחה, אז אי אפשר לדעת אילו בתי קפה ומסעדות סגורים בשבת. כדאי לנסות שוב בעוד כמה דקות.',
 };
@@ -61,6 +63,13 @@ const PRIORITY_HINT = {
   balanced: 'זמן דומה לשני הצדדים, בלי להאריך את הדרך.',
   gap: 'מותר פער גדול יותר בזמני הנסיעה בין שני הצדדים, בשביל מקום קרוב יותר.',
 };
+/** …with three or more starting points. */
+const GROUP_PRIORITY_HINT = {
+  equal: 'זמן נסיעה כמעט שווה לכולם, גם אם כולם נוסעים יותר.',
+  balanced: 'זמן דומה לכולם, בלי להאריך את הדרך.',
+  gap: 'מותר פער גדול יותר בין זמני הנסיעה, בשביל מקום קרוב יותר.',
+};
+const priorityHint = (priority) => (extraKeys.length ? GROUP_PRIORITY_HINT : PRIORITY_HINT)[priority];
 
 /** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
 const SHABBAT_CATEGORIES = new Set(['cafe', 'food']);
@@ -274,7 +283,7 @@ function getPriority() {
 function setPriority(priority) {
   const radio = document.querySelector(`input[name="priority"][value="${priority}"]`);
   if (radio) radio.checked = true;
-  $('priority-hint').textContent = PRIORITY_HINT[getPriority()];
+  $('priority-hint').textContent = priorityHint(getPriority());
 }
 
 /**
@@ -283,7 +292,7 @@ function setPriority(priority) {
  */
 function priorityChanged() {
   const priority = getPriority();
-  $('priority-hint').textContent = PRIORITY_HINT[priority];
+  $('priority-hint').textContent = priorityHint(priority);
   if (!lastResult || !lastQuery) return;
   lastQuery = { ...lastQuery, priority };
   if (shownRequest) shownRequest = { ...shownRequest, priority };
@@ -505,6 +514,7 @@ function updateExtraPoints() {
   });
   $('extra-endpoints').hidden = !extraKeys.length;
   $('add-point').hidden = sideKeys().length >= MAX_POINTS;
+  $('priority-hint').textContent = priorityHint(getPriority());
 }
 
 $('add-point').addEventListener('click', () => addPoint());
@@ -998,6 +1008,7 @@ function renderList() {
   renderPlaces($('place-list'), $('place-card-template'), places, {
     modeA: lastResult.modeA,
     modeB: lastResult.modeB,
+    modes: lastResult.modes,
     labels: tripLabels(),
     numbering,
     photoIds,
@@ -1014,14 +1025,23 @@ function renderList() {
  * label is for what gets shared (see forLink).
  */
 function tripLabels() {
-  if (lastQuery) return { a: lastQuery.a.label, b: lastQuery.b.label };
-  return { a: sides.a.input.value.trim(), b: sides.b.input.value.trim() };
+  const all = lastQuery
+    ? [lastQuery.a, lastQuery.b, ...(lastQuery.extra || [])].map((p) => p.label)
+    : sideKeys().map((key) => sides[key].input.value.trim());
+  return { a: all[0], b: all[1], all };
 }
 
-/** Once there is a trip, the header carries it: א's place, the line with its middle, ב's place. */
-function showTrip(a, b) {
+/**
+ * Once there is a trip, the header carries it: א's place, the line with its middle,
+ * ב's place, and how many more starting points a group has ("+2").
+ */
+function showTrip({ a, b, all }) {
   $('trip-a').textContent = a;
   $('trip-b').textContent = b;
+  const more = all.length - 2;
+  $('trip-more').hidden = more < 1;
+  $('trip-more-count').textContent = `+${more}`;
+  $('trip-more-text').textContent = more === 1 ? 'ועוד נקודת יציאה אחת' : `ועוד ${more} נקודות יציאה`;
   $('trip').hidden = false;
   document.querySelector('.tagline').hidden = true;
   document.body.classList.add('has-results');
@@ -1048,8 +1068,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
   // The search's own names, not the fields: a re-run may finish while the user types the next search.
-  const trip = tripLabels();
-  showTrip(trip.a, trip.b);
+  showTrip(tripLabels());
 
   const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
@@ -1145,11 +1164,22 @@ function showPicked(place) {
   box.hidden = false;
 }
 
+/** The starting points of the search on screen, as a shared text names them. */
+function sharedLabels() {
+  return [lastQuery.a, lastQuery.b, ...(lastQuery.extra || [])].map((loc) => forLink(loc).label);
+}
+
+/** "חיפה, תל אביב ובאר שבע" */
+function joinNames(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names.at(-1)}`;
+}
+
 async function sharePlace(place) {
   // The proof that it's fair goes with it: how long each side travels.
-  const label = (loc) => forLink(loc).label;
   const times = lastQuery
-    ? `\n${formatDuration(place.timeA)} מ${label(lastQuery.a)} · ${formatDuration(place.timeB)} מ${label(lastQuery.b)}`
+    ? `\n${sharedLabels()
+        .map((name, i) => `${formatDuration(place.times ? place.times[i] : i ? place.timeB : place.timeA)} מ${name}`)
+        .join(' · ')}`
     : '';
   const outcome = await shareOrCopy({
     title: place.name,
@@ -1161,10 +1191,15 @@ async function sharePlace(place) {
 }
 
 $('share-search').addEventListener('click', async () => {
-  const label = (loc) => forLink(loc).label;
+  const names = lastQuery ? sharedLabels() : [];
+  const text = !lastQuery
+    ? 'מקום באמצע'
+    : names.length > 2
+      ? `מקומות באמצע בין ${joinNames(names)}`
+      : `מקומות באמצע הדרך בין ${names[0]} לבין ${names[1]}`;
   const outcome = await shareOrCopy({
     title: 'מקום באמצע',
-    text: lastQuery ? `מקומות באמצע הדרך בין ${label(lastQuery.a)} לבין ${label(lastQuery.b)}` : 'מקום באמצע',
+    text,
     url: shownLink || `${location.origin}${plainAddress()}`,
   });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');

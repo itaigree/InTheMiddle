@@ -1550,3 +1550,86 @@ test('more starting points: a reload brings back the group search, transit choic
   assert.equal(new URL(page.url()).search, '');
   await context.close();
 });
+
+/** Haifa, Tel Aviv and (on public transport) Jerusalem, from a link: a group search. */
+const GROUP_LINK =
+  '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180' +
+  '&p3=%D7%99%D7%A8%D7%95%D7%A9%D7%9C%D7%99%D7%9D&p3ll=31.77840,35.20660&p3m=transit&c=cafe,park';
+
+test('more starting points: the results show everyone\'s time, everyone on the map, and +1 in the header', async () => {
+  const { page, context, errors } = await openApp({ viewport: { width: 390, height: 844 }, query: GROUP_LINK });
+  const cards = page.locator('#place-list .place-card');
+  await cards.first().waitFor({ timeout: 20000 });
+  await page.locator('#map .pin-extra').first().waitFor({ timeout: 20000 });
+  // Each card: three times, after א, ב and ג; no א–ב line.
+  const first = cards.first();
+  assert.deepEqual(await first.locator('.group-time .side-badge').allTextContents(), ['א', 'ב', 'ג']);
+  const times = await first.locator('.group-time .time-value').allTextContents();
+  assert.ok(times.every((t) => /דק׳|שעה|שעתיים|שעות/.test(t)), times.join(' | '));
+  assert.equal(await first.locator('.place-line').count(), 0);
+  // ג came by public transport, the others drove: the modes show.
+  assert.equal(await first.locator('.group-time').nth(2).getAttribute('data-mode'), 'transit');
+  // The summary speaks of the longest trip, and the order of everyone.
+  assert.match(await page.locator('#results-summary').textContent(), /הנסיעה הארוכה ביותר לנקודת האמצע: בערך .+ לכולם\./);
+  // One pin per starting point.
+  assert.equal(await page.locator('#map .pin-a').count(), 1);
+  assert.equal(await page.locator('#map .pin-b').count(), 1);
+  assert.equal(await page.locator('#map .pin-extra').count(), 1);
+  // The header keeps its א–ב trip, with how many more there are.
+  assert.equal(await page.locator('#trip-a').textContent(), 'חיפה');
+  assert.equal(await page.locator('#trip-more-count').textContent(), '+1');
+  assert.equal(await page.locator('#trip-more-text').textContent(), 'ועוד נקודת יציאה אחת');
+
+  // The picked place: everyone's time with where from, the gap, and a leg from everyone.
+  await cards.nth(1).locator('.place-main').click();
+  const picked = page.locator('#picked .place-card');
+  await picked.waitFor();
+  assert.deepEqual(await picked.locator('.time-from').allTextContents(), ['מחיפה', 'מתל אביב', 'מירושלים']);
+  assert.match(await picked.locator('.fairness').textContent(), /^(אותו זמן נסיעה לכולם|פער של .+ בין הנסיעות · הכי ארוכה מ(חיפה|תל אביב|ירושלים))$/);
+  assert.equal(await page.locator('#map path[stroke-dasharray="1 9"]').count(), 3);
+
+  // Sharing the place says everyone's time.
+  await page.evaluate(() => {
+    window.shared = null;
+    Object.defineProperty(navigator, 'share', { value: async (data) => (window.shared = data), configurable: true });
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+  });
+  await picked.locator('.share-place').click();
+  await page.waitForFunction(() => window.shared !== null);
+  const text = await page.evaluate(() => window.shared.text);
+  assert.match(text, /מחיפה · .+ מתל אביב · .+ מירושלים$/);
+  await shot(page, 'group-picked-phone');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('more starting points: sharing the search names everyone', async () => {
+  const { page, context } = await openApp({ query: GROUP_LINK });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await page.locator('#share-search').click();
+  await page.waitForFunction(() => window.copied !== null);
+  assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
+  await context.close();
+});
+
+test('Google mode, more starting points: one matrix request per mode and stage, a Google pin for everyone', async () => {
+  const { page, context, osmLog, errors } = await openApp({ key: 'TEST_KEY', google: {}, query: GROUP_LINK.replace(/&p3m=transit/, '') });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.locator('#map .fake-marker .pin-extra').first().waitFor({ timeout: 20000 });
+  const matrices = (await page.evaluate(() => window.__fakeGoogleCalls)).filter((c) => c.startsWith('matrix:'));
+  // The two rings (7 and 6 points), then the places: everyone in one request each.
+  assert.deepEqual(matrices.slice(0, 2), ['matrix:DRIVING:3x7', 'matrix:DRIVING:3x6']);
+  assert.match(matrices[2], /^matrix:DRIVING:3x\d+$/);
+  assert.equal(matrices.length, 3);
+  assert.equal(osmLog.overpass.length + osmLog.osrmTable.length, 0);
+  assert.deepEqual(await page.locator('#place-list .place-card').first().locator('.group-time .side-badge').allTextContents(), ['א', 'ב', 'ג']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

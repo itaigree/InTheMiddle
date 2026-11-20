@@ -17,6 +17,12 @@ const MIN_FRAME = 16;
 // Room above a place for its pin and name bubble (px).
 const BUBBLE_ROOM = 100;
 
+/** The starting points' letters, and their pins' and dots' colour classes: א, ב, then a group's extra ones. */
+const LETTERS = ['א', 'ב', 'ג', 'ד', 'ה'];
+const sideKind = (i) => (i === 0 ? 'a' : i === 1 ? 'b' : 'extra');
+/** Each starting point's line colour (a group's extra ones in ink). */
+const SIDE_COLOR = { a: '--side-a', b: '--side-b', extra: '--mid' };
+
 let leafletPromise = null;
 
 function loadLeaflet() {
@@ -94,18 +100,23 @@ export async function createLeafletMap(container, { overview } = {}) {
   let activeId = null;
   let search = null;
   let places = [];
-  let wholeBounds = null; // the two points and the places
+  let wholeBounds = null; // the starting points and the places
   const css = () => getComputedStyle(document.documentElement);
 
-  /** The picked place's legs: straight, from א in its blue and on to ב in its orange; the route dims under them. */
+  /**
+   * The picked place's legs: straight, from א in its blue and on to ב in its orange;
+   * the route dims under them. A group: a leg from everyone, each in its colour.
+   */
   function drawLegs(place) {
     legsLayer.clearLayers();
     for (const line of routeLines) line.setStyle({ opacity: place ? 0.3 : 0.85 });
     if (!place || !search) return;
     const leg = (from, to, name) =>
       L.polyline([from, to], { color: css().getPropertyValue(name).trim(), weight: 4, opacity: 1, dashArray: '1 9', lineCap: 'round', interactive: false }).addTo(legsLayer);
-    leg([search.a.lat, search.a.lng], place, '--side-a');
-    leg(place, [search.b.lat, search.b.lng], '--side-b');
+    const [a, b, ...more] = search.points;
+    leg([a.lat, a.lng], place, '--side-a');
+    leg(place, [b.lat, b.lng], '--side-b');
+    more.forEach((p) => leg([p.lat, p.lng], place, SIDE_COLOR.extra));
   }
 
   function setMarkerIcon(id, active) {
@@ -145,8 +156,7 @@ export async function createLeafletMap(container, { overview } = {}) {
     for (const p of places) if (p.id !== activeId) dot(p, 'dot-place', 6);
     const active = places.find((p) => p.id === activeId);
     if (active) dot(active, 'dot-place is-active', 10).setZIndexOffset(1000);
-    dot(search.a, 'dot-a', 10);
-    dot(search.b, 'dot-b', 10);
+    search.points.forEach((p, i) => dot(p, `dot-${sideKind(i)}`, 10));
     frame = L.rectangle(map.getBounds(), { color, weight: 1.5, fillColor: color, fillOpacity: 0.1, interactive: false }).addTo(miniLayer);
     miniStale = false;
   }
@@ -207,20 +217,21 @@ export async function createLeafletMap(container, { overview } = {}) {
   return {
     kind: 'leaflet',
 
-    showSearch({ a, b, route, midpoint, radius }) {
+    /** `points`: a group's starting points, in order (two people: `a` and `b`). */
+    showSearch({ a, b, points = [a, b], route, midpoint, radius }) {
       searchLayer.clearLayers();
       legsLayer.clearLayers();
       routeLines = [];
       placesLayer.clearLayers();
       markers.clear();
       activeId = null;
-      search = { a, b, route, midpoint };
+      search = { points, route, midpoint };
       places = [];
       miniStale = true;
       const color = css().getPropertyValue('--mid').trim() || '#161616';
       if (route?.length >= 2) {
         // The line itself: א's half in its blue, ב's half in its orange, meeting at the middle.
-        routeLines = splitAtNearest(route, a, midpoint).map((half, i) => {
+        routeLines = splitAtNearest(route, points[0], midpoint).map((half, i) => {
           const sideColor = css().getPropertyValue(i ? '--side-b' : '--side-a').trim();
           return L.polyline(half.map((p) => [p.lat, p.lng]), { color: sideColor, weight: 5, opacity: 0.85 }).addTo(searchLayer);
         });
@@ -241,12 +252,10 @@ export async function createLeafletMap(container, { overview } = {}) {
         // Places gather around the middle: its station stays on top of theirs.
         zIndexOffset: 1000,
       }).addTo(searchLayer);
-      L.marker([a.lat, a.lng], { icon: pinIcon(L, 'pin-a', 'א'), title: a.label }).addTo(searchLayer);
-      L.marker([b.lat, b.lng], { icon: pinIcon(L, 'pin-b', 'ב'), title: b.label }).addTo(searchLayer);
-      wholeBounds = L.latLngBounds([
-        [a.lat, a.lng],
-        [b.lat, b.lng],
-      ]);
+      points.forEach((p, i) => {
+        L.marker([p.lat, p.lng], { icon: pinIcon(L, `pin-${sideKind(i)}`, LETTERS[i]), title: p.label }).addTo(searchLayer);
+      });
+      wholeBounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
       map.invalidateSize();
       map.fitBounds(wholeBounds, { padding: [40, 40] });
     },
@@ -267,7 +276,7 @@ export async function createLeafletMap(container, { overview } = {}) {
         markers.set(place.id, { marker, number, category: place.category });
       }
       if (search) {
-        wholeBounds = L.latLngBounds([search.a.lat, search.a.lng], [search.b.lat, search.b.lng]);
+        wholeBounds = L.latLngBounds(search.points.map((p) => [p.lat, p.lng]));
         for (const p of list) wholeBounds.extend([p.lat, p.lng]);
         // Fitting ends with 'moveend', which updates the overview.
         if (list.length) map.fitBounds(wholeBounds, { padding: [40, 40] });
