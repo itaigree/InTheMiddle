@@ -1,6 +1,7 @@
 // Geometry helpers. Points are plain {lat, lng} objects in degrees; distances are meters.
 
 const EARTH_RADIUS_M = 6371008.8;
+const M_PER_DEG_LAT = EARTH_RADIUS_M * (Math.PI / 180);
 const toRad = (deg) => (deg * Math.PI) / 180;
 
 export function haversine(a, b) {
@@ -149,6 +150,25 @@ export function boundsOf(points) {
     east = Math.max(east, p.lng);
   }
   return { south, west, north, east };
+}
+
+/**
+ * The point `east` and `north` meters from `p` (negative: west, south), on a flat
+ * map around `p`: close enough at the scale of a country.
+ */
+export function offsetMeters(p, east, north) {
+  return {
+    lat: p.lat + north / M_PER_DEG_LAT,
+    lng: p.lng + east / (M_PER_DEG_LAT * Math.max(0.01, Math.cos(toRad(p.lat)))),
+  };
+}
+
+/** The other way round: how far `q` is from `p`, as {east, north} meters on the same flat map. */
+export function metersFrom(p, q) {
+  return {
+    east: (q.lng - p.lng) * M_PER_DEG_LAT * Math.max(0.01, Math.cos(toRad(p.lat))),
+    north: (q.lat - p.lat) * M_PER_DEG_LAT,
+  };
 }
 
 /** A bounding box of `radius` meters around `center`. */

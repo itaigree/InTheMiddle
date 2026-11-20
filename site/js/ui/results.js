@@ -25,6 +25,10 @@ function modeIcon(mode) {
 /** Google bills every photo shown, so only the first few places of a search get one. */
 export const MAX_PHOTOS = 3;
 const MODE_TITLE = { car: 'ברכב', transit: 'בתחבורה ציבורית' };
+/** The starting points' letters, in order: א and ב, then a group's extra ones. */
+export const SIDE_LETTERS = ['א', 'ב', 'ג', 'ד', 'ה'];
+/** Each starting point's badge colour: א's blue, ב's orange, ink for the rest. */
+export const sideClass = (i) => (i === 0 ? 'side-a' : i === 1 ? 'side-b' : 'side-extra');
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -58,13 +62,25 @@ const ORDER_TEXT = {
   balanced: 'מסודרים לפי כמה הם מאוזנים וקרובים לשני הצדדים.',
   gap: 'מסודרים בעיקר לפי כמה הם קרובים, גם אם יש פער בין הצדדים.',
 };
+/** …for three or more starting points. */
+const GROUP_ORDER_TEXT = {
+  equal: 'מסודרים קודם לפי כמה זמני הנסיעה שווים לכולם.',
+  balanced: 'מסודרים לפי כמה הם מאוזנים וקרובים לכולם.',
+  gap: 'מסודרים בעיקר לפי כמה הם קרובים, גם אם יש פער בין זמני הנסיעה.',
+};
 
 export function renderSummary(container, result) {
   container.replaceChildren();
   // Only claim an equal time when it was measured on both sides, not guessed.
   const time = result.balance?.reliable ? result.balance.time : null;
   const area = guessAreaName(result.places);
-  if (area || Number.isFinite(time)) {
+  if (result.group) {
+    // A group's middle is where the longest trip is shortest: say how long that is.
+    if (area) container.append('נקודת האמצע נמצאת באזור ', el('strong', null, area), '. ');
+    if (Number.isFinite(time)) {
+      container.append(`הנסיעה הארוכה ביותר ${area ? 'אליה' : 'לנקודת האמצע'}: בערך `, el('strong', null, formatDuration(time)), '. ');
+    }
+  } else if (area || Number.isFinite(time)) {
     container.append('נקודת האמצע נמצאת ');
     if (area) {
       container.append('באזור ', el('strong', null, area));
@@ -74,7 +90,8 @@ export function renderSummary(container, result) {
       container.append('בערך ', el('strong', null, formatDuration(time)), ' נסיעה מכל צד. ');
     }
   }
-  container.append(result.places.length ? `מצאנו ${formatCount(result.places.length)} מקומות, ${ORDER_TEXT[result.priority] || ORDER_TEXT.balanced}` : '');
+  const order = result.group ? GROUP_ORDER_TEXT : ORDER_TEXT;
+  container.append(result.places.length ? `מצאנו ${formatCount(result.places.length)} מקומות, ${order[result.priority] || order.balanced}` : '');
 }
 
 /**
@@ -112,12 +129,46 @@ export function renderFilters(container, places, active, onChange) {
 
 /** How fair a place is, said as the difference itself: "7 דק׳ יותר מתל אביב". */
 function fairnessText(place, labels) {
+  if (place.times) return groupFairnessText(place, labels?.all);
   const level = fairnessLevel(place.timeA, place.timeB);
   if (place.diff < 60) return { level, text: 'אותו זמן נסיעה משני הצדדים' };
   const aLonger = place.timeA > place.timeB;
   const from = aLonger ? labels?.a : labels?.b;
   const longer = from ? `מ${from}` : `לצד ${aLonger ? 'א׳' : 'ב׳'}`;
   return { level, text: `${formatDuration(place.diff)} יותר ${longer}` };
+}
+
+/** For a group: the gap between the longest and the shortest trip, and whose is longest. */
+function groupFairnessText(place, labels = []) {
+  const level = fairnessLevel(place.times);
+  if (place.diff < 60) return { level, text: 'אותו זמן נסיעה לכולם' };
+  const longest = place.times.indexOf(Math.max(...place.times));
+  const from = labels[longest] ? `מ${labels[longest]}` : `מנקודה ${SIDE_LETTERS[longest]}׳`;
+  return { level, text: `פער של ${formatDuration(place.diff)} בין הנסיעות · הכי ארוכה ${from}` };
+}
+
+/**
+ * A group's times, each after its starting point's letter: in a row in the list,
+ * one under the other (with where from) on the picked place.
+ */
+function fillGroupTimes(box, place, { modes = [], labels = [] }) {
+  box.classList.add('is-group');
+  const showModes = new Set(modes).size > 1;
+  box.replaceChildren(
+    ...place.times.map((seconds, i) => {
+      const mode = modes[i] || 'car';
+      const time = el('span', 'time group-time');
+      time.dataset.mode = mode;
+      const badge = el('span', `side-badge ${sideClass(i)}`, SIDE_LETTERS[i]);
+      badge.setAttribute('aria-hidden', 'true');
+      const from = el('span', 'time-from', labels[i] ? `מ${labels[i]}` : '');
+      from.setAttribute('aria-hidden', 'true');
+      const value = el('span', 'time-value');
+      value.append(...(showModes ? [modeIcon(mode)] : []), formatDuration(seconds));
+      time.append(badge, el('span', 'time-who sr-only', `מנקודה ${SIDE_LETTERS[i]}׳ ${MODE_TITLE[mode]}: `), from, value);
+      return time;
+    }),
+  );
 }
 
 /** A drawn star for ratings, in the icons' stroke. */
@@ -137,11 +188,13 @@ function openText(place) {
 }
 
 /**
- * Render place cards. `places` are ranked results (with timeA/timeB);
- * `numbering` maps place id → the number shown on its map marker; `photoIds`
- * are the places allowed to show a photo (default: the first MAX_PHOTOS).
+ * Render place cards. `places` are ranked results (with timeA/timeB, or a
+ * group's `times`); `numbering` maps place id → the number shown on its map
+ * marker; `photoIds` are the places allowed to show a photo (default: the
+ * first MAX_PHOTOS). For a group, `modes` and `labels.all` list every
+ * starting point's mode and name, in order.
  */
-export function renderPlaces(list, template, places, { modeA, modeB, labels, numbering, photoIds, showOpenState, onSelect, onShare }) {
+export function renderPlaces(list, template, places, { modeA, modeB, modes, labels, numbering, photoIds, showOpenState, onSelect, onShare }) {
   list.replaceChildren();
   if (!places.length) {
     list.append(el('li', 'empty-results', 'לא מצאנו מקומות מתאימים, גם אחרי שהרחבנו את החיפוש סביב האמצע. אפשר לבחור עוד סוגי מקומות, או לכבות סינון אם הוא פעיל.'));
@@ -197,11 +250,16 @@ export function renderPlaces(list, template, places, { modeA, modeB, labels, num
       box.querySelector('.time-from').textContent = from ? `מ${from}` : '';
       box.querySelector('.time-value').replaceChildren(...(showModes ? [modeIcon(mode)] : []), formatDuration(seconds));
     };
-    fillTime('.time-a', 'א׳', labels?.a, modeA, place.timeA);
-    fillTime('.time-b', 'ב׳', labels?.b, modeB, place.timeB);
-    // The station sits on the place's own א–ב line where the trip splits: nearer the side that travels less.
-    const total = place.timeA + place.timeB;
-    node.querySelector('.place-line').style.setProperty('--split', `${total > 0 ? (place.timeA / total) * 100 : 50}%`);
+    if (place.times) {
+      // Three or more starting points: no א–ב line, everyone's time after their letter.
+      fillGroupTimes(node.querySelector('.place-times'), place, { modes, labels: labels?.all });
+    } else {
+      fillTime('.time-a', 'א׳', labels?.a, modeA, place.timeA);
+      fillTime('.time-b', 'ב׳', labels?.b, modeB, place.timeB);
+      // The station sits on the place's own א–ב line where the trip splits: nearer the side that travels less.
+      const total = place.timeA + place.timeB;
+      node.querySelector('.place-line').style.setProperty('--split', `${total > 0 ? (place.timeA / total) * 100 : 50}%`);
+    }
     const fairness = fairnessText(place, labels);
     const fairEl = node.querySelector('.fairness');
     fairEl.dataset.level = fairness.level;

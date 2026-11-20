@@ -4,6 +4,7 @@ import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY_IDS } from './core/categorie
 import { encodeState, decodeState } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
+import { findGroupMiddle, MAX_POINTS } from './core/group.js';
 import { pickTop, rerankPlaces } from './core/ranking.js';
 import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
@@ -30,6 +31,10 @@ const PROGRESS_TEXT = {
   wider: 'באמצע עצמו יש מעט מקומות, אז מחפשים קצת יותר רחוק…',
   times: 'בודקים כמה זמן לוקח להגיע לכל מקום…',
 };
+/** …where a search for three or more starting points says something else. */
+const GROUP_PROGRESS_TEXT = {
+  balance: 'מחפשים את האזור שבו זמני הנסיעה הכי הוגנים לכולם…',
+};
 
 const NOTICE_TEXT = {
   'transit-unsupported':
@@ -46,6 +51,8 @@ const NOTICE_TEXT = {
   'green-line': 'נקודת האמצע קרובה לקו הירוק, ואחרי סינון המקומות שמעבר לו נשארו מעט מקומות.',
   shabbat:
     'נשארו מעט בתי קפה ומסעדות שסגורים בשבת: מוצגים רק מקומות ששעות הפתיחה שלהם ידועות, ולהרבה מקומות אין שעות פתיחה במפות.',
+  'green-line-places-only':
+    'בחיפוש של יותר משתי נקודות יציאה, הסינון משמיט מקומות שמעבר לקו הירוק, אבל לא בודק את הדרכים אליהם: הן עשויות לעבור ביהודה ושומרון.',
   'shabbat-busy':
     'שרת המקומות החינמי עמוס, ובינתיים אין לנו שעות פתיחה, אז אי אפשר לדעת אילו בתי קפה ומסעדות סגורים בשבת. כדאי לנסות שוב בעוד כמה דקות.',
 };
@@ -56,6 +63,13 @@ const PRIORITY_HINT = {
   balanced: 'זמן דומה לשני הצדדים, בלי להאריך את הדרך.',
   gap: 'מותר פער גדול יותר בזמני הנסיעה בין שני הצדדים, בשביל מקום קרוב יותר.',
 };
+/** …with three or more starting points. */
+const GROUP_PRIORITY_HINT = {
+  equal: 'זמן נסיעה כמעט שווה לכולם, גם אם כולם נוסעים יותר.',
+  balanced: 'זמן דומה לכולם, בלי להאריך את הדרך.',
+  gap: 'מותר פער גדול יותר בין זמני הנסיעה, בשביל מקום קרוב יותר.',
+};
+const priorityHint = (priority) => (extraKeys.length ? GROUP_PRIORITY_HINT : PRIORITY_HINT)[priority];
 
 /** The kinds of places "closed on Shabbat" applies to (a park or a beach isn't a kashrut question). */
 const SHABBAT_CATEGORIES = new Set(['cafe', 'food']);
@@ -241,10 +255,17 @@ function updateProviderNote(provider) {
 
 // --------------------------------------------------------------------- form
 
-const sides = {
-  a: { input: $('input-a'), list: $('list-a'), location: null, ac: null, pending: null, selection: null, geo: null },
-  b: { input: $('input-b'), list: $('list-b'), location: null, ac: null, pending: null, selection: null, geo: null },
-};
+/** The letters the starting points go by, in order: א and ב (the app), then the extra ones. */
+const SIDE_LETTERS = ['א', 'ב', 'ג', 'ד', 'ה'];
+
+const newSide = (key) => ({ input: $(`input-${key}`), list: $(`list-${key}`), location: null, ac: null, pending: null, selection: null, geo: null });
+const sides = { a: newSide('a'), b: newSide('b') };
+/** The extra starting points' keys, in the order they're shown (each gets a new key: x1, x2…). */
+let extraKeys = [];
+let extraCount = 0;
+/** Every starting point's key, in order. */
+const sideKeys = () => ['a', 'b', ...extraKeys];
+const locateButton = (key) => document.querySelector(`.locate[data-side="${key}"]`);
 
 function getMode(key) {
   return document.querySelector(`input[name="mode-${key}"]:checked`)?.value || 'car';
@@ -262,7 +283,7 @@ function getPriority() {
 function setPriority(priority) {
   const radio = document.querySelector(`input[name="priority"][value="${priority}"]`);
   if (radio) radio.checked = true;
-  $('priority-hint').textContent = PRIORITY_HINT[getPriority()];
+  $('priority-hint').textContent = priorityHint(getPriority());
 }
 
 /**
@@ -271,7 +292,7 @@ function setPriority(priority) {
  */
 function priorityChanged() {
   const priority = getPriority();
-  $('priority-hint').textContent = PRIORITY_HINT[priority];
+  $('priority-hint').textContent = priorityHint(priority);
   if (!lastResult || !lastQuery) return;
   lastQuery = { ...lastQuery, priority };
   if (shownRequest) shownRequest = { ...shownRequest, priority };
@@ -340,7 +361,8 @@ function setSideLocation(key, location) {
   side.input.removeAttribute('aria-invalid');
 }
 
-for (const key of ['a', 'b']) {
+/** Autocomplete, "my location" and the rest for the starting point `key`. */
+function setupSide(key) {
   const side = sides[key];
   side.ac = attachAutocomplete(side.input, side.list, {
     fetchSuggestions: (query, signal) => withProvider((p) => p.suggest(query, { signal })),
@@ -375,7 +397,13 @@ for (const key of ['a', 'b']) {
   });
   // Start loading the provider's SDK as soon as the user shows intent.
   side.input.addEventListener('focus', () => getProvider().catch(() => {}), { once: true });
+  const button = locateButton(key);
+  button.addEventListener('click', () => locate(key, button));
+  // Typing cancels the side's location request (see onEdit): clear its spinner.
+  side.input.addEventListener('input', () => button.classList.remove('is-busy'));
 }
+
+for (const key of ['a', 'b']) setupSide(key);
 
 // "Next" on a phone keyboard (or Enter) in field A moves on to field B instead of
 // submitting a half-filled form. Registered after the combobox, which handles
@@ -388,57 +416,108 @@ sides.a.input.addEventListener('keydown', (e) => {
   }
 });
 
-document.querySelectorAll('.locate').forEach((button) => {
-  button.addEventListener('click', () => {
-    const key = button.dataset.side;
-    const side = sides[key];
-    if (!navigator.geolocation) {
-      showStatus('error', 'הדפדפן הזה לא תומך באיתור מיקום.');
-      return;
-    }
-    // The latest request wins; typing, picking or swapping cancels it.
-    const token = {};
-    side.geo = token;
-    button.classList.add('is-busy');
-    // A permission prompt left unanswered never calls back, so stop the spinner eventually.
-    const watchdog = setTimeout(() => {
-      if (side.geo === token) button.classList.remove('is-busy');
-    }, GEOLOCATION_WATCHDOG_MS);
-    const done = () => {
-      clearTimeout(watchdog);
-      if (side.geo !== token) return false;
-      side.geo = null;
-      button.classList.remove('is-busy');
-      return true;
-    };
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (!done()) return;
-        side.ac.cancel();
-        side.selection = null;
-        side.pending = null;
-        setSideLocation(key, {
-          label: MY_LOCATION_LABEL,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          source: 'device',
-        });
-        hideStatus();
-      },
-      () => {
-        if (!done()) return;
-        showStatus('error', 'לא הצלחנו לקבל את המיקום שלך. אפשר לבדוק שהרשאת המיקום מופעלת, או פשוט להקליד כתובת.');
-      },
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 },
-    );
-  });
-});
+/** Use the device's position for the starting point `key`. */
+function locate(key, button) {
+  const side = sides[key];
+  if (!navigator.geolocation) {
+    showStatus('error', 'הדפדפן הזה לא תומך באיתור מיקום.');
+    return;
+  }
+  // The latest request wins; typing, picking or swapping cancels it.
+  const token = {};
+  side.geo = token;
+  button.classList.add('is-busy');
+  // A permission prompt left unanswered never calls back, so stop the spinner eventually.
+  const watchdog = setTimeout(() => {
+    if (side.geo === token) button.classList.remove('is-busy');
+  }, GEOLOCATION_WATCHDOG_MS);
+  const done = () => {
+    clearTimeout(watchdog);
+    if (side.geo !== token) return false;
+    side.geo = null;
+    button.classList.remove('is-busy');
+    return true;
+  };
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      if (!done()) return;
+      side.ac.cancel();
+      side.selection = null;
+      side.pending = null;
+      setSideLocation(key, {
+        label: MY_LOCATION_LABEL,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        source: 'device',
+      });
+      hideStatus();
+    },
+    () => {
+      if (!done()) return;
+      showStatus('error', 'לא הצלחנו לקבל את המיקום שלך. אפשר לבדוק שהרשאת המיקום מופעלת, או פשוט להקליד כתובת.');
+    },
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 },
+  );
+}
 
-document.querySelectorAll('.locate').forEach((button) => {
-  // Clear the spinner when its side's request is invalidated.
-  const side = sides[button.dataset.side];
-  side.input.addEventListener('input', () => button.classList.remove('is-busy'));
-});
+/**
+ * One more starting point, under א and ב, up to MAX_POINTS in all. Returns its
+ * key, or null when there are as many as a search takes.
+ */
+function addPoint({ focus = true } = {}) {
+  if (sideKeys().length >= MAX_POINTS) return null;
+  const key = `x${++extraCount}`;
+  const row = $('extra-point-template').content.firstElementChild.cloneNode(true);
+  row.dataset.side = key;
+  const input = row.querySelector('input');
+  const list = row.querySelector('.suggestions');
+  input.id = `input-${key}`;
+  input.name = key;
+  list.id = `list-${key}`;
+  input.setAttribute('aria-controls', list.id);
+  row.querySelector('.endpoint-label').htmlFor = input.id;
+  row.querySelector('.locate').dataset.side = key;
+  for (const radio of row.querySelectorAll('.mode-toggle input')) radio.name = `mode-${key}`;
+  row.querySelector('.remove-point').addEventListener('click', () => removePoint(key));
+  $('extra-endpoints').append(row);
+  extraKeys.push(key);
+  sides[key] = newSide(key);
+  setupSide(key);
+  updateExtraPoints();
+  if (focus) input.focus();
+  return key;
+}
+
+function removePoint(key) {
+  const side = sides[key];
+  if (!side) return;
+  side.ac.cancel();
+  // Anything still resolving for it (a suggestion, a location) is dropped.
+  invalidateSide(side);
+  document.querySelector(`.endpoint[data-side="${key}"]`).remove();
+  delete sides[key];
+  extraKeys = extraKeys.filter((k) => k !== key);
+  updateExtraPoints();
+  $('add-point').focus();
+}
+
+/** Letters by position (removing ג makes ד the new ג), and the add button while there's room. */
+function updateExtraPoints() {
+  extraKeys.forEach((key, i) => {
+    const row = document.querySelector(`.endpoint[data-side="${key}"]`);
+    const letter = SIDE_LETTERS[i + 2];
+    row.querySelector('.side-badge').textContent = letter;
+    row.querySelector('.endpoint-label .sr-only').textContent = `נקודת יציאה ${letter}׳`;
+    row.querySelector('.suggestions').setAttribute('aria-label', `הצעות לנקודה ${letter}׳`);
+    row.querySelector('.mode-toggle').setAttribute('aria-label', `איך מגיעים מנקודה ${letter}׳`);
+    row.querySelector('.remove-point').setAttribute('aria-label', `הסרת נקודה ${letter}׳`);
+  });
+  $('extra-endpoints').hidden = !extraKeys.length;
+  $('add-point').hidden = sideKeys().length >= MAX_POINTS;
+  $('priority-hint').textContent = priorityHint(getPriority());
+}
+
+$('add-point').addEventListener('click', () => addPoint());
 
 $('swap').addEventListener('click', () => {
   const snapshot = (key) => ({ location: sides[key].location, text: sides[key].input.value, mode: getMode(key) });
@@ -457,7 +536,7 @@ $('swap').addEventListener('click', () => {
     side.input.removeAttribute('aria-invalid');
     setMode(key, from.mode);
   }
-  document.querySelectorAll('.locate').forEach((button) => button.classList.remove('is-busy'));
+  for (const key of ['a', 'b']) locateButton(key).classList.remove('is-busy');
 });
 
 const departureChoice = $('departure-choice');
@@ -603,6 +682,8 @@ function readForm() {
     greenLine: $('only-green-line').checked,
     shabbat: $('only-shabbat-closed').checked,
     priority: getPriority(),
+    // More starting points, after א and ב (key: their field, for remembering coordinates).
+    extra: extraKeys.map((key) => ({ key, ...endpoint(key), mode: getMode(key) })),
   };
 }
 
@@ -622,15 +703,12 @@ async function resolveEndpoint(endpoint, provider) {
 
 function validateForm() {
   const problems = [];
-  for (const [key, name] of [
-    ['a', 'א׳'],
-    ['b', 'ב׳'],
-  ]) {
-    if (!sides[key].input.value.trim()) {
-      sides[key].input.setAttribute('aria-invalid', 'true');
-      problems.push(`חסרה נקודת יציאה ${name}.`);
-    }
-  }
+  sideKeys().forEach((key, i) => {
+    if (sides[key].input.value.trim()) return;
+    sides[key].input.setAttribute('aria-invalid', 'true');
+    // An extra point can just as well go.
+    problems.push(`חסרה נקודת יציאה ${SIDE_LETTERS[i]}׳${i >= 2 ? ' (או שאפשר להסיר אותה)' : ''}.`);
+  });
   if (!selectedCategories().length) problems.push('צריך לבחור לפחות סוג מקום אחד.');
   return problems;
 }
@@ -662,7 +740,7 @@ async function runSearch({ request = null, redo = false, background = false } = 
     setBusy(true);
     showStatus('progress', PROGRESS_TEXT.geocode);
     // A suggestion picked a moment ago may still be resolving: use it, don't re-geocode.
-    await Promise.all([sides.a.pending, sides.b.pending]);
+    await Promise.all(sideKeys().map((key) => sides[key].pending));
     if (seq !== searchSeq) return;
     request = readForm();
     if (request.departurePast) resetDepartureToNow();
@@ -672,31 +750,37 @@ async function runSearch({ request = null, redo = false, background = false } = 
   const quiet = () => background && showingError();
   if (!quiet()) showStatus('progress', PROGRESS_TEXT.geocode);
   const progress = (step) => {
-    if (seq === searchSeq && PROGRESS_TEXT[step] && !quiet()) showStatus('progress', PROGRESS_TEXT[step]);
+    const text = (request.extra?.length && GROUP_PROGRESS_TEXT[step]) || PROGRESS_TEXT[step];
+    if (seq === searchSeq && text && !quiet()) showStatus('progress', text);
   };
 
   try {
     const result = await withProvider(async (provider) => {
       const greenLineAreas = request.greenLine ? loadGreenLine().catch(greenLineFailed) : null;
       greenLineAreas?.catch(() => {});
-      const [a, b] = await Promise.all([resolveEndpoint(request.a, provider), resolveEndpoint(request.b, provider)]);
+      const endpoints = [
+        ['a', request.a],
+        ['b', request.b],
+        ...(request.extra || []).map((point) => [point.key, point]),
+      ];
+      const found = await Promise.all(endpoints.map(([, endpoint]) => resolveEndpoint(endpoint, provider)));
       if (seq !== searchSeq) return null;
       const missing = [];
-      for (const [key, loc] of [
-        ['a', a],
-        ['b', b],
-      ]) {
-        if (!loc) missing.push([key, request[key].text]);
+      endpoints.forEach(([key, endpoint], i) => {
+        const loc = found[i];
+        // (A re-run may outlive an extra point's field: the user removed it.)
+        const side = sides[key];
+        if (!loc) missing.push([key, endpoint.text]);
         // Remember the coordinates while the field still says the same thing, and the
         // user hasn't given it other coordinates since (e.g. "my location" again).
-        else if (sides[key].input.value.trim() === request[key].text && sides[key].location === request[key].location) {
-          sides[key].location = loc;
+        else if (side && side.input.value.trim() === endpoint.text && side.location === endpoint.location) {
+          side.location = loc;
         }
-      }
+      });
       if (missing.length) {
         for (const [key, text] of missing) {
           // Not when the field says something else by now (e.g. a re-run while typing).
-          if (sides[key].input.value.trim() === text) sides[key].input.setAttribute('aria-invalid', 'true');
+          if (sides[key]?.input.value.trim() === text) sides[key].input.setAttribute('aria-invalid', 'true');
         }
         const err = new Error('not found');
         err.userMessage = `לא הצלחנו למצוא את ${missing.map(([, t]) => `„${t}”`).join(' ואת ')}. אפשר לנסות לכתוב אחרת או לבחור מהרשימה שנפתחת בזמן ההקלדה.`;
@@ -707,9 +791,11 @@ async function runSearch({ request = null, redo = false, background = false } = 
       // places are found: a search that stops there leaves the map on screen as it is.)
       const mapReady = provider.id === 'google' ? ensureMap(provider) : null;
       mapReady?.catch(() => {});
+      const [a, b, ...more] = found;
       const query = {
         a,
         b,
+        extra: more.map((loc, i) => ({ ...loc, mode: request.extra[i].mode })),
         modeA: request.modeA,
         modeB: request.modeB,
         categories: request.categories,
@@ -736,7 +822,10 @@ async function runSearch({ request = null, redo = false, background = false } = 
           return true;
         };
       }
-      const res = await findMiddle(query, provider, { onProgress: progress });
+      // Two starting points meet along the road between them; more, in the area they surround.
+      const res = query.extra.length
+        ? await findGroupMiddle(groupQuery(query), provider, { onProgress: progress })
+        : await findMiddle(query, provider, { onProgress: progress });
       // Google results need a Google map; if it can't load, redo the search on OSM.
       if (mapReady) await mapReady;
       return { res, provider, query, dropped };
@@ -771,7 +860,7 @@ async function runSearch({ request = null, redo = false, background = false } = 
     // A reload (or coming back to this page) shows this search again; the address bar stays as it is.
     history.replaceState({ search: searchLink(result.query, { own: true }) }, '');
     // A re-run doesn't scroll away from a field the user is typing in, or to an error it leaves on screen.
-    const typing = [sides.a.input, sides.b.input].includes(document.activeElement);
+    const typing = sideKeys().some((key) => sides[key].input === document.activeElement);
     await showResult(result.res, result.provider, { scroll: !(background && (typing || quiet())), status: !quiet() });
   } catch (err) {
     if (seq !== searchSeq) return;
@@ -786,6 +875,19 @@ async function runSearch({ request = null, redo = false, background = false } = 
       else if (shownNeedsRedo) redoShownSearch();
     }
   }
+}
+
+/** The search for three or more starting points (core/group.js), from the form's query. */
+function groupQuery(query) {
+  return {
+    points: [query.a, query.b, ...query.extra],
+    modes: [query.modeA, query.modeB, ...query.extra.map((p) => p.mode)],
+    categories: query.categories,
+    departure: query.departure,
+    priority: query.priority,
+    avoidAreas: query.avoidAreas,
+    placeFilter: query.placeFilter,
+  };
 }
 
 function greenLineFailed(err) {
@@ -820,6 +922,7 @@ function searchLink(query, { own = false } = {}) {
     shabbat: query.shabbat,
     priority: query.priority,
     provider: forcedProvider,
+    extra: (query.extra || []).map((p) => ({ ...forLink(p, { own }), mode: p.mode })),
   });
   return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
@@ -905,6 +1008,7 @@ function renderList() {
   renderPlaces($('place-list'), $('place-card-template'), places, {
     modeA: lastResult.modeA,
     modeB: lastResult.modeB,
+    modes: lastResult.modes,
     labels: tripLabels(),
     numbering,
     photoIds,
@@ -921,14 +1025,23 @@ function renderList() {
  * label is for what gets shared (see forLink).
  */
 function tripLabels() {
-  if (lastQuery) return { a: lastQuery.a.label, b: lastQuery.b.label };
-  return { a: sides.a.input.value.trim(), b: sides.b.input.value.trim() };
+  const all = lastQuery
+    ? [lastQuery.a, lastQuery.b, ...(lastQuery.extra || [])].map((p) => p.label)
+    : sideKeys().map((key) => sides[key].input.value.trim());
+  return { a: all[0], b: all[1], all };
 }
 
-/** Once there is a trip, the header carries it: א's place, the line with its middle, ב's place. */
-function showTrip(a, b) {
+/**
+ * Once there is a trip, the header carries it: א's place, the line with its middle,
+ * ב's place, and how many more starting points a group has ("+2").
+ */
+function showTrip({ a, b, all }) {
   $('trip-a').textContent = a;
   $('trip-b').textContent = b;
+  const more = all.length - 2;
+  $('trip-more').hidden = more < 1;
+  $('trip-more-count').textContent = `+${more}`;
+  $('trip-more-text').textContent = more === 1 ? 'ועוד נקודת יציאה אחת' : `ועוד ${more} נקודות יציאה`;
   $('trip').hidden = false;
   document.querySelector('.tagline').hidden = true;
   document.body.classList.add('has-results');
@@ -955,8 +1068,7 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   photoIds = new Set(displayedPlaces().slice(0, MAX_PHOTOS).map((p) => p.id));
   updateProviderNote(provider);
   // The search's own names, not the fields: a re-run may finish while the user types the next search.
-  const trip = tripLabels();
-  showTrip(trip.a, trip.b);
+  showTrip(tripLabels());
 
   const notices = result.notices.map((n) => (typeof NOTICE_TEXT[n] === 'function' ? NOTICE_TEXT[n](result) : NOTICE_TEXT[n])).filter(Boolean);
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
@@ -1052,11 +1164,22 @@ function showPicked(place) {
   box.hidden = false;
 }
 
+/** The starting points of the search on screen, as a shared text names them. */
+function sharedLabels() {
+  return [lastQuery.a, lastQuery.b, ...(lastQuery.extra || [])].map((loc) => forLink(loc).label);
+}
+
+/** "חיפה, תל אביב ובאר שבע" */
+function joinNames(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names.at(-1)}`;
+}
+
 async function sharePlace(place) {
   // The proof that it's fair goes with it: how long each side travels.
-  const label = (loc) => forLink(loc).label;
   const times = lastQuery
-    ? `\n${formatDuration(place.timeA)} מ${label(lastQuery.a)} · ${formatDuration(place.timeB)} מ${label(lastQuery.b)}`
+    ? `\n${sharedLabels()
+        .map((name, i) => `${formatDuration(place.times ? place.times[i] : i ? place.timeB : place.timeA)} מ${name}`)
+        .join(' · ')}`
     : '';
   const outcome = await shareOrCopy({
     title: place.name,
@@ -1068,10 +1191,15 @@ async function sharePlace(place) {
 }
 
 $('share-search').addEventListener('click', async () => {
-  const label = (loc) => forLink(loc).label;
+  const names = lastQuery ? sharedLabels() : [];
+  const text = !lastQuery
+    ? 'מקום באמצע'
+    : names.length > 2
+      ? `מקומות באמצע בין ${joinNames(names)}`
+      : `מקומות באמצע הדרך בין ${names[0]} לבין ${names[1]}`;
   const outcome = await shareOrCopy({
     title: 'מקום באמצע',
-    text: lastQuery ? `מקומות באמצע הדרך בין ${label(lastQuery.a)} לבין ${label(lastQuery.b)}` : 'מקום באמצע',
+    text,
     url: shownLink || `${location.origin}${plainAddress()}`,
   });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');
@@ -1080,8 +1208,7 @@ $('share-search').addEventListener('click', async () => {
 
 $('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  sides.a.ac.cancel();
-  sides.b.ac.cancel();
+  for (const key of sideKeys()) sides[key].ac.cancel();
   runSearch();
 });
 
@@ -1127,9 +1254,7 @@ function init() {
   const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
   const state = decodeState(linkSearch ?? history.state?.search ?? '', { knownCategories: CATEGORY_IDS });
   renderCategoryChips(state.categories || DEFAULT_CATEGORY_IDS);
-  for (const key of ['a', 'b']) {
-    let loc = state[key];
-    if (!loc) continue;
+  const restore = (key, loc) => {
     let source = 'link';
     if (loc.label === MY_LOCATION_LABEL) {
       // This tab's own search (from history): the device's position, shared only rounded.
@@ -1139,9 +1264,15 @@ function init() {
     }
     sides[key].input.value = loc.label;
     sides[key].location = Number.isFinite(loc.lat) ? { ...loc, source } : null;
-  }
+  };
+  for (const key of ['a', 'b']) if (state[key]) restore(key, state[key]);
   setMode('a', state.modeA);
   setMode('b', state.modeB);
+  for (const { mode, ...loc } of state.extra) {
+    const key = addPoint({ focus: false });
+    restore(key, loc);
+    setMode(key, mode);
+  }
   // A search (from a link, or this tab's last one) brings its own filters;
   // otherwise the ones this browser used last time.
   const filters = state.a && state.b ? state : savedFilters();

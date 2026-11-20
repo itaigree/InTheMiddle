@@ -22,7 +22,7 @@ export const MAX_CANDIDATES = 40;
 /** Fine sampling used when driving times come from the route itself (no API calls). */
 const TIMELINE_FRACTIONS = Array.from({ length: 49 }, (_, i) => (i + 1) / 50);
 /** Below this many places around the midpoint, the search area is widened (step by step). */
-const MIN_PLACES = 6;
+export const MIN_PLACES = 6;
 
 const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
 
