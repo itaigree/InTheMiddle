@@ -97,6 +97,7 @@ export function intervalsFromOsm(text) {
       return null;
     }
     const m = rule.match(/^(?:([A-Za-z,-]+)\s+)?(.+)$/);
+    if (!m) return null; // e.g. a line break inside a rule
     const days = m[1] ? parseDays(m[1]) : new Set([0, 1, 2, 3, 4, 5, 6]);
     let times = m[2];
     if (!m[1] && /^[A-Z][a-z](?:[-,][A-Z][a-z])*$/.test(m[2])) {

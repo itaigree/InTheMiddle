@@ -10,7 +10,8 @@ function setup() {
   const realNow = Date.now;
   Date.now = () => clock.now;
   const calls = { overpass: 0, photon: [] };
-  const state = { overpassUp: false, photonFails: new Set() };
+  // elements: what Overpass answers when it's up (one café by default).
+  const state = { overpassUp: false, photonFails: new Set(), elements: null };
   const realFetch = globalThis.fetch;
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   globalThis.fetch = async (url) => {
@@ -19,7 +20,7 @@ function setup() {
       calls.overpass++;
       if (!state.overpassUp) return new Response('at capacity', { status: 502 });
       const tags = { amenity: 'cafe', name: 'קפה מ-Overpass', opening_hours: 'Su-Th 08:00-22:00; Fr 08:00-14:00' };
-      return json({ elements: [{ type: 'node', id: 1, lat: 32.44, lon: 34.92, tags }] });
+      return json({ elements: state.elements || [{ type: 'node', id: 1, lat: 32.44, lon: 34.92, tags }] });
     }
     const tags = u.searchParams.getAll('osm_tag');
     calls.photon.push(tags.join('+'));
@@ -83,6 +84,29 @@ test('Photon: one failed group keeps the others, and the partial answer is not k
     const asked = calls.photon.length;
     await osm.searchPlaces(at, 3000, ['cafe', 'park', 'nature']);
     assert.ok(calls.photon.length > asked); // not served from the cache
+  } finally {
+    restore();
+  }
+});
+
+// Overpass rests for 5 minutes after the busy answers in the tests above.
+const LATER = 60 * MIN;
+
+test('Overpass: a place whose hours have a line break costs no other place', async () => {
+  const { clock, calls, state, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const cafe = (id, hours) => ({ type: 'node', id, lat: 32.44 + id * 0.001, lon: 34.92, tags: { amenity: 'cafe', name: `קפה ${id}`, opening_hours: hours } });
+    state.elements = [cafe(1, 'Su-Th 08:00-22:00; Fr 08:00-14:00'), cafe(2, 'Su-Th 08:00-22:00\nFr 08:00-14:00')];
+    const osm = createOsmProvider();
+    const at = { lat: 32.44, lng: 34.92 };
+    const places = await osm.searchPlaces(at, 3000, ['cafe']);
+    assert.deepEqual(places.map((p) => [p.name, p.closedOnShabbat]), [['קפה 1', true], ['קפה 2', null]]);
+    assert.deepEqual(calls.photon, []);
+    // Nor is Overpass made to rest: the next search asks it again.
+    await osm.searchPlaces(at, 6000, ['cafe']);
+    assert.equal(calls.overpass, 2);
   } finally {
     restore();
   }
