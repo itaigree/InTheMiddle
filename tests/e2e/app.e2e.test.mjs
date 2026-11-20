@@ -747,6 +747,25 @@ test('a Google key rejected when the map loads is caught before any billed place
   await context.close();
 });
 
+test('a group search moving from OpenStreetMap results to Google waits for the map before any billed travel times', async () => {
+  const { page, context, server } = await openApp({ key: 'BAD_KEY', google: { authFail: 'map' } });
+  // Google is blocked for a few seconds, so the link's search shows OpenStreetMap results on a Leaflet map.
+  await page.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 3000).toISOString() })),
+  );
+  await page.goto(server.url + GROUP_LINK);
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  await page.waitForTimeout(3500); // Google is back
+  // This search starts on Google, whose map then rejects the key.
+  await page.locator('#submit').click();
+  await page.waitForFunction(() => (window.__fakeGoogleCalls || []).some((c) => c.startsWith('map:')), null, { timeout: 20000 });
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('matrix') || c.startsWith('searchNearby')).length, 0, calls.join(','));
+  await context.close();
+});
+
 test('submitting right after picking a suggestion uses the pick, not a new text lookup', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: { detailsDelayMs: 600 } });
   await pickSuggestion(page, 'a', 'חיפה');

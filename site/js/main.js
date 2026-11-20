@@ -946,6 +946,10 @@ function plainAddress() {
 function ensureMap(provider) {
   const wanted = provider.id === 'google' ? 'google' : 'leaflet';
   if (mapPromise && mapKind === wanted && mapPromise !== brokenMap) return mapPromise;
+  // Google's billed calls wait for its map's verdict on the key: tell it one is
+  // coming before the wait for the old map below, which a running search would
+  // otherwise slip past.
+  provider.expectMap?.();
   const previous = mapPromise;
   mapKind = wanted;
   const promise = (async () => {

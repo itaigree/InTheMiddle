@@ -245,6 +245,20 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   let sessionToken = null;
   /** Settles once the map has shown the key works (or rejects if Google rejected it). */
   let mapAuth = null;
+  /** How to settle mapAuth, from the moment a map is asked for until createMap takes it. */
+  let pendingAuth = null;
+
+  /**
+   * A map is on its way: the gate shuts now, before the app's own wait (e.g. for
+   * the old map to go) lets a billed call slip past it. createMap settles it.
+   */
+  function expectMap() {
+    if (pendingAuth) return;
+    mapAuth = new Promise((resolve, reject) => {
+      pendingAuth = { resolve, reject };
+    });
+    mapAuth.catch(() => {});
+  }
 
   /**
    * Google reports a rejected Maps JS key only when a map loads. The app starts
@@ -462,13 +476,12 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   }
 
   async function createMap(container, { overview } = {}) {
-    // The gate exists from the moment the map starts loading, so a search that is
-    // already running waits for the verdict instead of slipping past it.
-    let settle;
-    mapAuth = new Promise((resolve, reject) => {
-      settle = { resolve, reject };
-    });
-    mapAuth.catch(() => {});
+    // The gate exists from the moment the map starts loading (or was asked for,
+    // see expectMap), so a search that is already running waits for the verdict
+    // instead of slipping past it.
+    expectMap();
+    const settle = pendingAuth;
+    pendingAuth = null;
     // This map's own failure (error screen): unlike a rejected key, it must not
     // poison maps created later in this page, once Google is back.
     let failMap;
@@ -522,6 +535,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     routes,
     travelTimes,
     searchPlaces,
+    expectMap,
     createMap,
   };
 }
