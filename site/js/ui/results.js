@@ -91,7 +91,9 @@ export function renderSummary(container, result) {
     }
   }
   const order = result.group ? GROUP_ORDER_TEXT : ORDER_TEXT;
-  container.append(result.places.length ? `מצאנו ${formatCount(result.places.length)} מקומות, ${order[result.priority] || order.balanced}` : '');
+  const n = result.places.length;
+  // One place has no order to speak of.
+  container.append(n > 1 ? `מצאנו ${formatCount(n)} מקומות, ${order[result.priority] || order.balanced}` : n ? 'מצאנו מקום אחד.' : '');
 }
 
 /**

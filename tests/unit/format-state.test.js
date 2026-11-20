@@ -134,3 +134,24 @@ test('guessAreaName picks the most common town among the top places', async () =
   assert.equal(guessAreaName([p('כביש 4, 3800000'), p('כביש 2, 3800000')]), null);
   assert.equal(guessAreaName([]), null);
 });
+
+test('renderSummary says one place in the singular', async () => {
+  const { renderSummary } = await import('../../site/js/ui/results.js');
+  // Just enough of a container for a summary with no area and no time (plain text only).
+  const container = {
+    parts: [],
+    replaceChildren() {
+      this.parts.length = 0;
+    },
+    append(...xs) {
+      this.parts.push(...xs.map(String));
+    },
+  };
+  const place = (id) => ({ id, name: `מקום ${id}`, category: 'cafe' });
+  renderSummary(container, { places: [place('1')], priority: 'balanced', balance: null });
+  assert.equal(container.parts.join(''), 'מצאנו מקום אחד.');
+  renderSummary(container, { places: [place('1'), place('2')], priority: 'balanced', balance: null });
+  assert.match(container.parts.join(''), /^מצאנו 2 מקומות, מסודרים/);
+  renderSummary(container, { places: [], priority: 'balanced', balance: null });
+  assert.equal(container.parts.join(''), '');
+});
