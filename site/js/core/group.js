@@ -156,14 +156,16 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
     await Promise.all(
       [...byMode].map(async ([mode, sides]) => {
         try {
-          const m = await provider.travelTimes(
-            sides.map((i) => points[i]),
-            dests,
-            mode,
-            opts,
-          );
+          // People starting from the same place are timed once (Google bills each origin).
+          const origins = [];
+          const at = sides.map((i) => {
+            const k = origins.findIndex((o) => o.lat === points[i].lat && o.lng === points[i].lng);
+            return k >= 0 ? k : origins.push(points[i]) - 1;
+          });
+          const m = await provider.travelTimes(origins, dests, mode, opts);
+          // A copy each: sample() later pushes onto every side's row.
           sides.forEach((i, k) => {
-            rows[i] = m[k] || dests.map(() => null);
+            rows[i] = m[at[k]] ? [...m[at[k]]] : dests.map(() => null);
           });
         } catch (err) {
           if (mode !== 'transit' || err instanceof ProviderUnavailableError || isAbortError(err)) throw err;

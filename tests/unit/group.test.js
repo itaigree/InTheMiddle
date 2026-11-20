@@ -282,6 +282,27 @@ test('transit failing after the first ring re-times that side\'s earlier points 
   assert.ok(haversine(result.midpoint, CENTRE) < 8000, `${haversine(result.midpoint, CENTRE)} m off`);
 });
 
+test('people starting from the same place are timed once, and each gets the times', async () => {
+  // Google bills every origin, and a twin's row would only repeat the first one's.
+  const provider = fakeProvider();
+  const twin = { ...TRIANGLE[0], label: 'עוד מאותו מקום' };
+  const result = await findGroupMiddle({ ...baseQuery, points: [...TRIANGLE, twin], modes: ['transit', 'car', 'car', 'transit'] }, provider);
+  assert.ok(provider.calls.travelTimes.every((c) => c.origins === (c.mode === 'transit' ? 1 : 2)), JSON.stringify(provider.calls.travelTimes));
+  assert.ok(result.places.length > 0);
+  for (const p of result.places) assert.equal(p.times[3], p.times[0]);
+});
+
+test('same place, transit giving out after the first ring: both re-timed by car, once', async () => {
+  const provider = fakeProvider({ transitThrows: 2, transitSpeed: 8 });
+  const twin = { ...TRIANGLE[0], label: 'עוד מאותו מקום' };
+  const result = await findGroupMiddle({ ...baseQuery, points: [...TRIANGLE, twin], modes: ['transit', 'car', 'car', 'transit'] }, provider);
+  assert.deepEqual(result.modes, ['car', 'car', 'car', 'car']);
+  assert.ok(provider.calls.travelTimes.every((c) => c.origins <= 3), JSON.stringify(provider.calls.travelTimes));
+  assert.ok(result.places.length > 0);
+  for (const p of result.places) assert.equal(p.times[3], p.times[0]);
+  assert.ok(haversine(result.midpoint, CENTRE) < 12000, `${haversine(result.midpoint, CENTRE)} m off`);
+});
+
 test('too few places widens the search step by step, with a notice', async () => {
   const provider = fakeProvider({ placesPerCategory: 1 });
   const result = await findGroupMiddle(baseQuery, provider);
