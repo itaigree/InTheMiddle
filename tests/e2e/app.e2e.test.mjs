@@ -345,6 +345,41 @@ test('free mode: public transit through Transitous', async () => {
   await context.close();
 });
 
+test('a search link\'s departure is Israel time on a phone set to another zone', async () => {
+  // A week from now, at 15:00 in Israel.
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(Date.now() + 7 * 86_400_000);
+  const query =
+    '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180' +
+    `&bm=transit&t=${day}T15:00`;
+  const { page, context, osmLog, errors } = await openApp({ query, contextOptions: { timezoneId: 'America/New_York' } });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // Transitous is asked for 15:00 in Israel (not 15:00 in New York, 22:00 in Israel).
+  const israelTime = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' });
+  assert.ok(osmLog.transit.length > 0);
+  for (const q of osmLog.transit) assert.equal(israelTime.format(new Date(new URLSearchParams(q).get('time'))), `${day} 15:00`);
+  assert.match(await optionsSummary(page), / ב-15:00 /);
+  // Shared on, the link keeps the same time.
+  assert.equal((await sharedLink(page)).searchParams.get('t'), `${day}T15:00`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('the departure field is in Israel time on a phone set to another zone: the default, the earliest, today and tomorrow', async () => {
+  const { page, context } = await openApp({ contextOptions: { timezoneId: 'America/New_York' }, clock: true });
+  // Friday 4 December 2026, 02:00 in Israel: still Thursday evening in New York.
+  await page.clock.setFixedTime(new Date('2026-12-04T00:00:00Z'));
+  await openOptions(page);
+  await page.locator('#departure-choice').selectOption('later');
+  // An hour from now, and nothing earlier than now.
+  assert.equal(await page.locator('#departure').inputValue(), '2026-12-04T03:00');
+  assert.equal(await page.locator('#departure').getAttribute('min'), '2026-12-04T02:00');
+  await page.locator('#departure').fill('2026-12-04T15:00');
+  assert.equal(await optionsSummary(page), 'מאוזן · יוצאים היום ב-15:00 · בלי סינון');
+  await page.locator('#departure').fill('2026-12-05T09:00');
+  assert.equal(await optionsSummary(page), 'מאוזן · יוצאים מחר ב-09:00 · בלי סינון');
+  await context.close();
+});
+
 test('free mode: Transitous down → that side drives, with a notice', async () => {
   const { page, context } = await openApp({ osm: { failTransit: true } });
   await pickSuggestion(page, 'a', 'חיפה');

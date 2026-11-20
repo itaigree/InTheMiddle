@@ -61,19 +61,39 @@ test('parseOverpass caps each category', () => {
   assert.deepEqual(parseOverpass({}, CENTER, ['park']), []);
 });
 
+/** An instant given as Israel time in October 2026 (summer time, +03:00), e.g. '18T12:00'. */
+const israelOct = (time) => new Date(`2026-10-${time}:00+03:00`);
+
 test('isOpenAt handles normal, overnight and 24/7 schedules', () => {
   // Sunday=0. Open Sun 08:00–22:00.
   const daytime = { periods: [{ open: { day: 0, hour: 8, minute: 0 }, close: { day: 0, hour: 22, minute: 0 } }] };
-  assert.equal(isOpenAt(daytime, new Date(2026, 9, 18, 12, 0)), true); // Sun 18 Oct 2026, 12:00
-  assert.equal(isOpenAt(daytime, new Date(2026, 9, 18, 23, 0)), false);
+  assert.equal(isOpenAt(daytime, israelOct('18T12:00')), true); // Sun 18 Oct 2026, 12:00
+  assert.equal(isOpenAt(daytime, israelOct('18T23:00')), false);
   // Sat 20:00 → Sun 02:00 (wraps the week).
   const overnight = { periods: [{ open: { day: 6, hour: 20, minute: 0 }, close: { day: 0, hour: 2, minute: 0 } }] };
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 18, 1, 0)), true); // Sunday 01:00
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 17, 21, 0)), true); // Saturday 21:00
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 17, 19, 0)), false);
+  assert.equal(isOpenAt(overnight, israelOct('18T01:00')), true); // Sunday 01:00
+  assert.equal(isOpenAt(overnight, israelOct('17T21:00')), true); // Saturday 21:00
+  assert.equal(isOpenAt(overnight, israelOct('17T19:00')), false);
   assert.equal(isOpenAt({ periods: [{ open: { day: 0, hour: 0, minute: 0 } }] }), true);
   assert.equal(isOpenAt(null), null);
   assert.equal(isOpenAt({ periods: [] }), null);
+});
+
+test('isOpenAt reads the hours on Israel\'s clock, whatever zone the device is set to', () => {
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const daytime = { periods: [{ open: { day: 0, hour: 8, minute: 0 }, close: { day: 0, hour: 22, minute: 0 } }] };
+    // Sunday 12:00 in Israel is 05:00 in New York; Sunday 23:00 is still 16:00 there.
+    assert.equal(isOpenAt(daytime, israelOct('18T12:00')), true);
+    assert.equal(isOpenAt(daytime, israelOct('18T23:00')), false);
+    // Saturday 23:30 in Israel, 16:30 in New York: open by Israel's clock.
+    const saturdayNight = { periods: [{ open: { day: 6, hour: 21, minute: 0 }, close: { day: 0, hour: 1, minute: 0 } }] };
+    assert.equal(isOpenAt(saturdayNight, israelOct('17T23:30')), true);
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
 });
 
 test('classifyGoogleError maps quota, auth, bad requests and outages', () => {

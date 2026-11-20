@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatDuration, formatDistance } from '../../site/js/core/format.js';
-import { encodeState, decodeState, EXTRA_KEYS } from '../../site/js/core/state.js';
+import { encodeState, decodeState, EXTRA_KEYS, toIsraelTime, israelTimeToDate } from '../../site/js/core/state.js';
 import { MAX_POINTS } from '../../site/js/core/group.js';
 
 test('formatDuration in Hebrew', () => {
@@ -49,6 +49,30 @@ test('state round-trips through the query string', () => {
   assert.equal(decodeState(encodeState({ ...state, priority: 'gap' })).priority, 'gap');
   // Links made with the option's first name still open it.
   assert.equal(decodeState('f=short').priority, 'gap');
+});
+
+test('the departure is Israel time, whatever zone the device is set to', () => {
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    // Winter (+02:00) and summer (+03:00) time.
+    assert.equal(israelTimeToDate('2026-11-27T15:00').toISOString(), '2026-11-27T13:00:00.000Z');
+    assert.equal(israelTimeToDate('2026-07-03T15:00').toISOString(), '2026-07-03T12:00:00.000Z');
+    assert.equal(toIsraelTime(new Date('2026-11-27T13:00:00Z')), '2026-11-27T15:00');
+    // Already the next day in Israel, still the evening before in New York.
+    assert.equal(toIsraelTime(new Date('2026-07-03T21:30:00Z')), '2026-07-04T00:30');
+    // Around the clock changes (27 March and 25 October 2026).
+    assert.equal(israelTimeToDate('2026-03-27T01:30').toISOString(), '2026-03-26T23:30:00.000Z');
+    assert.equal(israelTimeToDate('2026-03-27T03:30').toISOString(), '2026-03-27T00:30:00.000Z');
+    assert.equal(israelTimeToDate('2026-10-25T03:00').toISOString(), '2026-10-25T01:00:00.000Z');
+    for (const value of ['2026-01-01T00:00', '2026-03-27T03:00', '2026-10-24T23:59', '2026-12-31T23:45']) {
+      assert.equal(toIsraelTime(israelTimeToDate(value)), value);
+    }
+    assert.ok(Number.isNaN(israelTimeToDate('tomorrow').getTime()));
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
 });
 
 test('decodeState drops malformed values', () => {

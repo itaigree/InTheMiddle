@@ -13,6 +13,7 @@
 import { ProviderUnavailableError, ProviderRequestError } from './errors.js';
 import { timelineFromSteps } from '../core/geo.js';
 import { closedOnShabbat, intervalsFromGoogle } from '../core/shabbat.js';
+import { israelClock } from '../core/state.js';
 
 const LANGUAGE = 'iw'; // Google's code for Hebrew
 const REGION = 'il';
@@ -209,8 +210,9 @@ async function call(fn) {
 const toLatLng = (p) => ({ lat: typeof p.lat === 'function' ? p.lat() : p.lat, lng: typeof p.lng === 'function' ? p.lng() : p.lng });
 
 /**
- * Is the place open at `date`, from its weekly opening periods? Uses the viewer's
- * clock, which is right for Israeli places viewed in Israel.
+ * Is the place open at `date`, from its weekly opening periods? The periods are
+ * in Israel time, so `date` is read on Israel's clock whatever zone the device is
+ * set to, as the departure time is.
  * @returns {boolean|null} null when unknown
  */
 export function isOpenAt(openingHours, date = new Date()) {
@@ -218,7 +220,8 @@ export function isOpenAt(openingHours, date = new Date()) {
   if (!periods?.length) return null;
   const WEEK = 7 * 1440;
   const minutes = (day, hour, minute) => day * 1440 + hour * 60 + minute;
-  const now = minutes(date.getDay(), date.getHours(), date.getMinutes());
+  const clock = israelClock(date);
+  const now = minutes(clock.weekday, clock.hour, clock.minute);
   return periods.some(({ open, close }) => {
     if (!open) return false;
     if (!close) return true; // open 24/7

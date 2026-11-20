@@ -1,7 +1,7 @@
 // App controller: form, provider selection (Google → OpenStreetMap fallback), search and results.
 
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY_IDS } from './core/categories.js';
-import { encodeState, decodeState } from './core/state.js';
+import { encodeState, decodeState, toIsraelTime, israelTimeToDate, ISRAEL_TIME_ZONE } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
 import { findGroupMiddle, MAX_POINTS } from './core/group.js';
@@ -544,22 +544,19 @@ $('swap').addEventListener('click', () => {
 const departureChoice = $('departure-choice');
 const departureInput = $('departure');
 
-function toLocalInputValue(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
+// The field holds Israel time, whatever zone the device is set to (see core/state.js).
 departureChoice.addEventListener('change', () => {
   const later = departureChoice.value === 'later';
   departureInput.hidden = !later;
   if (later) {
     const now = new Date();
-    departureInput.min = toLocalInputValue(now);
+    departureInput.min = toIsraelTime(now);
     // Fill a sensible default when empty or when the old value has already passed.
-    if (!departureInput.value || new Date(departureInput.value) < now) {
+    if (!departureInput.value || israelTimeToDate(departureInput.value) < now) {
       const soon = new Date(now.getTime() + 60 * 60 * 1000);
-      soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
-      departureInput.value = toLocalInputValue(soon);
+      // Israel's offset is whole hours, so its quarter hours are UTC's.
+      soon.setUTCMinutes(Math.ceil(soon.getUTCMinutes() / 15) * 15, 0, 0);
+      departureInput.value = toIsraelTime(soon);
     }
     departureInput.focus();
   }
@@ -568,7 +565,7 @@ departureChoice.addEventListener('change', () => {
 /** {date: Date|null, past: boolean} – a past time means "now" to the routing services. */
 function departureValue() {
   if (departureChoice.value !== 'later' || !departureInput.value) return { date: null, past: false };
-  const date = new Date(departureInput.value);
+  const date = israelTimeToDate(departureInput.value);
   if (Number.isNaN(date.getTime())) return { date: null, past: false };
   // A minute or two of slack: a time picked "just now" shouldn't count as past.
   if (date.getTime() < Date.now() - 2 * 60 * 1000) return { date: null, past: true };
@@ -587,11 +584,12 @@ function resetDepartureToNow() {
 const PRIORITY_LABEL = { equal: 'זמן שווה', balanced: 'מאוזן', gap: 'פער גמיש' };
 
 function departureSummary() {
-  const date = departureChoice.value === 'later' && departureInput.value ? new Date(departureInput.value) : null;
+  const date = departureChoice.value === 'later' && departureInput.value ? israelTimeToDate(departureInput.value) : null;
   if (!date || Number.isNaN(date.getTime())) return 'יוצאים עכשיו';
-  const format = (options) => new Intl.DateTimeFormat('he-IL', options).format(date);
-  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.round((dayStart(date) - dayStart(new Date())) / 86_400_000);
+  const format = (options) => new Intl.DateTimeFormat('he-IL', { timeZone: ISRAEL_TIME_ZONE, ...options }).format(date);
+  // Today and tomorrow on Israel's calendar too (Date.parse reads a bare date as UTC midnight).
+  const israelDay = (d) => Date.parse(toIsraelTime(d).slice(0, 10));
+  const days = Math.round((israelDay(date) - israelDay(new Date())) / 86_400_000);
   const day =
     days === 0 ? 'היום' : days === 1 ? 'מחר' : `ב${format({ weekday: 'short' })} ${format({ day: 'numeric', month: 'numeric' })}`;
   return `יוצאים ${day} ב-${format({ hour: '2-digit', minute: '2-digit' })}`;
@@ -927,7 +925,7 @@ function searchLink(query, { own = false } = {}) {
     modeA: query.modeA,
     modeB: query.modeB,
     categories: query.categories,
-    departure: query.departure ? toLocalInputValue(query.departure) : null,
+    departure: query.departure ? toIsraelTime(query.departure) : null,
     greenLine: query.greenLine,
     shabbat: query.shabbat,
     priority: query.priority,
