@@ -253,11 +253,15 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
   onProgress('places');
   // As for two people: too few places (or none everyone can reach) around the
   // middle widens the search step by step; no place is timed twice.
+  // But someone who reaches none of the points the others reach is cut off from
+  // them (no road between): no place could have everyone's times, so don't pay
+  // for looking.
+  const cutOff = best < 0 && sampleRows.some((row) => !row.some(isTime)) && sampleRows.some((row) => row.some(isTime));
   let ranked = [];
-  let radius;
+  let radius = radii[0];
   const found = [];
   const checked = new Set();
-  for (let step = 0; step < radii.length && !ranked.length; step++) {
+  for (let step = 0; step < radii.length && !ranked.length && !cutOff; step++) {
     radius = radii[step];
     if (step) onProgress('wider');
     found.push(...(await provider.searchPlaces(midpoint, radius, categories)));

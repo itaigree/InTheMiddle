@@ -335,6 +335,17 @@ test('nowhere everyone can reach: the plain centre, marked unreliable', async ()
   assert.deepEqual(result.places, []);
 });
 
+test('someone cut off from everywhere the others reach: no place search is paid for', async () => {
+  // No place could have that side's time, so widening step by step would only spend quota.
+  const provider = fakeProvider({ unreachableFrom: TRIANGLE[1] });
+  const result = await findGroupMiddle(baseQuery, provider);
+  assert.deepEqual(result.places, []);
+  assert.equal(result.balance.reliable, false);
+  assert.equal(provider.calls.searchPlaces.length, 0);
+  assert.ok(provider.calls.travelTimes.every((c) => c.destinations === 7), JSON.stringify(provider.calls.travelTimes));
+  assert.ok(!result.notices.includes('widened'));
+});
+
 test('Green Line filter: the middle stays out of the areas, with a notice', async () => {
   const areas = squareAround(CENTRE, 5000);
   const provider = fakeProvider();
