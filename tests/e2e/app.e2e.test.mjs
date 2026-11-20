@@ -658,6 +658,40 @@ test('Enter ("Next") in field A moves to field B instead of submitting', async (
   await context.close();
 });
 
+test('phones: searching from the keyboard puts the keyboard away, unless a field is still missing', async () => {
+  const { page, context, errors } = await openApp({
+    viewport: { width: 390, height: 844 },
+    contextOptions: { hasTouch: true, isMobile: true },
+  });
+  const focused = () => page.evaluate(() => document.activeElement?.id);
+  await pickSuggestion(page, 'a', 'חיפה');
+  await page.locator('#input-b').fill('תל אביב');
+  await page.locator('#input-b').press('Escape');
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // No field keeps focus, so the phone's keyboard doesn't cover the results scrolled to.
+  assert.notEqual(await focused(), 'input-b');
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000 });
+  // A field is missing: the keyboard stays up for typing it.
+  await page.locator('#input-a').fill('');
+  await page.locator('#input-b').focus();
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#status[data-kind="error"]').waitFor();
+  assert.equal(await focused(), 'input-b');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // On a desktop the keyboard focus stays where it was.
+  const desktop = await openApp();
+  await pickSuggestion(desktop.page, 'a', 'חיפה');
+  await desktop.page.locator('#input-b').fill('תל אביב');
+  await desktop.page.locator('#input-b').press('Escape');
+  await desktop.page.locator('#input-b').press('Enter');
+  await desktop.page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await desktop.page.evaluate(() => document.activeElement?.id), 'input-b');
+  await desktop.context.close();
+});
+
 test('filter chips: photos stay limited to 3 per search, and chips all fit on desktop', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'חיפה');

@@ -1220,6 +1220,10 @@ $('share-search').addEventListener('click', async () => {
 $('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   for (const key of sideKeys()) sides[key].ac.cancel();
+  // Searched from a phone's keyboard: put it away, or it covers the results the page
+  // scrolls to. Not when a field is still empty: the user is sent back to type it.
+  const field = sideKeys().find((key) => sides[key].input === document.activeElement);
+  if (field && isPhone() && sideKeys().every((key) => sides[key].input.value.trim())) sides[field].input.blur();
   runSearch();
 });
 
