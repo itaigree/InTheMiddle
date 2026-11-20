@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOsmProvider } from '../../site/js/providers/osm.js';
+import { findMiddle } from '../../site/js/core/search.js';
 
 // Overpass busy or not, Photon's nearest places, sessionStorage and the clock, all faked.
 function setup() {
@@ -91,6 +92,73 @@ test('Photon: one failed group keeps the others, and the partial answer is not k
 
 // Overpass rests for 5 minutes after the busy answers in the tests above.
 const LATER = 60 * MIN;
+
+/** Cafés north of `at`, nearest first: the first `open` are open on Shabbat, the next `closed` close for it. */
+function cafesNear(at, open, closed) {
+  return Array.from({ length: open + closed }, (_, i) => ({
+    type: 'node',
+    id: 200 + i,
+    lat: at.lat + (i + 1) * 0.0002,
+    lon: at.lng,
+    tags: { amenity: 'cafe', name: `קפה ${i + 1}`, opening_hours: i < open ? 'Mo-Su 07:00-23:00' : 'Su-Th 07:00-23:00; Fr 07:00-14:00; Sa off' },
+  }));
+}
+
+const keepsShabbat = (p) => p.closedOnShabbat === true; // the "closed on Shabbat" filter, for cafés
+
+test('Overpass: the filter runs before each category is cut to 15', async () => {
+  const { clock, calls, state, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const at = { lat: 32.44, lng: 34.92 };
+    state.elements = cafesNear(at, 20, 5);
+    const osm = createOsmProvider();
+    // No filter: the 15 best, as before.
+    const all = await osm.searchPlaces(at, 1500, ['cafe']);
+    assert.deepEqual(all.map((p) => p.name), Array.from({ length: 15 }, (_, i) => `קפה ${i + 1}`));
+    const kept = await osm.searchPlaces(at, 1500, ['cafe'], { keep: keepsShabbat });
+    assert.deepEqual(kept.map((p) => p.name), ['קפה 21', 'קפה 22', 'קפה 23', 'קפה 24', 'קפה 25']);
+    assert.equal(calls.overpass, 1); // the second from the cache, which keeps more than 15
+  } finally {
+    restore();
+  }
+});
+
+test('A search with the Shabbat filter finds the cafés that close for it beyond the nearest 15', async () => {
+  const { clock, calls, restore } = setup();
+  try {
+    clock.now += LATER;
+    const overpassAndPhoton = globalThis.fetch;
+    const json = (body) => new Response(JSON.stringify(body));
+    globalThis.fetch = async (url, init) => {
+      const u = new URL(String(url));
+      if (u.host === 'overpass-api.de') {
+        // Around the middle searched: 20 cafés open on Shabbat, and 10 further out that close for it.
+        const [lat, lng] = init.body.get('data').match(/around:\d+,([\d.]+),([\d.]+)/).slice(1).map(Number);
+        calls.overpass++;
+        return json({ elements: cafesNear({ lat, lng }, 20, 10) });
+      }
+      if (u.host === 'photon.komoot.io') return overpassAndPhoton(url, init);
+      clock.now += 1000; // OSRM takes a request a second: keep to that on the fake clock
+      if (u.pathname.includes('/route/')) {
+        const [from, to] = u.pathname.split('/').pop().split(';').map((p) => p.split(',').map(Number));
+        const coordinates = Array.from({ length: 21 }, (_, i) => from.map((v, k) => v + ((to[k] - v) * i) / 20));
+        return json({ code: 'Ok', routes: [{ distance: 20000, duration: 1200, geometry: { coordinates }, legs: [{ annotation: { duration: Array(20).fill(60) } }] }] });
+      }
+      const [sources, targets] = ['sources', 'destinations'].map((k) => u.searchParams.get(k).split(';'));
+      return json({ code: 'Ok', durations: sources.map(() => targets.map(() => 600)) });
+    };
+    const a = { label: 'א', lat: 32.08, lng: 34.7 };
+    const b = { label: 'ב', lat: 32.08, lng: 34.9 };
+    const query = { a, b, modeA: 'car', modeB: 'car', categories: ['cafe'], departure: null, placeFilter: keepsShabbat };
+    const res = await findMiddle(query, createOsmProvider());
+    assert.deepEqual(res.places.map((p) => p.name).sort(), Array.from({ length: 10 }, (_, i) => `קפה ${i + 21}`).sort());
+    assert.equal(calls.overpass, 1); // found in the first circle, without widening
+  } finally {
+    restore();
+  }
+});
 
 test('Overpass: a place whose hours have a line break costs no other place', async () => {
   const { clock, calls, state, restore } = setup();

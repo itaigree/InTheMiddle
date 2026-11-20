@@ -227,7 +227,7 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     for (let step = 0; step < radii.length && !ranked.length; step++) {
       radius = radii[step];
       if (step) onProgress('wider');
-      found.push(...(await provider.searchPlaces(midpoint, radius, categories)));
+      found.push(...(await provider.searchPlaces(midpoint, radius, categories, { keep })));
       const places = dedupePlaces(found).filter(keep);
       if (places.length < MIN_PLACES && step < radii.length - 1) continue;
       const candidates = selectCandidates(
