@@ -280,7 +280,9 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
   for (let step = 0; step < radii.length && !ranked.length && !cutOff; step++) {
     radius = radii[step];
     if (step) onProgress('wider');
-    found.push(...(await provider.searchPlaces(midpoint, radius, categories)));
+    // The filter goes along, so a provider can apply it before it keeps the best
+    // few of each category.
+    found.push(...(await provider.searchPlaces(midpoint, radius, categories, { keep })));
     const places = dedupePlaces(found).filter(keep);
     if (places.length < MIN_PLACES && step < radii.length - 1) continue;
     const candidates = selectCandidates(
