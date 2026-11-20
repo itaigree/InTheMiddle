@@ -450,7 +450,9 @@ function locate(key, button) {
         lng: pos.coords.longitude,
         source: 'device',
       });
-      hideStatus();
+      // Clear an error (e.g. an earlier "couldn't get your location"), not a notice about
+      // the results on screen or the progress of a search that is still running.
+      if (showingError()) hideStatus();
     },
     () => {
       if (!done()) return;

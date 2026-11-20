@@ -723,6 +723,33 @@ test('"my location" is shared with a neutral label and rounded coordinates', asy
   await context.close();
 });
 
+test('"my location" leaves the notice about the results on screen, and clears only its own error', async () => {
+  const { page, context, errors } = await openApp({ osm: { failTransit: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
+  await search(page);
+  const notice = /לא הצלחנו לחשב כרגע זמני תחבורה ציבורית/;
+  assert.match(await page.locator('#status').textContent(), notice);
+  // "My location" for the next search: the notice still explains the results on screen.
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 32.794, longitude: 34.9896 });
+  await page.locator('.locate[data-side="a"]').click();
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
+  assert.equal(await page.locator('#status').isVisible(), true);
+  assert.match(await page.locator('#status').textContent(), notice);
+  // Its own error is still cleared once the location comes through.
+  await context.clearPermissions();
+  await page.locator('.locate[data-side="b"]').click();
+  await page.locator('#status', { hasText: 'לא הצלחנו לקבל את המיקום שלך' }).waitFor();
+  await context.grantPermissions(['geolocation']);
+  await page.locator('.locate[data-side="b"]').click();
+  await page.waitForFunction(() => document.getElementById('input-b').value === 'המיקום שלי');
+  assert.equal(await page.locator('#status').isVisible(), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('swapping the two points clears a "missing" mark, which was about the text that moved', async () => {
   const { page, context } = await openApp();
   await page.locator('#input-b').fill('תל אביב');
