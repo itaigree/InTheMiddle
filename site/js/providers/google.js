@@ -232,6 +232,19 @@ export function isOpenAt(openingHours, date = new Date()) {
   });
 }
 
+/**
+ * Is a Places API place open at `date`? This week's hours (holidays included)
+ * come first. Google leaves the days a place is closed out of their periods, so
+ * none at all, from a place that has usual hours, means closed all week.
+ * @returns {boolean|null} null when unknown
+ */
+export function placeOpenNow(place, date = new Date()) {
+  const current = place.currentOpeningHours;
+  if (current?.periods?.length) return isOpenAt(current, date);
+  if (current && place.regularOpeningHours?.periods?.length) return false;
+  return isOpenAt(place.regularOpeningHours, date);
+}
+
 function chunk(list, size) {
   const out = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
@@ -466,7 +479,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
               typeLabel: p.primaryTypeDisplayName || undefined,
               rating: Number.isFinite(p.rating) ? p.rating : undefined,
               ratingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : undefined,
-              openNow: isOpenAt(p.currentOpeningHours?.periods?.length ? p.currentOpeningHours : p.regularOpeningHours, now),
+              openNow: placeOpenNow(p, now),
               closedOnShabbat: closedOnShabbat(intervalsFromGoogle(p.regularOpeningHours)),
               address: p.shortFormattedAddress || undefined,
               mapsUrl: p.googleMapsURI || undefined,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOverpass, buildOverpassQuery } from '../../site/js/providers/osm.js';
-import { isOpenAt, classifyGoogleError } from '../../site/js/providers/google.js';
+import { isOpenAt, placeOpenNow, classifyGoogleError } from '../../site/js/providers/google.js';
 import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
 const CENTER = { lat: 32.4, lng: 34.9 };
@@ -94,6 +94,21 @@ test('isOpenAt reads the hours on Israel\'s clock, whatever zone the device is s
     if (zone === undefined) delete process.env.TZ;
     else process.env.TZ = zone;
   }
+});
+
+test('placeOpenNow: a place closed all of the coming week (special hours) is closed, not open by its usual hours', () => {
+  const always = { periods: [{ open: { day: 0, hour: 0, minute: 0 } }] };
+  const sunNoon = israelOct('18T12:00');
+  // Google leaves the days a place is closed out of `periods`: none are left this week.
+  const weekClosed = { periods: [], specialDays: [{}], weekdayDescriptions: Array(7).fill('סגור') };
+  assert.equal(placeOpenNow({ currentOpeningHours: weekClosed, regularOpeningHours: always }, sunNoon), false);
+  // This week's hours come first; the usual ones when Google has none for this week.
+  const mondayOnly = { periods: [{ open: { day: 1, hour: 8, minute: 0 }, close: { day: 1, hour: 20, minute: 0 } }] };
+  assert.equal(placeOpenNow({ currentOpeningHours: mondayOnly, regularOpeningHours: always }, sunNoon), false);
+  assert.equal(placeOpenNow({ regularOpeningHours: always }, sunNoon), true);
+  // No usual hours to go by: unknown, as before.
+  assert.equal(placeOpenNow({ currentOpeningHours: { periods: [] } }, sunNoon), null);
+  assert.equal(placeOpenNow({}, sunNoon), null);
 });
 
 test('classifyGoogleError maps quota, auth, bad requests and outages', () => {
