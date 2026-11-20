@@ -744,6 +744,14 @@ async function runSearch({ request = null, redo = false, background = false } = 
     // A suggestion picked a moment ago may still be resolving: use it, don't re-geocode.
     await Promise.all(sideKeys().map((key) => sides[key].pending));
     if (seq !== searchSeq) return;
+    // The form may have changed meanwhile (a point added, a field emptied): check it again.
+    const problems = validateForm();
+    if (problems.length) {
+      setBusy(false);
+      showStatus('error', problems.join(' '));
+      if (shownNeedsRedo) redoShownSearch();
+      return;
+    }
     request = readForm();
     if (request.departurePast) resetDepartureToNow();
   }

@@ -704,6 +704,31 @@ test('submitting right after picking a suggestion uses the pick, not a new text 
   await context.close();
 });
 
+test('a point added while a picked suggestion resolves is checked before searching', async () => {
+  const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: { detailsDelayMs: 600 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#add-point').click();
+  const third = page.locator('#extra-endpoints .endpoint-extra input[role="combobox"]').first();
+  await third.fill('באר שבע');
+  await page.locator(`#${await third.getAttribute('aria-controls')} [role="option"]`).first().click();
+  // The search waits for ג's pick to resolve; ד is added meanwhile (here at once, so it surely is).
+  await page.evaluate(() => {
+    document.getElementById('submit').click();
+    document.getElementById('add-point').click();
+  });
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000 });
+  assert.match(await page.locator('#status').textContent(), /חסרה נקודת יציאה ד׳/);
+  const fourth = page.locator('#extra-endpoints .endpoint-extra input[role="combobox"]').nth(1);
+  assert.equal(await fourth.getAttribute('aria-invalid'), 'true');
+  assert.equal(await page.locator('#place-list .place-card').count(), 0);
+  // The empty point was never looked up.
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('searchByText')).length, 0, calls.join(','));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('"my location" is shared with a neutral label and rounded coordinates', async () => {
   const { page, context } = await openApp({
     contextOptions: { geolocation: { latitude: 32.794123, longitude: 34.989654 }, permissions: ['geolocation'] },
