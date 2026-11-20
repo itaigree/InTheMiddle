@@ -10,7 +10,7 @@ import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
-import { renderSummary, renderFilters, renderPlaces, setActiveCard, MAX_PHOTOS } from './ui/results.js';
+import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
 import { categoryRoundel } from './ui/category-icons.js';
 
@@ -1169,6 +1169,7 @@ function showPicked(place) {
   }
   const copy = card.cloneNode(true);
   copy.classList.remove('is-active');
+  dropPhotoOnError(copy); // its photo loads on its own, and may fail on its own
   copy.querySelector('.share-place')?.addEventListener('click', () => sharePlace(place));
   box.firstElementChild.replaceChildren(copy);
   box.hidden = false;

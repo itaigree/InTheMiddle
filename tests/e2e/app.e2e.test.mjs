@@ -497,6 +497,25 @@ test('Google mode: Google data on a Google map, with ratings and photos', async 
   await context.close();
 });
 
+test('Google mode, phones: a photo that fails to load leaves no broken picture or credit, in the list or under the map', async () => {
+  const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: { brokenPhotos: true }, viewport: { width: 390, height: 844 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.locator('#place-list .place-card').first().locator('.place-main').click();
+  await page.locator('#picked').waitFor({ state: 'visible' });
+  // The photo request fails (as when the day's Place Photos quota is used up): the box hides, and its credit goes.
+  await page.waitForFunction(
+    () => !document.querySelector('#place-list .place-card.is-active .place-photo img') && !document.querySelector('#picked .place-photo img'),
+    null,
+    { timeout: 5000 },
+  );
+  assert.equal(await page.locator('#picked .photo-credit').count(), 0);
+  assert.equal(await page.locator('#place-list .place-card.is-active .photo-credit').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('Google mode: a place picked in the list is zoomed in on; the corner map is one more Google map, made once', async () => {
   const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'חיפה');
