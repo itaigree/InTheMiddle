@@ -346,6 +346,48 @@ test('someone cut off from everywhere the others reach: no place search is paid 
   assert.ok(!result.notices.includes('widened'));
 });
 
+test('a point the provider timed from a road far off (e.g. at sea) moves to that road', async () => {
+  // West of the shore is sea; the shore bulges ~4 km east halfway, as Israel's does
+  // between Haifa and Ashkelon. Like OSRM, the provider times a point at sea from
+  // the nearest road and says where that was.
+  const shoreLng = (lat) => CENTRE.lng + 0.04 * Math.max(0, 1 - ((lat - CENTRE.lat) / 0.36) ** 2);
+  const toShore = (d) => (d.lng < shoreLng(d.lat) ? { lat: d.lat, lng: shoreLng(d.lat) } : d);
+  const base = fakeProvider();
+  const provider = {
+    ...base,
+    async travelTimes(origins, destinations, mode) {
+      const met = destinations.map(toShore);
+      const m = await base.travelTimes(origins, met, mode);
+      m.snapped = destinations.map((d, j) => ({ ...met[j], distance: haversine(d, met[j]) }));
+      return m;
+    },
+  };
+  // Two people up and down the shore and one just inland: the circle's centre is out at sea.
+  const points = [offsetMeters(CENTRE, 0, 40000), offsetMeters(CENTRE, 0, -40000), offsetMeters(CENTRE, 6000, 0)].map((p, i) => ({ label: `נקודה ${i + 1}`, ...p }));
+  const centre = enclosingCircle(points).center;
+  assert.ok(centre.lng < shoreLng(centre.lat) - 0.01);
+  const result = await findGroupMiddle({ ...baseQuery, points }, provider);
+  assert.ok(result.midpoint.lng >= shoreLng(result.midpoint.lat) - 1e-9, `middle ${haversine(result.midpoint, toShore(result.midpoint)).toFixed(0)} m out at sea`);
+  assert.ok(result.places.length > 0);
+  // The places were looked for around the road point too.
+  assert.deepEqual(base.calls.searchPlaces[0].center, result.midpoint);
+});
+
+test('a point the provider timed from a road nearby stays where it was', async () => {
+  // Every point lands on a road a little way off: the ordinary case on land.
+  const base = fakeProvider();
+  const provider = {
+    ...base,
+    async travelTimes(origins, destinations, mode) {
+      const m = await base.travelTimes(origins, destinations, mode);
+      m.snapped = destinations.map((d) => ({ ...offsetMeters(d, 300, 0), distance: 300 }));
+      return m;
+    },
+  };
+  const result = await findGroupMiddle(baseQuery, provider);
+  assert.ok(haversine(result.midpoint, CENTRE) < 100, `${haversine(result.midpoint, CENTRE)} m off`);
+});
+
 test('Green Line filter: the middle stays out of the areas, with a notice', async () => {
   const areas = squareAround(CENTRE, 5000);
   const provider = fakeProvider();

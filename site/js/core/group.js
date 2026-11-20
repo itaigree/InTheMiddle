@@ -34,6 +34,11 @@ const FIRST_RING = 0.4;
 const MIN_RING_M = 1500;
 /** A straight line underestimates the road; scale it to a typical detour (as search.js does). */
 const ROAD_FACTOR = 1.3;
+/**
+ * A sample the provider timed from a road farther off than this (e.g. one at sea)
+ * moves to that road: the times are the road's, and the middle shouldn't be in the water.
+ */
+const SNAP_MOVE_M = 500;
 
 const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
 
@@ -142,11 +147,13 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
    * Travel times (seconds) from each side to `dests`, as rows[side][dest]: one
    * request per mode. Sides in `reuse` (side -> row) keep the row they have. A
    * transit request that fails outright (as opposed to finding no service)
-   * yields nulls and lists its sides in `failed`.
+   * yields nulls and lists its sides in `failed`. `snapped` is where the provider
+   * met the road for each of `dests`, when it says (see providers/README.md).
    */
   async function timesFrom(dests, reuse = {}) {
     const rows = points.map((_, i) => reuse[i] || null);
     const failed = [];
+    let snapped = null;
     const byMode = new Map();
     rows.forEach((row, i) => {
       if (row) return;
@@ -167,6 +174,7 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
           sides.forEach((i, k) => {
             rows[i] = m[at[k]] ? [...m[at[k]]] : dests.map(() => null);
           });
+          if (m.snapped) snapped = m.snapped;
         } catch (err) {
           if (mode !== 'transit' || err instanceof ProviderUnavailableError || isAbortError(err)) throw err;
           console.warn('transit routing failed; those sides will drive', err);
@@ -177,7 +185,7 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
         }
       }),
     );
-    return { rows, failed };
+    return { rows, failed, snapped };
   }
 
   /** Rows to reuse: every side's but `changed`. */
@@ -185,11 +193,11 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
 
   /**
    * timesFrom, but a transit side that failed or found no service at all
-   * (Shabbat, night) switches to driving and is timed again. Returns the rows
-   * and the sides that switched.
+   * (Shabbat, night) switches to driving and is timed again. Returns the rows,
+   * the sides that switched and timesFrom's `snapped`.
    */
   async function timesTo(dests) {
-    const { rows, failed } = await timesFrom(dests);
+    const { rows, failed, snapped } = await timesFrom(dests);
     const changed = [];
     rows.forEach((row, i) => {
       if (modes[i] !== 'transit') return;
@@ -199,8 +207,9 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
       modes[i] = 'car';
       changed.push(i);
     });
-    if (!changed.length) return { rows, changed };
-    return { rows: (await timesFrom(dests, reuseExcept(rows, changed))).rows, changed };
+    if (!changed.length) return { rows, changed, snapped };
+    const again = await timesFrom(dests, reuseExcept(rows, changed));
+    return { rows: again.rows, changed, snapped: snapped || again.snapped };
   }
 
   onProgress('balance');
@@ -212,13 +221,20 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
   async function sample(candidates) {
     const fresh = candidates.filter(allowed);
     if (!fresh.length) return;
-    const { rows, changed } = await timesTo(fresh);
+    const { rows, changed, snapped } = await timesTo(fresh);
     // A side that switched to driving: its earlier samples were by transit.
     if (changed.length && samples.length) {
       const redo = await timesFrom(samples, reuseExcept(sampleRows, changed));
       for (const i of changed) sampleRows[i] = redo.rows[i];
     }
-    samples.push(...fresh);
+    // A point timed from a road far off (e.g. at sea) is that road, for the
+    // tighter ring, the middle and the place search alike.
+    samples.push(
+      ...fresh.map((p, j) => {
+        const s = snapped?.[j];
+        return s && s.distance > SNAP_MOVE_M && allowed(s) ? { lat: s.lat, lng: s.lng } : p;
+      }),
+    );
     rows.forEach((row, i) => sampleRows[i].push(...row));
   }
 

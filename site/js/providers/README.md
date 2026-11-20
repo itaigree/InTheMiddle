@@ -41,6 +41,9 @@ await provider.travelTimes(origins, destinations, mode, { departure })
 //   origins/destinations: [{lat, lng}], mode: 'car' | 'transit'
 //   -> number|null [origins.length][destinations.length]
 //   Chunk internally to respect the service's per-request limits.
+//   Optional: the matrix's `snapped` property, for each destination where the
+//   service met the road ({lat, lng, distance: meters away}) or null. OSM sets it
+//   (OSRM snaps however far the road is); the group search moves a point at sea to it.
 
 // Meeting places around a point, for the category ids in core/categories.js.
 await provider.searchPlaces(center, radiusMeters, categoryIds)
