@@ -221,7 +221,14 @@ async function photonSearch(query, { limit, signal }) {
   if (!photonCache.has(url)) {
     const pending = fetchJson(url, { signal, timeoutMs: 10000 });
     photonCache.set(url, pending);
-    pending.catch(() => photonCache.delete(url));
+    // A lookup cancelled while in flight (the user typed on) is forgotten at once,
+    // so asking the same again right away (after a trailing space) sends a new
+    // request instead of getting the cancelled one. One that finished is kept.
+    const forget = () => {
+      if (photonCache.get(url) === pending) photonCache.delete(url);
+    };
+    signal?.addEventListener('abort', forget, { once: true });
+    pending.then(() => signal?.removeEventListener('abort', forget), forget);
   }
   const data = await photonCache.get(url);
   return (data.features || [])

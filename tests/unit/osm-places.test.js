@@ -179,3 +179,37 @@ test('Overpass: a place whose hours have a line break costs no other place', asy
     restore();
   }
 });
+
+test('Suggestions: asking again right after cancelling the same lookup gets an answer', async () => {
+  const realFetch = globalThis.fetch;
+  let requests = 0;
+  // Photon answers after 20 ms, or fails at once when the request is cancelled.
+  globalThis.fetch = (url, { signal } = {}) =>
+    new Promise((resolve, reject) => {
+      requests++;
+      const answer = { features: [{ geometry: { type: 'Point', coordinates: [34.98, 32.79] }, properties: { name: 'חיפה' } }] };
+      const timer = setTimeout(() => resolve(new Response(JSON.stringify(answer))), 20);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      });
+    });
+  try {
+    const osm = createOsmProvider();
+    const first = new AbortController();
+    const cancelled = osm.suggest('חיפה', { signal: first.signal });
+    // The user typed a space: the lookup is cancelled, and the same one asked for at once.
+    first.abort();
+    const second = new AbortController();
+    const again = osm.suggest('חיפה', { signal: second.signal });
+    await assert.rejects(cancelled, { name: 'AbortError' });
+    assert.deepEqual((await again).map((r) => r.title), ['חיפה']);
+    assert.equal(requests, 2);
+    // A lookup that finished is still kept, even when its caller cancels later.
+    second.abort();
+    await osm.suggest('חיפה', {});
+    assert.equal(requests, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
