@@ -1796,6 +1796,32 @@ test('more starting points: the results show everyone\'s time, everyone on the m
   await context.close();
 });
 
+test('more starting points, 320px phone: the "+1" in the header leaves ב\'s place readable', async () => {
+  const { page, context } = await openApp({ viewport: { width: 320, height: 700 }, query: GROUP_LINK });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  const m = await page.evaluate(() => {
+    const box = (el) => el.getBoundingClientRect();
+    const name = (id) => ({ w: document.getElementById(id).clientWidth, sw: document.getElementById(id).scrollWidth });
+    return {
+      a: name('trip-a'),
+      b: name('trip-b'),
+      badgeB: box(document.querySelector('#trip .side-b')),
+      more: box(document.getElementById('trip-more')),
+      edit: box(document.querySelector('#trip .trip-edit')),
+      pageWidth: document.documentElement.scrollWidth,
+    };
+  });
+  // "תל אביב" fits whole, as it does with two people (it was cut to "ת…").
+  assert.ok(m.b.sw <= m.b.w + 1, `ב's name ${m.b.w}px of ${m.b.sw}px`);
+  assert.ok(m.a.sw <= m.a.w + 1, `א's name ${m.a.w}px of ${m.a.sw}px`);
+  // One row: ב's badge, then "+1", then the pencil, right to left.
+  assert.ok(m.more.width > 0);
+  assert.ok(m.more.right <= m.badgeB.left && m.edit.right <= m.more.left, JSON.stringify(m));
+  assert.ok(Math.abs(m.more.top + m.more.height / 2 - (m.badgeB.top + m.badgeB.height / 2)) < 2, JSON.stringify(m));
+  assert.ok(m.pageWidth <= 320);
+  await context.close();
+});
+
 test('more starting points: sharing the search names everyone', async () => {
   const { page, context } = await openApp({ query: GROUP_LINK });
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
