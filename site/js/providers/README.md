@@ -52,6 +52,10 @@ await provider.searchPlaces(center, radiusMeters, categoryIds, { keep })   // ke
 // Map view (Google content must be shown on a Google map, per Google's terms).
 // `overview`: the corner box for the small zoomed-out map (see MapView).
 await provider.createMap(containerElement, { overview })   // -> MapView
+
+// Optional: a map is about to be made (createMap follows). Google holds its billed
+// calls from now until the map has shown whether the key works.
+provider.expectMap?.()
 ```
 
 `departure` is a `Date` or `null` (leave now).

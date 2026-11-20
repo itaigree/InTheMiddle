@@ -4,7 +4,7 @@
 //   id: string, supportsTransit: boolean, maxCandidates?: number
 //   route(a, b, {departure}) -> {path: LatLng[], timeline?: number[], distanceMeters, durationSec} | null   (driving)
 //   travelTimes(origins, destinations, mode, {departure}) -> (seconds|null)[][]  [origin][destination]
-//   searchPlaces(center, radiusMeters, categoryIds) -> Place[]  (best-first within each category)
+//   searchPlaces(center, radiusMeters, categoryIds, {keep}?) -> Place[]  (best-first within each category)
 // See js/providers/README.md for the full contract.
 
 import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadii } from './midpoint.js';
