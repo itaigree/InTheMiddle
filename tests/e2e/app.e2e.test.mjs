@@ -1445,3 +1445,108 @@ test('service worker: a version that goes live while the previous one installs: 
   assert.deepEqual(after, ['v3', 'v3', 'v3']);
   await context.close();
 });
+
+// ------------------------------------------------- more starting points
+
+/** The extra starting points' letters and fields, in order. */
+const extraRows = (page) => page.locator('#extra-endpoints .endpoint-extra');
+const extraLetters = (page) => page.locator('#extra-endpoints .side-badge').allTextContents();
+
+test('more starting points: added under ב up to five in all, removed and relabelled', async () => {
+  const { page, context, errors } = await openApp({ viewport: { width: 390, height: 844 } });
+  // Two points are the app: no extra rows until asked for.
+  assert.equal(await page.locator('#extra-endpoints').isVisible(), false);
+  await page.locator('#add-point').click();
+  assert.deepEqual(await extraLetters(page), ['ג']);
+  // The new field is ready to type in.
+  assert.ok(await extraRows(page).first().locator('input[role="combobox"]').evaluate((el) => el === document.activeElement));
+  await page.locator('#add-point').click();
+  await page.locator('#add-point').click();
+  assert.deepEqual(await extraLetters(page), ['ג', 'ד', 'ה']);
+  // Five in all: no room for more.
+  assert.equal(await page.locator('#add-point').isVisible(), false);
+  // Removing ג: ד and ה move up to ג and ד, and there's room again.
+  await extraRows(page).first().locator('input[role="combobox"]').fill('זה ילך');
+  await extraRows(page).nth(1).locator('input[role="combobox"]').fill('נשאר');
+  await extraRows(page).first().locator('.remove-point').click();
+  assert.deepEqual(await extraLetters(page), ['ג', 'ד']);
+  assert.equal(await extraRows(page).first().locator('input[role="combobox"]').inputValue(), 'נשאר');
+  assert.equal(await extraRows(page).first().locator('.remove-point').getAttribute('aria-label'), 'הסרת נקודה ג׳');
+  assert.ok(await page.locator('#add-point').isVisible());
+  assert.ok(await page.locator('#add-point').evaluate((el) => el === document.activeElement));
+  // Each row has its own car/transit choice.
+  await extraRows(page).nth(1).locator('input[value="transit"]').check({ force: true });
+  assert.equal(await extraRows(page).first().locator('input[value="car"]').isChecked(), true);
+  // No horizontal scrolling on a phone with the extra rows.
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(overflow <= 0, `horizontal overflow ${overflow}px`);
+  await shot(page, 'more-points-form');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('more starting points: an empty one is pointed out; filled in, the group search runs and its link carries them', async () => {
+  const { page, context, osmLog, errors } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#add-point').click();
+  await page.locator('#add-point').click();
+  const third = extraRows(page).first().locator('input[role="combobox"]');
+  await third.fill('באר שבע');
+  await page.locator(`#${await third.getAttribute('aria-controls')} [role="option"]`).first().click();
+  // ד was left empty: the search says so, and says it can go.
+  await page.locator('#submit').click();
+  assert.match(await page.locator('#status').textContent(), /חסרה נקודת יציאה ד׳ \(או שאפשר להסיר אותה\)/);
+  assert.equal(await extraRows(page).nth(1).locator('input[role="combobox"]').getAttribute('aria-invalid'), 'true');
+  assert.equal(osmLog.overpass.length, 0);
+  await extraRows(page).nth(1).locator('.remove-point').click();
+
+  await page.locator('#submit').click();
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // A group has no road between it: no route, and travel times for two rings of
+  // points (7, then 6) and the places, everyone in one request each.
+  assert.equal(osmLog.osrmRoute.length, 0);
+  assert.equal(osmLog.osrmTable.length, 3);
+  const coords = (i) => osmLog.osrmTable[i].split('/').pop().split(';').length;
+  assert.deepEqual([coords(0), coords(1)], [3 + 7, 3 + 6]);
+
+  const url = await sharedLink(page);
+  assert.equal(url.searchParams.get('a'), 'חיפה');
+  assert.equal(url.searchParams.get('p3'), 'באר שבע');
+  assert.ok(url.searchParams.get('p3ll'));
+  assert.equal(url.searchParams.get('p4'), null);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // The link opens with the same three points, and runs their search.
+  const opened = await openApp({ query: url.search });
+  await opened.page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.deepEqual(await extraLetters(opened.page), ['ג']);
+  assert.equal(await extraRows(opened.page).first().locator('input[role="combobox"]').inputValue(), 'באר שבע');
+  assert.equal(opened.osmLog.osrmRoute.length, 0);
+  // Coordinates came from the link: nothing was looked up by name.
+  assert.equal(opened.osmLog.photon.length, 0);
+  assert.deepEqual(opened.errors, []);
+  await opened.context.close();
+});
+
+test('more starting points: a reload brings back the group search, transit choice included', async () => {
+  const { page, context, osmLog } = await openApp();
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'ירושלים');
+  await page.locator('#add-point').click();
+  const third = extraRows(page).first().locator('input[role="combobox"]');
+  await third.fill('באר שבע');
+  await page.locator(`#${await third.getAttribute('aria-controls')} [role="option"]`).first().click();
+  await extraRows(page).first().locator('input[value="transit"]').check({ force: true });
+  await page.locator('#submit').click();
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.ok(osmLog.transit.length > 0);
+  await page.reload();
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.deepEqual(await extraLetters(page), ['ג']);
+  assert.equal(await extraRows(page).first().locator('input[role="combobox"]').inputValue(), 'באר שבע');
+  assert.equal(await extraRows(page).first().locator('input[value="transit"]').isChecked(), true);
+  assert.equal(new URL(page.url()).search, '');
+  await context.close();
+});

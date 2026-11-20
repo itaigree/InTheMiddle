@@ -1,6 +1,12 @@
 // Search state <-> URL query string, so a search can be shared as a link.
 
 export const MODES = ['car', 'transit'];
+/**
+ * The link keys of the starting points after א and ב (ג, ד, ה: points 3 to 5),
+ * each like `a`: `p3` the name, `p3ll` the coordinates, `p3m` the mode when it
+ * isn't car. (Not `c`: that one is the kinds of places.)
+ */
+export const EXTRA_KEYS = ['p3', 'p4', 'p5'];
 /** What matters more when no place is exactly in the middle (see core/ranking.js). */
 export const PRIORITIES = ['equal', 'balanced', 'gap'];
 
@@ -32,12 +38,16 @@ const DEPARTURE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
  * @param {boolean} [state.shabbat]  only cafes and restaurants closed on Shabbat
  * @param {'equal'|'balanced'|'gap'} [state.priority]  what matters more (balanced is left out)
  * @param {string|null} [state.provider]  forced provider id, normally null
+ * @param {{label: string, lat?: number, lng?: number, mode?: 'car'|'transit'}[]} [state.extra]
+ *   more starting points, after א and ב (up to EXTRA_KEYS.length)
  */
 export function encodeState(state) {
   const params = new URLSearchParams();
+  const extra = (state.extra || []).filter((p) => p?.label).slice(0, EXTRA_KEYS.length);
   for (const [key, loc, mode] of [
     ['a', state.a, state.modeA],
     ['b', state.b, state.modeB],
+    ...extra.map((p, i) => [EXTRA_KEYS[i], p, p.mode]),
   ]) {
     if (!loc || !loc.label) continue;
     params.set(key, loc.label);
@@ -67,14 +77,25 @@ export function decodeState(search, { knownCategories = null } = {}) {
     shabbat: false,
     priority: 'balanced',
     provider: null,
+    extra: [],
+  };
+  const pointAt = (key) => {
+    const label = (params.get(key) || '').trim().slice(0, 200);
+    if (!label) return null;
+    const point = decodePoint(params.get(`${key}ll`));
+    const mode = params.get(`${key}m`);
+    return { loc: point ? { label, ...point } : { label }, mode: MODES.includes(mode) ? mode : 'car' };
   };
   for (const key of ['a', 'b']) {
-    const label = (params.get(key) || '').trim().slice(0, 200);
-    if (!label) continue;
-    const point = decodePoint(params.get(`${key}ll`));
-    result[key] = point ? { label, ...point } : { label };
-    const mode = params.get(`${key}m`);
-    if (MODES.includes(mode)) result[key === 'a' ? 'modeA' : 'modeB'] = mode;
+    const found = pointAt(key);
+    if (!found) continue;
+    result[key] = found.loc;
+    result[key === 'a' ? 'modeA' : 'modeB'] = found.mode;
+  }
+  // The points after א and ב, in order (a gap in the keys closes up).
+  for (const key of EXTRA_KEYS) {
+    const found = pointAt(key);
+    if (found) result.extra.push({ ...found.loc, mode: found.mode });
   }
   const cats = params.get('c');
   if (cats) {

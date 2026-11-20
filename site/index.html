@@ -103,6 +103,15 @@
             </div>
           </div>
 
+          <!-- More starting points (ג, ד, ה): an extra under the two that are the app, on the same line. -->
+          <div class="more-points">
+            <div id="extra-endpoints" class="extra-endpoints" hidden></div>
+            <button type="button" id="add-point" class="add-point">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13" /></svg>
+              עוד נקודת יציאה
+            </button>
+          </div>
+
           <fieldset class="categories">
             <legend>מה מחפשים?</legend>
             <div id="category-chips" class="chips"></div>
@@ -218,6 +227,38 @@
         · <a href="privacy.html">מדיניות פרטיות</a>
       </p>
     </footer>
+
+    <!-- One more starting point; main.js fills in its ids, names and letter. -->
+    <template id="extra-point-template">
+      <div class="endpoint endpoint-extra">
+        <label class="endpoint-label">
+          <span class="side-badge side-extra" aria-hidden="true"></span>
+          <span class="sr-only"></span>
+        </label>
+        <div class="combo">
+          <input
+            type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            autocomplete="off"
+            enterkeyhint="search"
+            placeholder="עוד נקודת יציאה"
+          />
+          <button type="button" class="icon-button locate" title="המיקום שלי" aria-label="שימוש במיקום שלי">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /><circle cx="12" cy="12" r="7" fill="none" /></svg>
+          </button>
+          <ul class="suggestions" role="listbox" hidden></ul>
+        </div>
+        <div class="mode-toggle" role="radiogroup">
+          <label title="רכב"><input type="radio" value="car" checked /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 16.5v-4.2L6.6 7h10.8l2.1 5.3v4.2M4.5 16.5h15M4.5 12.3h15M6.5 16.5v2M17.5 16.5v2" /><circle cx="8" cy="14.4" r=".6" /><circle cx="16" cy="14.4" r=".6" /></svg><span class="sr-only">רכב</span></span></label>
+          <label title="תחבורה ציבורית"><input type="radio" value="transit" /><span><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="3.5" width="13" height="14" rx="2.5" /><path d="M5.5 11h13M8.5 17.5v2.5M15.5 17.5v2.5" /><circle cx="8.6" cy="14.3" r=".6" /><circle cx="15.4" cy="14.3" r=".6" /></svg><span class="sr-only">תחבורה ציבורית</span></span></label>
+        </div>
+        <button type="button" class="icon-button remove-point" title="הסרה">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
+        </button>
+      </div>
+    </template>
 
     <template id="place-card-template">
       <li class="place-card">

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatDuration, formatDistance } from '../../site/js/core/format.js';
-import { encodeState, decodeState } from '../../site/js/core/state.js';
+import { encodeState, decodeState, EXTRA_KEYS } from '../../site/js/core/state.js';
+import { MAX_POINTS } from '../../site/js/core/group.js';
 
 test('formatDuration in Hebrew', () => {
   assert.equal(formatDuration(0), '1 דק׳');
@@ -36,6 +37,7 @@ test('state round-trips through the query string', () => {
     shabbat: true,
     priority: 'equal',
     provider: null,
+    extra: [],
   };
   const decoded = decodeState(encodeState(state));
   assert.deepEqual(decoded, state);
@@ -64,7 +66,47 @@ test('decodeState drops malformed values', () => {
     shabbat: false,
     priority: 'balanced',
     provider: null,
+    extra: [],
   });
+});
+
+test('more starting points travel in the link after א and ב, in order', () => {
+  const state = {
+    a: { label: 'חיפה', lat: 32.794, lng: 34.9896 },
+    b: { label: 'תל אביב-יפו', lat: 32.0853, lng: 34.7818 },
+    modeA: 'car',
+    modeB: 'car',
+    categories: ['cafe'],
+    extra: [
+      { label: 'באר שבע', lat: 31.2518, lng: 34.7913, mode: 'transit' },
+      { label: 'ירושלים' },
+    ],
+  };
+  const qs = encodeState(state);
+  const params = new URLSearchParams(qs);
+  assert.equal(params.get('p3'), 'באר שבע');
+  assert.equal(params.get('p3ll'), '31.25180,34.79130');
+  assert.equal(params.get('p3m'), 'transit');
+  assert.equal(params.get('p4'), 'ירושלים');
+  assert.equal(params.get('p4m'), null); // driving is the default
+  assert.equal(params.get('c'), 'cafe'); // the kinds of places keep their key
+  assert.deepEqual(decodeState(qs).extra, [
+    { label: 'באר שבע', lat: 31.2518, lng: 34.7913, mode: 'transit' },
+    { label: 'ירושלים', mode: 'car' },
+  ]);
+  // A pair's link has no extra points, and old links decode with none.
+  assert.doesNotMatch(encodeState({ ...state, extra: [] }), /p3/);
+  assert.deepEqual(decodeState('a=x&b=y').extra, []);
+});
+
+test('extra starting points: gaps close up, empty and malformed parts are dropped, at most three', () => {
+  const d = decodeState('a=x&b=y&p4=%D7%92&p4ll=32,&p4m=plane&p5=%20&p3=');
+  assert.deepEqual(d.extra, [{ label: 'ג', mode: 'car' }]);
+  const many = Array.from({ length: 5 }, (_, i) => ({ label: `נקודה ${i}` }));
+  const back = decodeState(encodeState({ a: { label: 'x' }, b: { label: 'y' }, extra: many })).extra;
+  assert.deepEqual(back.map((p) => p.label), ['נקודה 0', 'נקודה 1', 'נקודה 2']);
+  // א, ב and the extra keys add up to the most points a search takes.
+  assert.equal(2 + EXTRA_KEYS.length, MAX_POINTS);
 });
 
 test('decodeState drops coordinates with an empty part instead of reading it as 0', () => {
