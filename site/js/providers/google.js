@@ -112,7 +112,7 @@ function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
+      timer = setTimeout(() => reject(Object.assign(new Error(message), { timedOut: true })), ms);
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -191,7 +191,10 @@ async function call(fn) {
     return await attempt();
   } catch (first) {
     const classified = classifyGoogleError(first);
-    if (!(classified instanceof ProviderUnavailableError && classified.reason === 'load-failed')) throw classified;
+    // Not after our own timeout: that request is still running, and Google bills it when it answers.
+    if (first?.timedOut || !(classified instanceof ProviderUnavailableError && classified.reason === 'load-failed')) {
+      throw classified;
+    }
     await new Promise((r) => setTimeout(r, 600));
     try {
       return await attempt();
