@@ -454,6 +454,16 @@ test('empty form shows validation errors', async () => {
   await context.close();
 });
 
+test('"בזמן אחר…" moves focus to a departure time field that has a name', async () => {
+  const { page, context } = await openApp();
+  await openOptions(page);
+  await page.locator('#departure-choice').selectOption('later');
+  const field = page.getByRole('textbox', { name: 'תאריך ושעת יציאה' });
+  assert.equal(await field.evaluate((el) => el.id, null, { timeout: 2000 }), 'departure');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'departure');
+  await context.close();
+});
+
 test('Overpass busy: the places come from Photon instead', async () => {
   const { page, context, osmLog } = await openApp({ osm: { failOverpass: true } });
   await pickSuggestion(page, 'a', 'חיפה');
