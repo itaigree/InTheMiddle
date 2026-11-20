@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findGroupMiddle, enclosingCircle, ringAround, fairestPoint, MAX_POINTS } from '../../site/js/core/group.js';
+import { findGroupMiddle, enclosingCircle, ringAround, fairestPoint, farthestPair, MAX_POINTS } from '../../site/js/core/group.js';
 import { haversine, offsetMeters, metersFrom } from '../../site/js/core/geo.js';
 import { rerankPlaces } from '../../site/js/core/ranking.js';
 import { prepare, beyondGreenLine } from '../../site/js/core/green-line.js';
@@ -12,6 +12,9 @@ const TRIANGLE = ringAround(CENTRE, 30000, 3).map((p, i) => ({ label: `נקוד�
 const TLV = { label: 'תל אביב', lat: 32.0853, lng: 34.7818 };
 const RAMAT_GAN = { label: 'רמת גן', lat: 32.0823, lng: 34.8106 };
 const BEER_SHEVA = { label: 'באר שבע', lat: 31.2518, lng: 34.7913 };
+const JERUSALEM = { label: 'ירושלים', lat: 31.7784, lng: 35.2066 };
+const YERUHAM = { label: 'ירוחם', lat: 30.9876, lng: 34.9295 };
+const KIRYAT_GAT = { label: 'קריית גת', lat: 31.61, lng: 34.7642 };
 
 const key = (p) => `${p.lat},${p.lng}`;
 
@@ -29,16 +32,24 @@ function fakeProvider({
   placesPerCategory = 5,
   maxCandidates,
   failPlaces = false,
+  timeline = false, // routes carry driving times along them (as OSRM's and Google's do)
 } = {}) {
-  const calls = { travelTimes: [], searchPlaces: [] };
+  const calls = { route: 0, travelTimes: [], searchPlaces: [] };
   let transitCalls = 0;
   return {
     id: 'fake',
     supportsTransit: transit,
     maxCandidates,
     calls,
-    async route() {
-      throw new Error('a group search does not ask for a route');
+    async route(a, b) {
+      calls.route++;
+      const meters = haversine(a, b);
+      const route = { path: [a, b], distanceMeters: meters, durationSec: meters / 20 };
+      if (timeline) {
+        route.path = [a, { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, b];
+        route.timeline = [0, meters / 40, meters / 20];
+      }
+      return route;
     },
     async travelTimes(origins, destinations, mode) {
       calls.travelTimes.push({ origins: origins.length, destinations: destinations.length, mode });
@@ -168,7 +179,9 @@ test('people around a point meet at that point, and places carry everyone\'s tim
   assert.equal(result.places.length, 10);
   for (const p of result.places) {
     assert.equal(p.times.length, 3);
-    assert.equal(p.diff, Math.max(...p.times) - Math.min(...p.times));
+    // The gap between the two longest trips.
+    const [longest, second] = [...p.times].sort((x, y) => y - x);
+    assert.equal(p.diff, longest - second);
   }
   for (let i = 1; i < result.places.length; i++) assert.ok(result.places[i - 1].score <= result.places[i].score);
   // No route: never asked for.
@@ -194,17 +207,62 @@ test('a slower side pulls the middle toward it', async () => {
   assert.ok(Math.max(...times) - Math.min(...times) < 300);
 });
 
-test('everyone driving: one travel-time request per stage, all sides together', async () => {
+test('three about as far apart: their pair\'s middle leaves the third further, so the area is searched', async () => {
   const provider = fakeProvider();
   await findGroupMiddle(baseQuery, provider);
   assert.deepEqual(
     provider.calls.travelTimes.map((c) => [c.origins, c.destinations, c.mode]),
     [
+      [2, 8, 'car'], // along the road between two of them
+      [3, 1, 'car'], // everyone to that middle: the third takes longer
       [3, 7, 'car'], // the centre and the first ring
       [3, 6, 'car'], // the tighter ring
       [3, 10, 'car'], // the places
     ],
   );
+});
+
+test('the two farthest apart meet halfway in time, and someone nearer just travels less', async () => {
+  // Jerusalem and Yeruham are farthest apart; Kiryat Gat is nearer their middle.
+  const provider = fakeProvider();
+  const result = await findGroupMiddle({ ...baseQuery, points: [JERUSALEM, YERUHAM, KIRYAT_GAT] }, provider);
+  const toJ = haversine(result.midpoint, JERUSALEM);
+  const toY = haversine(result.midpoint, YERUHAM);
+  assert.ok(Math.abs(toJ - toY) < 0.03 * toJ, `${toJ} vs ${toY}`);
+  assert.ok(haversine(result.midpoint, KIRYAT_GAT) < toJ);
+  assert.ok(result.balance.reliable);
+  // No area search: the road between the two, everyone to its middle, then the places.
+  assert.deepEqual(
+    provider.calls.travelTimes.map((c) => [c.origins, c.destinations]),
+    [
+      [2, 8],
+      [3, 1],
+      [3, 10],
+    ],
+  );
+  // The best place: Jerusalem and Yeruham about the same, Kiryat Gat less.
+  const [j, y, k] = result.places[0].times;
+  assert.ok(Math.abs(j - y) < 10 * 60, `${j} vs ${y}`);
+  assert.ok(k < Math.min(j, y));
+});
+
+test('driving times along the route come with it: no lookups to find the farthest two\'s middle', async () => {
+  const provider = fakeProvider({ timeline: true });
+  await findGroupMiddle({ ...baseQuery, points: [JERUSALEM, YERUHAM, KIRYAT_GAT] }, provider);
+  assert.equal(provider.calls.route, 1);
+  assert.deepEqual(
+    provider.calls.travelTimes.map((c) => [c.origins, c.destinations]),
+    [
+      [3, 1],
+      [3, 10],
+    ],
+  );
+});
+
+test('farthestPair picks the two farthest apart', () => {
+  assert.deepEqual(farthestPair([KIRYAT_GAT, JERUSALEM, TLV, YERUHAM]), [2, 3]);
+  assert.deepEqual(farthestPair([KIRYAT_GAT, JERUSALEM, YERUHAM]), [1, 2]);
+  assert.deepEqual(farthestPair([TLV, RAMAT_GAN, BEER_SHEVA]), [0, 2]);
 });
 
 test('mixed modes: one request per mode', async () => {
@@ -244,7 +302,8 @@ test('transit failing after the first ring re-times that side\'s earlier points 
   // A slow transit side: the first ring pulls the middle toward it. When transit
   // fails on the second ring, the first ring must be timed again by car, or the
   // middle would be chosen from transit times for some points and driving for others.
-  const provider = fakeProvider({ transitThrows: 2, transitSpeed: 8 });
+  // (Transit calls: to the farthest two's middle, the first ring, then the second, which fails.)
+  const provider = fakeProvider({ transitThrows: 3, transitSpeed: 8 });
   const result = await findGroupMiddle({ ...baseQuery, modes: ['transit', 'car', 'car'] }, provider);
   assert.deepEqual(result.modes, ['car', 'car', 'car']);
   const carOnly = provider.calls.travelTimes.filter((c) => c.mode === 'car' && c.origins === 1);
@@ -294,8 +353,9 @@ test('Green Line filter: the middle stays out of the areas, with a notice', asyn
   const result = await findGroupMiddle({ ...baseQuery, avoidAreas: areas }, provider);
   assert.ok(!beyondGreenLine(areas, result.midpoint));
   assert.ok(result.notices.includes('green-line-places-only'));
-  // The centre itself was never timed: only the six ring points.
-  assert.equal(provider.calls.travelTimes[0].destinations, 6);
+  // The centre itself was never timed: only the six ring points (after the pair's middle).
+  const everyone = provider.calls.travelTimes.filter((c) => c.origins === 3).map((c) => c.destinations);
+  assert.deepEqual(everyone.slice(0, 2), [1, 6]);
 });
 
 test('Green Line filter: the whole first ring beyond the line looks further out', async () => {
@@ -305,7 +365,8 @@ test('Green Line filter: the whole first ring beyond the line looks further out'
   assert.ok(!beyondGreenLine(areas, result.midpoint));
   assert.ok(result.balance.reliable);
   // Nothing timed in the first ring; the wider one (24 km out) is all outside the square.
-  assert.equal(provider.calls.travelTimes[0].destinations, 6);
+  const everyone = provider.calls.travelTimes.filter((c) => c.origins === 3).map((c) => c.destinations);
+  assert.deepEqual(everyone.slice(0, 2), [1, 6]);
   assert.ok(haversine(result.midpoint, CENTRE) > 18000);
 });
 

@@ -138,13 +138,17 @@ function fairnessText(place, labels) {
   return { level, text: `${formatDuration(place.diff)} יותר ${longer}` };
 }
 
-/** For a group: the gap between the longest and the shortest trip, and whose is longest. */
+/**
+ * For a group, said of the two who travel most: "אותו זמן מירושלים ומירוחם, ומנטע פחות",
+ * or "4 דק׳ יותר מירושלים מאשר מירוחם, ומנטע פחות".
+ */
 function groupFairnessText(place, labels = []) {
   const level = fairnessLevel(place.times);
-  if (place.diff < 60) return { level, text: 'אותו זמן נסיעה לכולם' };
-  const longest = place.times.indexOf(Math.max(...place.times));
-  const from = labels[longest] ? `מ${labels[longest]}` : `מנקודה ${SIDE_LETTERS[longest]}׳`;
-  return { level, text: `פער של ${formatDuration(place.diff)} בין הנסיעות · הכי ארוכה ${from}` };
+  const from = (i) => (labels[i] ? `מ${labels[i]}` : `מנקודה ${SIDE_LETTERS[i]}׳`);
+  const [first, second, ...rest] = place.times.map((_, i) => i).sort((x, y) => place.times[y] - place.times[x]);
+  const others = rest.length === 1 ? `, ו${from(rest[0])} פחות` : rest.length ? ', ומהשאר פחות' : '';
+  if (place.diff < 60) return { level, text: `אותו זמן ${from(first)} ו${from(second)}${others}` };
+  return { level, text: `${formatDuration(place.diff)} יותר ${from(first)} מאשר ${from(second)}${others}` };
 }
 
 /**

@@ -20,7 +20,7 @@ import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
  */
 export const MAX_CANDIDATES = 40;
 /** Fine sampling used when driving times come from the route itself (no API calls). */
-const TIMELINE_FRACTIONS = Array.from({ length: 49 }, (_, i) => (i + 1) / 50);
+export const TIMELINE_FRACTIONS = Array.from({ length: 49 }, (_, i) => (i + 1) / 50);
 /** Below this many places around the midpoint, the search area is widened (step by step). */
 export const MIN_PLACES = 6;
 
@@ -318,7 +318,8 @@ export async function routeInside(provider, a, b, areas, opts = {}) {
   return { route: found[0], bypass: 'failed' };
 }
 
-function hasTimeline(path, timeline) {
+/** Is `timeline` a usable per-vertex time line for `path` (rising, ending above 0)? */
+export function hasTimeline(path, timeline) {
   return (
     Array.isArray(timeline) &&
     timeline.length === path.length &&

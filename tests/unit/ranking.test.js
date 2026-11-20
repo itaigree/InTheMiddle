@@ -110,15 +110,19 @@ test('two sides score the same through scorePlace and scoreTimes', () => {
   assert.ok(Math.abs(travelScore([1500, 2700]) - (35 + 1.7 * 20)) < 1e-9);
 });
 
-test('a group is scored by its average trip and the gap between the longest and the shortest', () => {
-  // 30, 30 and 60 minutes: average 40, gap 30.
-  assert.ok(Math.abs(travelScore([1800, 1800, 3600], 'balanced') - (40 + 1.7 * 30)) < 1e-9);
-  // Everyone 40 minutes beats 20/20/50 (shorter on average) unless a gap is fine.
-  const even = [2400, 2400, 2400];
-  const uneven = [1200, 1200, 3000];
-  assert.ok(travelScore(even, 'balanced') < travelScore(uneven, 'balanced'));
-  assert.ok(travelScore(even, 'equal') < travelScore(uneven, 'equal'));
-  assert.ok(travelScore(uneven, 'gap') < travelScore(even, 'gap'));
+test('a group is held to its two longest trips: those two about equal, everyone else less', () => {
+  const min = (...m) => m.map((x) => x * 60);
+  // Jerusalem 82, Yeruham 46, Neta 46 minutes, against 60, 60 and 20: the second is
+  // fairer to the two who travel most, whatever matters more.
+  for (const priority of ['equal', 'balanced', 'gap']) {
+    assert.ok(travelScore(min(60, 60, 20), priority) < travelScore(min(82, 46, 46), priority), priority);
+  }
+  // Living near the middle doesn't count against a place.
+  assert.ok(travelScore(min(55, 55, 10)) < travelScore(min(60, 60, 60)));
+  // The two longest, as for a pair (plus a little for the rest): 50 and 40, then 10.
+  assert.ok(Math.abs(travelScore(min(10, 50, 40), 'balanced') - (45 + 1.7 * 10 + 0.1 * 10)) < 1e-9);
+  // Between places equally fair to those two, the one nearer the rest comes first.
+  assert.ok(travelScore(min(50, 50, 10)) < travelScore(min(50, 50, 40)));
 });
 
 test('rankGroupPlaces drops places anyone cannot reach and sorts best-first', () => {
@@ -148,9 +152,11 @@ test('rerankPlaces re-sorts a group by its times', () => {
   assert.deepEqual(again[0].times, [1200, 1200, 3000]);
 });
 
-test('fairnessLevel takes a group as a list', () => {
+test('fairnessLevel takes a group as a list, judged by its two longest trips', () => {
   assert.equal(fairnessLevel([1800, 1850, 1900]), 'great');
-  assert.equal(fairnessLevel([3600, 3700, 3600 + 6 * 60]), 'good');
+  // Someone close by doesn't make it less fair.
+  assert.equal(fairnessLevel([600, 3000, 3000]), 'great');
+  assert.equal(fairnessLevel([600, 2400, 2400 + 6 * 60]), 'good');
   assert.equal(fairnessLevel([600, 1200, 1800]), 'fair');
   assert.equal(fairnessLevel([1800, 1900]), fairnessLevel(1800, 1900));
 });

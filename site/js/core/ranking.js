@@ -16,14 +16,30 @@ export const PRIORITIES = { equal: 3.5, balanced: 1.7, gap: 0.2 };
 const CLOSED_PENALTY_MIN = 15;
 
 /**
- * The travel part of a score, in minutes: the average trip plus the gap between
- * the longest and the shortest (for two sides, the difference between them),
- * weighted by `priority`. Lower is better.
+ * How much the trips of a group's others count (as a share of their average, in
+ * minutes): a little, so that between two places equally fair to the two who
+ * travel most, the one nearer everyone else comes first.
+ */
+const REST_WEIGHT = 0.1;
+
+/**
+ * The travel part of a score, in minutes. Two sides: their average trip plus
+ * the difference between them, weighted by `priority`. A group is held to the
+ * same by its two longest trips: those two should be about the same and short,
+ * and everyone else travels less anyway (and counts only a little). Lower is better.
  */
 export function travelScore(times, priority = 'balanced') {
-  const meanMin = times.reduce((sum, t) => sum + t, 0) / times.length / 60;
-  const gapMin = (Math.max(...times) - Math.min(...times)) / 60;
-  return meanMin + (PRIORITIES[priority] ?? PRIORITIES.balanced) * gapMin;
+  const [longest, second = longest, ...rest] = [...times].sort((x, y) => y - x);
+  const meanMin = (longest + second) / 2 / 60;
+  const gapMin = (longest - second) / 60;
+  const restMin = rest.length ? rest.reduce((sum, t) => sum + t, 0) / rest.length / 60 : 0;
+  return meanMin + (PRIORITIES[priority] ?? PRIORITIES.balanced) * gapMin + REST_WEIGHT * restMin;
+}
+
+/** The gap between the two longest trips (for two sides, the difference between them). */
+export function topGap(times) {
+  const [longest, second = longest] = [...times].sort((x, y) => y - x);
+  return longest - second;
 }
 
 /**
@@ -67,7 +83,7 @@ export function rankPlaces(places, timesA, timesB, options = {}) {
 /**
  * rankPlaces for a group: `timesBySide[side][place]`. Each ranked place carries
  * `times` (one per side, in the sides' order) and `diff`, the gap between the
- * longest and the shortest trip. Places that anyone cannot reach are dropped.
+ * two longest trips. Places that anyone cannot reach are dropped.
  */
 export function rankGroupPlaces(places, timesBySide, options = {}) {
   return places
@@ -76,7 +92,7 @@ export function rankGroupPlaces(places, timesBySide, options = {}) {
     .map(({ place, times }) => ({
       ...place,
       times,
-      diff: Math.max(...times) - Math.min(...times),
+      diff: topGap(times),
       score: scoreTimes(place, times, options),
     }))
     .sort((x, y) => x.score - y.score);
@@ -117,12 +133,13 @@ export function pickTop(ranked, { limit = 20, perCategory = Infinity } = {}) {
 
 /**
  * 'great' | 'good' | 'fair' — how evenly the trip is split between the sides:
- * fairnessLevel(timeA, timeB), or fairnessLevel([t1, t2, t3, ...]) for a group.
+ * fairnessLevel(timeA, timeB), or fairnessLevel([t1, t2, t3, ...]) for a group,
+ * judged by its two longest trips.
  */
 export function fairnessLevel(...args) {
   const times = Array.isArray(args[0]) ? args[0] : args;
   const longer = Math.max(...times, 1);
-  const diff = Math.max(...times) - Math.min(...times);
+  const diff = topGap(times);
   if (diff <= 3 * 60 || diff / longer <= 0.08) return 'great';
   if (diff <= 8 * 60 || diff / longer <= 0.2) return 'good';
   return 'fair';

@@ -1503,12 +1503,13 @@ test('more starting points: an empty one is pointed out; filled in, the group se
 
   await page.locator('#submit').click();
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
-  // A group has no road between it: no route, and travel times for two rings of
-  // points (7, then 6) and the places, everyone in one request each.
-  assert.equal(osmLog.osrmRoute.length, 0);
-  assert.equal(osmLog.osrmTable.length, 3);
+  // Haifa and Be'er Sheva are farthest apart: their middle comes from the road between
+  // them (driving times come with it), Tel Aviv is timed to it and gets there sooner,
+  // then everyone is timed to the places.
+  assert.equal(osmLog.osrmRoute.length, 1);
+  assert.equal(osmLog.osrmTable.length, 2);
   const coords = (i) => osmLog.osrmTable[i].split('/').pop().split(';').length;
-  assert.deepEqual([coords(0), coords(1)], [3 + 7, 3 + 6]);
+  assert.equal(coords(0), 3 + 1);
 
   const url = await sharedLink(page);
   assert.equal(url.searchParams.get('a'), 'חיפה');
@@ -1523,7 +1524,7 @@ test('more starting points: an empty one is pointed out; filled in, the group se
   await opened.page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   assert.deepEqual(await extraLetters(opened.page), ['ג']);
   assert.equal(await extraRows(opened.page).first().locator('input[role="combobox"]').inputValue(), 'באר שבע');
-  assert.equal(opened.osmLog.osrmRoute.length, 0);
+  assert.equal(opened.osmLog.osrmRoute.length, 1);
   // Coordinates came from the link: nothing was looked up by name.
   assert.equal(opened.osmLog.photon.length, 0);
   assert.deepEqual(opened.errors, []);
@@ -1585,7 +1586,8 @@ test('more starting points: the results show everyone\'s time, everyone on the m
   const picked = page.locator('#picked .place-card');
   await picked.waitFor();
   assert.deepEqual(await picked.locator('.time-from').allTextContents(), ['מחיפה', 'מתל אביב', 'מירושלים']);
-  assert.match(await picked.locator('.fairness').textContent(), /^(אותו זמן נסיעה לכולם|פער של .+ בין הנסיעות · הכי ארוכה מ(חיפה|תל אביב|ירושלים))$/);
+  // Said of the two who travel most, and the third travels less.
+  assert.match(await picked.locator('.fairness').textContent(), /^(אותו זמן|.+ יותר) מ(חיפה|תל אביב|ירושלים) (ו|מאשר )מ(חיפה|תל אביב|ירושלים), ומ(חיפה|תל אביב|ירושלים) פחות$/);
   assert.equal(await page.locator('#map path[stroke-dasharray="1 9"]').count(), 3);
 
   // Sharing the place says everyone's time.
@@ -1619,15 +1621,17 @@ test('more starting points: sharing the search names everyone', async () => {
   await context.close();
 });
 
-test('Google mode, more starting points: one matrix request per mode and stage, a Google pin for everyone', async () => {
+test('Google mode, more starting points: one route, few matrix requests, a Google pin for everyone', async () => {
   const { page, context, osmLog, errors } = await openApp({ key: 'TEST_KEY', google: {}, query: GROUP_LINK.replace(/&p3m=transit/, '') });
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   await page.locator('#map .fake-marker .pin-extra').first().waitFor({ timeout: 20000 });
-  const matrices = (await page.evaluate(() => window.__fakeGoogleCalls)).filter((c) => c.startsWith('matrix:'));
-  // The two rings (7 and 6 points), then the places: everyone in one request each.
-  assert.deepEqual(matrices.slice(0, 2), ['matrix:DRIVING:3x7', 'matrix:DRIVING:3x6']);
-  assert.match(matrices[2], /^matrix:DRIVING:3x\d+$/);
-  assert.equal(matrices.length, 3);
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  const matrices = calls.filter((c) => c.startsWith('matrix:'));
+  // Haifa and Jerusalem are farthest apart: the road between them gives their middle;
+  // everyone is timed to it (Tel Aviv gets there sooner), then to the places.
+  assert.equal(matrices[0], 'matrix:DRIVING:3x1');
+  assert.match(matrices[1], /^matrix:DRIVING:3x\d+$/);
+  assert.equal(matrices.length, 2);
   assert.equal(osmLog.overpass.length + osmLog.osrmTable.length, 0);
   assert.deepEqual(await page.locator('#place-list .place-card').first().locator('.group-time .side-badge').allTextContents(), ['א', 'ב', 'ג']);
   assert.deepEqual(errors, []);
