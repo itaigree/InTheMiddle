@@ -451,20 +451,72 @@ export function parseOverpass(data, center, categoryIds, perCategory = PLACES_PE
   return out;
 }
 
+const CACHE_PREFIX = 'inthemiddle.overpass.';
+const cacheKeyOf = (query) => `${CACHE_PREFIX}v${PLACES_CACHE_VERSION}:${query}`;
+const isFresh = (hit) => hit && Date.now() - hit.t < (hit.ttl || OVERPASS_CACHE_TTL_MS);
+
 function cacheGet(key) {
   try {
     const hit = JSON.parse(sessionStorage.getItem(key));
-    return hit && Date.now() - hit.t < (hit.ttl || OVERPASS_CACHE_TTL_MS) ? hit.v : null;
+    return isFresh(hit) ? hit.v : null;
   } catch {
     return null;
   }
 }
 
-function cacheSet(key, value, ttl) {
+/** A cache entry's { t, ttl }, read from its start only: the places after them can be long. */
+function entryTimes(raw) {
+  const end = raw.indexOf(',"v":');
+  return JSON.parse(end < 0 ? raw : `${raw.slice(0, end)}}`);
+}
+
+/**
+ * Removes the cached places that expired or belong to another PLACES_CACHE_VERSION
+ * (nothing else ever does, and the storage is small), and returns the rest as
+ * { key, t, size }, oldest first.
+ */
+function pruneCache() {
+  const current = cacheKeyOf('');
+  const kept = [];
   try {
-    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), ttl, v: value }));
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) keys.push(sessionStorage.key(i));
+    for (const key of keys) {
+      if (!key?.startsWith(CACHE_PREFIX)) continue;
+      const raw = key.startsWith(current) ? sessionStorage.getItem(key) : null;
+      let hit = null;
+      try {
+        hit = raw && entryTimes(raw);
+      } catch {
+        // Unreadable: removed below.
+      }
+      if (isFresh(hit)) kept.push({ key, t: hit.t, size: key.length + raw.length });
+      else sessionStorage.removeItem(key);
+    }
   } catch {
-    // Storage full or disabled: just don't cache.
+    // Storage disabled or unreadable: nothing to tidy.
+  }
+  return kept.sort((x, y) => x.t - y.t);
+}
+
+function cacheSet(key, value, ttl) {
+  const entry = JSON.stringify({ t: Date.now(), ttl, v: value });
+  const kept = pruneCache();
+  try {
+    sessionStorage.setItem(key, entry);
+  } catch {
+    // Storage full: the oldest places kept make room for these, then one more try.
+    try {
+      let freed = 0;
+      for (const old of kept) {
+        if (freed >= key.length + entry.length) break;
+        sessionStorage.removeItem(old.key);
+        freed += old.size;
+      }
+      sessionStorage.setItem(key, entry);
+    } catch {
+      // Still full, or storage disabled: just don't cache.
+    }
   }
 }
 
@@ -487,7 +539,7 @@ async function overpassPlaces(center, radius, categoryIds) {
   // Overpass asks apps to keep their load on the public servers small.
   const rounded = { lat: Math.round(center.lat * 1000) / 1000, lng: Math.round(center.lng * 1000) / 1000 };
   const query = buildOverpassQuery(rounded, radius, categoryIds);
-  const cacheKey = `inthemiddle.overpass.v${PLACES_CACHE_VERSION}:${query}`;
+  const cacheKey = cacheKeyOf(query);
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
   let places;

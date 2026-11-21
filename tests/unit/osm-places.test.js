@@ -6,7 +6,21 @@ import { findMiddle } from '../../site/js/core/search.js';
 // Overpass busy or not, Photon's nearest places, sessionStorage and the clock, all faked.
 function setup() {
   const store = new Map();
-  globalThis.sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
+  // Like a browser's: full past `quota` characters of keys and values.
+  const storage = { store, quota: Infinity, used: () => [...store].reduce((n, [k, v]) => n + k.length + v.length, 0) };
+  globalThis.sessionStorage = {
+    get length() {
+      return store.size;
+    },
+    key: (i) => [...store.keys()][i] ?? null,
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => {
+      const after = storage.used() - (store.has(k) ? k.length + store.get(k).length : 0) + k.length + String(v).length;
+      if (after > storage.quota) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+      store.set(k, String(v));
+    },
+    removeItem: (k) => store.delete(k),
+  };
   const clock = { now: Date.parse('2026-10-21T12:00:00Z') };
   const realNow = Date.now;
   Date.now = () => clock.now;
@@ -39,7 +53,7 @@ function setup() {
     globalThis.fetch = realFetch;
     delete globalThis.sessionStorage;
   };
-  return { clock, calls, state, restore };
+  return { clock, calls, state, storage, restore };
 }
 
 const MIN = 60 * 1000;
@@ -222,6 +236,80 @@ test('The filter only sees the places looked at before each category is full', a
     const places = await osm.searchPlaces(at, 1500, ['cafe'], { keep: (p) => keep(p) && p.name !== 'קפה 3' });
     assert.equal(places.length, 15);
     assert.deepEqual(seen, Array.from({ length: 16 }, (_, i) => `קפה ${i + 1}`));
+  } finally {
+    restore();
+  }
+});
+
+test('Places cache: expired places and those of another version are dropped when places are kept', async () => {
+  const { clock, state, storage, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const now = clock.now;
+    const entry = (t, ttl) => JSON.stringify({ t, ttl, v: [{ id: 'osm-node-9', name: 'ישן', lat: 32, lng: 35, category: 'cafe' }] });
+    const v3 = 'inthemiddle.overpass.v3:';
+    sessionStorage.setItem('inthemiddle.overpass.v2:old query', entry(now - MIN));
+    sessionStorage.setItem(`${v3}expired`, entry(now - 7 * 60 * MIN, 6 * 60 * MIN));
+    sessionStorage.setItem(`${v3}expired photon`, entry(now - 6 * MIN, 5 * MIN));
+    sessionStorage.setItem(`${v3}fresh`, entry(now - MIN, 6 * 60 * MIN));
+    sessionStorage.setItem(`${v3}unreadable`, '{');
+    sessionStorage.setItem('inthemiddle.filters', '{"greenLine":true}');
+    const osm = createOsmProvider();
+    await osm.searchPlaces({ lat: 32.44, lng: 34.92 }, 3000, ['cafe']);
+    const keys = [...storage.store.keys()];
+    assert.deepEqual(keys.filter((k) => !k.startsWith(`${v3}[out:json]`)), [`${v3}fresh`, 'inthemiddle.filters']);
+    assert.equal(keys.length, 3); // and the search just made
+  } finally {
+    restore();
+  }
+});
+
+test('Places cache: when storage is full, the oldest places make room for the new', async () => {
+  const { clock, calls, state, storage, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const osm = createOsmProvider();
+    const search = (lat) => osm.searchPlaces({ lat, lng: 34.92 }, 3000, ['cafe']);
+    await search(32.401);
+    storage.quota = Math.floor(storage.used() * 2.5); // room for two searches
+    clock.now += MIN;
+    await search(32.402);
+    clock.now += MIN;
+    await search(32.403); // full: the first search goes
+    assert.equal(calls.overpass, 3);
+    await search(32.403);
+    await search(32.402);
+    assert.equal(calls.overpass, 3); // both kept
+    await search(32.401);
+    assert.equal(calls.overpass, 4);
+  } finally {
+    restore();
+  }
+});
+
+test('Places cache: storage that throws costs no places', async () => {
+  const { clock, calls, state, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const osm = createOsmProvider();
+    const at = { lat: 32.44, lng: 34.92 };
+    const fail = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    };
+    const failing = (works = {}) => ({ getItem: fail, setItem: fail, key: fail, removeItem: fail, ...works, get length() { return fail(); } });
+    // Storage that can't be listed (or have items removed) still keeps the places.
+    const { getItem, setItem } = globalThis.sessionStorage;
+    globalThis.sessionStorage = failing({ getItem, setItem });
+    assert.equal((await osm.searchPlaces(at, 3000, ['cafe'])).length, 1);
+    assert.equal((await osm.searchPlaces(at, 3000, ['cafe'])).length, 1);
+    assert.equal(calls.overpass, 1);
+    // Storage that fails at everything: the places are found, just not kept.
+    globalThis.sessionStorage = failing();
+    assert.equal((await osm.searchPlaces(at, 6000, ['cafe'])).length, 1);
+    assert.equal(calls.overpass, 2);
   } finally {
     restore();
   }
