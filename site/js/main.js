@@ -1,7 +1,7 @@
 // App controller: form, provider selection (Google → OpenStreetMap fallback), search and results.
 
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY_IDS } from './core/categories.js';
-import { encodeState, decodeState } from './core/state.js';
+import { encodeState, decodeState, toIsraelTime, israelTimeToDate, ISRAEL_TIME_ZONE } from './core/state.js';
 import { loadGreenLine, beyondGreenLine } from './core/green-line.js';
 import { findMiddle } from './core/search.js';
 import { findGroupMiddle, MAX_POINTS } from './core/group.js';
@@ -10,7 +10,7 @@ import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
-import { renderSummary, renderFilters, renderPlaces, setActiveCard, MAX_PHOTOS } from './ui/results.js';
+import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
 import { categoryRoundel } from './ui/category-icons.js';
 
@@ -450,7 +450,9 @@ function locate(key, button) {
         lng: pos.coords.longitude,
         source: 'device',
       });
-      hideStatus();
+      // Clear an error (e.g. an earlier "couldn't get your location"), not a notice about
+      // the results on screen or the progress of a search that is still running.
+      if (showingError()) hideStatus();
     },
     () => {
       if (!done()) return;
@@ -542,22 +544,19 @@ $('swap').addEventListener('click', () => {
 const departureChoice = $('departure-choice');
 const departureInput = $('departure');
 
-function toLocalInputValue(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
+// The field holds Israel time, whatever zone the device is set to (see core/state.js).
 departureChoice.addEventListener('change', () => {
   const later = departureChoice.value === 'later';
   departureInput.hidden = !later;
   if (later) {
     const now = new Date();
-    departureInput.min = toLocalInputValue(now);
+    departureInput.min = toIsraelTime(now);
     // Fill a sensible default when empty or when the old value has already passed.
-    if (!departureInput.value || new Date(departureInput.value) < now) {
+    if (!departureInput.value || israelTimeToDate(departureInput.value) < now) {
       const soon = new Date(now.getTime() + 60 * 60 * 1000);
-      soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
-      departureInput.value = toLocalInputValue(soon);
+      // Israel's offset is whole hours, so its quarter hours are UTC's.
+      soon.setUTCMinutes(Math.ceil(soon.getUTCMinutes() / 15) * 15, 0, 0);
+      departureInput.value = toIsraelTime(soon);
     }
     departureInput.focus();
   }
@@ -566,7 +565,7 @@ departureChoice.addEventListener('change', () => {
 /** {date: Date|null, past: boolean} – a past time means "now" to the routing services. */
 function departureValue() {
   if (departureChoice.value !== 'later' || !departureInput.value) return { date: null, past: false };
-  const date = new Date(departureInput.value);
+  const date = israelTimeToDate(departureInput.value);
   if (Number.isNaN(date.getTime())) return { date: null, past: false };
   // A minute or two of slack: a time picked "just now" shouldn't count as past.
   if (date.getTime() < Date.now() - 2 * 60 * 1000) return { date: null, past: true };
@@ -585,11 +584,12 @@ function resetDepartureToNow() {
 const PRIORITY_LABEL = { equal: 'זמן שווה', balanced: 'מאוזן', gap: 'פער גמיש' };
 
 function departureSummary() {
-  const date = departureChoice.value === 'later' && departureInput.value ? new Date(departureInput.value) : null;
+  const date = departureChoice.value === 'later' && departureInput.value ? israelTimeToDate(departureInput.value) : null;
   if (!date || Number.isNaN(date.getTime())) return 'יוצאים עכשיו';
-  const format = (options) => new Intl.DateTimeFormat('he-IL', options).format(date);
-  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.round((dayStart(date) - dayStart(new Date())) / 86_400_000);
+  const format = (options) => new Intl.DateTimeFormat('he-IL', { timeZone: ISRAEL_TIME_ZONE, ...options }).format(date);
+  // Today and tomorrow on Israel's calendar too (Date.parse reads a bare date as UTC midnight).
+  const israelDay = (d) => Date.parse(toIsraelTime(d).slice(0, 10));
+  const days = Math.round((israelDay(date) - israelDay(new Date())) / 86_400_000);
   const day =
     days === 0 ? 'היום' : days === 1 ? 'מחר' : `ב${format({ weekday: 'short' })} ${format({ day: 'numeric', month: 'numeric' })}`;
   return `יוצאים ${day} ב-${format({ hour: '2-digit', minute: '2-digit' })}`;
@@ -742,6 +742,14 @@ async function runSearch({ request = null, redo = false, background = false } = 
     // A suggestion picked a moment ago may still be resolving: use it, don't re-geocode.
     await Promise.all(sideKeys().map((key) => sides[key].pending));
     if (seq !== searchSeq) return;
+    // The form may have changed meanwhile (a point added, a field emptied): check it again.
+    const problems = validateForm();
+    if (problems.length) {
+      setBusy(false);
+      showStatus('error', problems.join(' '));
+      if (shownNeedsRedo) redoShownSearch();
+      return;
+    }
     request = readForm();
     if (request.departurePast) resetDepartureToNow();
   }
@@ -917,7 +925,7 @@ function searchLink(query, { own = false } = {}) {
     modeA: query.modeA,
     modeB: query.modeB,
     categories: query.categories,
-    departure: query.departure ? toLocalInputValue(query.departure) : null,
+    departure: query.departure ? toIsraelTime(query.departure) : null,
     greenLine: query.greenLine,
     shabbat: query.shabbat,
     priority: query.priority,
@@ -936,6 +944,10 @@ function plainAddress() {
 function ensureMap(provider) {
   const wanted = provider.id === 'google' ? 'google' : 'leaflet';
   if (mapPromise && mapKind === wanted && mapPromise !== brokenMap) return mapPromise;
+  // Google's billed calls wait for its map's verdict on the key: tell it one is
+  // coming before the wait for the old map below, which a running search would
+  // otherwise slip past.
+  provider.expectMap?.();
   const previous = mapPromise;
   mapKind = wanted;
   const promise = (async () => {
@@ -1159,6 +1171,7 @@ function showPicked(place) {
   }
   const copy = card.cloneNode(true);
   copy.classList.remove('is-active');
+  dropPhotoOnError(copy); // its photo loads on its own, and may fail on its own
   copy.querySelector('.share-place')?.addEventListener('click', () => sharePlace(place));
   box.firstElementChild.replaceChildren(copy);
   box.hidden = false;
@@ -1171,7 +1184,8 @@ function sharedLabels() {
 
 /** "חיפה, תל אביב ובאר שבע" */
 function joinNames(names) {
-  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names.at(-1)}`;
+  // Not names.at(-1): Safari before 15.4 and old WebViews don't have it.
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ו${names[names.length - 1]}`;
 }
 
 async function sharePlace(place) {
@@ -1209,6 +1223,10 @@ $('share-search').addEventListener('click', async () => {
 $('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   for (const key of sideKeys()) sides[key].ac.cancel();
+  // Searched from a phone's keyboard: put it away, or it covers the results the page
+  // scrolls to. Not when a field is still empty: the user is sent back to type it.
+  const field = sideKeys().find((key) => sides[key].input === document.activeElement);
+  if (field && isPhone() && sideKeys().every((key) => sides[key].input.value.trim())) sides[field].input.blur();
   runSearch();
 });
 

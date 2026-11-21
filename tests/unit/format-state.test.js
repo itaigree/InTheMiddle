@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatDuration, formatDistance } from '../../site/js/core/format.js';
-import { encodeState, decodeState, EXTRA_KEYS } from '../../site/js/core/state.js';
+import { encodeState, decodeState, EXTRA_KEYS, toIsraelTime, israelTimeToDate } from '../../site/js/core/state.js';
 import { MAX_POINTS } from '../../site/js/core/group.js';
 
 test('formatDuration in Hebrew', () => {
@@ -49,6 +49,30 @@ test('state round-trips through the query string', () => {
   assert.equal(decodeState(encodeState({ ...state, priority: 'gap' })).priority, 'gap');
   // Links made with the option's first name still open it.
   assert.equal(decodeState('f=short').priority, 'gap');
+});
+
+test('the departure is Israel time, whatever zone the device is set to', () => {
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    // Winter (+02:00) and summer (+03:00) time.
+    assert.equal(israelTimeToDate('2026-11-27T15:00').toISOString(), '2026-11-27T13:00:00.000Z');
+    assert.equal(israelTimeToDate('2026-07-03T15:00').toISOString(), '2026-07-03T12:00:00.000Z');
+    assert.equal(toIsraelTime(new Date('2026-11-27T13:00:00Z')), '2026-11-27T15:00');
+    // Already the next day in Israel, still the evening before in New York.
+    assert.equal(toIsraelTime(new Date('2026-07-03T21:30:00Z')), '2026-07-04T00:30');
+    // Around the clock changes (27 March and 25 October 2026).
+    assert.equal(israelTimeToDate('2026-03-27T01:30').toISOString(), '2026-03-26T23:30:00.000Z');
+    assert.equal(israelTimeToDate('2026-03-27T03:30').toISOString(), '2026-03-27T00:30:00.000Z');
+    assert.equal(israelTimeToDate('2026-10-25T03:00').toISOString(), '2026-10-25T01:00:00.000Z');
+    for (const value of ['2026-01-01T00:00', '2026-03-27T03:00', '2026-10-24T23:59', '2026-12-31T23:45']) {
+      assert.equal(toIsraelTime(israelTimeToDate(value)), value);
+    }
+    assert.ok(Number.isNaN(israelTimeToDate('tomorrow').getTime()));
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
 });
 
 test('decodeState drops malformed values', () => {
@@ -133,4 +157,25 @@ test('guessAreaName picks the most common town among the top places', async () =
   assert.equal(guessAreaName([p('חדרה'), p('חדרה'), p(undefined)]), null);
   assert.equal(guessAreaName([p('כביש 4, 3800000'), p('כביש 2, 3800000')]), null);
   assert.equal(guessAreaName([]), null);
+});
+
+test('renderSummary says one place in the singular', async () => {
+  const { renderSummary } = await import('../../site/js/ui/results.js');
+  // Just enough of a container for a summary with no area and no time (plain text only).
+  const container = {
+    parts: [],
+    replaceChildren() {
+      this.parts.length = 0;
+    },
+    append(...xs) {
+      this.parts.push(...xs.map(String));
+    },
+  };
+  const place = (id) => ({ id, name: `מקום ${id}`, category: 'cafe' });
+  renderSummary(container, { places: [place('1')], priority: 'balanced', balance: null });
+  assert.equal(container.parts.join(''), 'מצאנו מקום אחד.');
+  renderSummary(container, { places: [place('1'), place('2')], priority: 'balanced', balance: null });
+  assert.match(container.parts.join(''), /^מצאנו 2 מקומות, מסודרים/);
+  renderSummary(container, { places: [], priority: 'balanced', balance: null });
+  assert.equal(container.parts.join(''), '');
 });

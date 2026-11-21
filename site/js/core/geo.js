@@ -196,15 +196,28 @@ export function isValidLatLng(p) {
 /**
  * The path split at its point nearest `middle`: [from a's end to that point, from that
  * point to the other end]. The path may run either way; the first half always starts
- * at the end nearer `a`. Both halves share the split point.
+ * at the end nearer `a`. Both halves share the split point, which may lie between two
+ * vertices: the middle is usually inside a segment, and the split must sit right on it.
  */
 export function splitAtNearest(path, a, middle) {
   if (!path?.length) return [[], []];
   const d2 = (p, q) => (p.lat - q.lat) ** 2 + (p.lng - q.lng) ** 2;
   const fromA = d2(path[0], a) <= d2(path[path.length - 1], a) ? path : [...path].reverse();
-  let k = 0;
-  fromA.forEach((p, i) => {
-    if (d2(p, middle) < d2(fromA[k], middle)) k = i;
-  });
-  return [fromA.slice(0, k + 1), fromA.slice(k)];
+  // The cut: on segment fromA[seg]..fromA[seg + 1], at `t` (0..1) along it.
+  let cut = fromA[0];
+  let seg = 0;
+  let t = 0;
+  for (let i = 0; i < fromA.length - 1; i++) {
+    const p = fromA[i];
+    const dLat = fromA[i + 1].lat - p.lat;
+    const dLng = fromA[i + 1].lng - p.lng;
+    const len2 = dLat ** 2 + dLng ** 2;
+    const f = len2 ? Math.min(1, Math.max(0, ((middle.lat - p.lat) * dLat + (middle.lng - p.lng) * dLng) / len2)) : 0;
+    const c = { lat: p.lat + dLat * f, lng: p.lng + dLng * f };
+    if (d2(c, middle) < d2(cut, middle)) [cut, seg, t] = [c, i, f];
+  }
+  // A cut on a vertex is that vertex, not a second copy of it.
+  const head = fromA.slice(0, seg + 1);
+  const tail = fromA.slice(seg + 1);
+  return [t > 0 ? [...head, cut] : head, t < 1 ? [cut, ...tail] : tail];
 }

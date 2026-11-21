@@ -87,6 +87,9 @@ function escapeHtml(text) {
 
 export async function createLeafletMap(container, { overview } = {}) {
   const L = await loadLeaflet();
+  // Leaflet's remove() leaves its classes and its tabindex (a tab stop) on the container:
+  // destroy() puts it back as it was, for a Google map made in it next.
+  const containerClass = container.className;
   const map = L.map(container, { zoomControl: true, attributionControl: true }).setView([31.8, 35.0], 8);
   map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
@@ -137,6 +140,7 @@ export async function createLeafletMap(container, { overview } = {}) {
   // what the big map shows. It's there while the big map is zoomed in past the
   // search, and tapping it zooms back out. Made on first use.
   const overviewMap = overview?.querySelector('.overview-map');
+  const overviewClass = overviewMap?.className;
   const listeners = new AbortController();
   let mini = null;
   let miniLayer = null;
@@ -317,9 +321,12 @@ export async function createLeafletMap(container, { overview } = {}) {
       listeners.abort();
       map.remove();
       container.replaceChildren();
+      container.className = containerClass;
+      container.removeAttribute('tabindex');
       if (mini) {
         mini.remove();
         overviewMap.replaceChildren();
+        overviewMap.className = overviewClass;
         overview.hidden = true;
       }
     },

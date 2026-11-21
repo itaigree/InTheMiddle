@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOverpass, buildOverpassQuery } from '../../site/js/providers/osm.js';
-import { isOpenAt, classifyGoogleError } from '../../site/js/providers/google.js';
+import { isOpenAt, placeOpenNow, classifyGoogleError } from '../../site/js/providers/google.js';
 import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
 const CENTER = { lat: 32.4, lng: 34.9 };
@@ -61,19 +61,54 @@ test('parseOverpass caps each category', () => {
   assert.deepEqual(parseOverpass({}, CENTER, ['park']), []);
 });
 
+/** An instant given as Israel time in October 2026 (summer time, +03:00), e.g. '18T12:00'. */
+const israelOct = (time) => new Date(`2026-10-${time}:00+03:00`);
+
 test('isOpenAt handles normal, overnight and 24/7 schedules', () => {
   // Sunday=0. Open Sun 08:00–22:00.
   const daytime = { periods: [{ open: { day: 0, hour: 8, minute: 0 }, close: { day: 0, hour: 22, minute: 0 } }] };
-  assert.equal(isOpenAt(daytime, new Date(2026, 9, 18, 12, 0)), true); // Sun 18 Oct 2026, 12:00
-  assert.equal(isOpenAt(daytime, new Date(2026, 9, 18, 23, 0)), false);
+  assert.equal(isOpenAt(daytime, israelOct('18T12:00')), true); // Sun 18 Oct 2026, 12:00
+  assert.equal(isOpenAt(daytime, israelOct('18T23:00')), false);
   // Sat 20:00 → Sun 02:00 (wraps the week).
   const overnight = { periods: [{ open: { day: 6, hour: 20, minute: 0 }, close: { day: 0, hour: 2, minute: 0 } }] };
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 18, 1, 0)), true); // Sunday 01:00
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 17, 21, 0)), true); // Saturday 21:00
-  assert.equal(isOpenAt(overnight, new Date(2026, 9, 17, 19, 0)), false);
+  assert.equal(isOpenAt(overnight, israelOct('18T01:00')), true); // Sunday 01:00
+  assert.equal(isOpenAt(overnight, israelOct('17T21:00')), true); // Saturday 21:00
+  assert.equal(isOpenAt(overnight, israelOct('17T19:00')), false);
   assert.equal(isOpenAt({ periods: [{ open: { day: 0, hour: 0, minute: 0 } }] }), true);
   assert.equal(isOpenAt(null), null);
   assert.equal(isOpenAt({ periods: [] }), null);
+});
+
+test('isOpenAt reads the hours on Israel\'s clock, whatever zone the device is set to', () => {
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const daytime = { periods: [{ open: { day: 0, hour: 8, minute: 0 }, close: { day: 0, hour: 22, minute: 0 } }] };
+    // Sunday 12:00 in Israel is 05:00 in New York; Sunday 23:00 is still 16:00 there.
+    assert.equal(isOpenAt(daytime, israelOct('18T12:00')), true);
+    assert.equal(isOpenAt(daytime, israelOct('18T23:00')), false);
+    // Saturday 23:30 in Israel, 16:30 in New York: open by Israel's clock.
+    const saturdayNight = { periods: [{ open: { day: 6, hour: 21, minute: 0 }, close: { day: 0, hour: 1, minute: 0 } }] };
+    assert.equal(isOpenAt(saturdayNight, israelOct('17T23:30')), true);
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+});
+
+test('placeOpenNow: a place closed all of the coming week (special hours) is closed, not open by its usual hours', () => {
+  const always = { periods: [{ open: { day: 0, hour: 0, minute: 0 } }] };
+  const sunNoon = israelOct('18T12:00');
+  // Google leaves the days a place is closed out of `periods`: none are left this week.
+  const weekClosed = { periods: [], specialDays: [{}], weekdayDescriptions: Array(7).fill('סגור') };
+  assert.equal(placeOpenNow({ currentOpeningHours: weekClosed, regularOpeningHours: always }, sunNoon), false);
+  // This week's hours come first; the usual ones when Google has none for this week.
+  const mondayOnly = { periods: [{ open: { day: 1, hour: 8, minute: 0 }, close: { day: 1, hour: 20, minute: 0 } }] };
+  assert.equal(placeOpenNow({ currentOpeningHours: mondayOnly, regularOpeningHours: always }, sunNoon), false);
+  assert.equal(placeOpenNow({ regularOpeningHours: always }, sunNoon), true);
+  // No usual hours to go by: unknown, as before.
+  assert.equal(placeOpenNow({ currentOpeningHours: { periods: [] } }, sunNoon), null);
+  assert.equal(placeOpenNow({}, sunNoon), null);
 });
 
 test('classifyGoogleError maps quota, auth, bad requests and outages', () => {

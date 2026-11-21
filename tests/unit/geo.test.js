@@ -119,11 +119,29 @@ test('splitAtNearest: halves meet at the point nearest the middle, starting from
   const { splitAtNearest } = await import('../../site/js/core/geo.js');
   const path = [0, 1, 2, 3, 4].map((i) => ({ lat: 32 + i * 0.1, lng: 35 }));
   const a = { lat: 32, lng: 35 };
+  // The nearest point may lie between two vertices.
   const [toMiddle, fromMiddle] = splitAtNearest(path, a, { lat: 32.21, lng: 35.01 });
-  assert.deepEqual(toMiddle.map((p) => p.lat.toFixed(1)), ['32.0', '32.1', '32.2']);
-  assert.deepEqual(fromMiddle.map((p) => p.lat.toFixed(1)), ['32.2', '32.3', '32.4']);
+  assert.deepEqual(toMiddle.map((p) => p.lat.toFixed(2)), ['32.00', '32.10', '32.20', '32.21']);
+  assert.deepEqual(fromMiddle.map((p) => p.lat.toFixed(2)), ['32.21', '32.30', '32.40']);
+  // A middle on a vertex: the halves share that vertex, and no point is repeated.
+  const [toVertex, fromVertex] = splitAtNearest(path, a, path[2]);
+  assert.deepEqual(toVertex.map((p) => p.lat.toFixed(1)), ['32.0', '32.1', '32.2']);
+  assert.deepEqual(fromVertex.map((p) => p.lat.toFixed(1)), ['32.2', '32.3', '32.4']);
   // A path stored from b to a comes out the same way round.
   const [back] = splitAtNearest([...path].reverse(), a, { lat: 32.21, lng: 35 });
   assert.equal(back[0].lat, 32);
   assert.deepEqual(splitAtNearest([], a, a), [[], []]);
+  assert.deepEqual(splitAtNearest([a], a, a), [[a], [a]]);
+});
+
+test('splitAtNearest: the halves meet exactly at a middle between vertices', async () => {
+  const { splitAtNearest } = await import('../../site/js/core/geo.js');
+  // A long straight road, its vertices about 1.2 km apart; the middle falls inside a segment.
+  const path = Array.from({ length: 41 }, (_, i) => ({ lat: 31.25 + i * 0.011, lng: 34.79 + i * 0.0005 }));
+  const mid = pointAtFraction(path, 0.4625);
+  const [toMiddle, fromMiddle] = splitAtNearest(path, path[0], mid);
+  assert.ok(haversine(toMiddle.at(-1), mid) < 1, `blue ends ${haversine(toMiddle.at(-1), mid)} m from the middle`);
+  assert.ok(haversine(fromMiddle[0], mid) < 1, `orange starts ${haversine(fromMiddle[0], mid)} m from the middle`);
+  // Together the halves are the whole route.
+  assert.ok(Math.abs(pathLength(toMiddle) + pathLength(fromMiddle) - pathLength(path)) < 1);
 });

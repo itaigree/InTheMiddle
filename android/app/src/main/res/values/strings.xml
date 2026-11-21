@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">מקום באמצע</string>
     <string name="offline">אין חיבור לאינטרנט. כדאי לנסות שוב כשיש רשת.</string>
+    <string name="retry">לנסות שוב</string>
 </resources>

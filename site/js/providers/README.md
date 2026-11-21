@@ -41,14 +41,21 @@ await provider.travelTimes(origins, destinations, mode, { departure })
 //   origins/destinations: [{lat, lng}], mode: 'car' | 'transit'
 //   -> number|null [origins.length][destinations.length]
 //   Chunk internally to respect the service's per-request limits.
+//   Optional: the matrix's `snapped` property, for each destination where the
+//   service met the road ({lat, lng, distance: meters away}) or null. OSM sets it
+//   (OSRM snaps however far the road is); the group search moves a point at sea to it.
 
 // Meeting places around a point, for the category ids in core/categories.js.
-await provider.searchPlaces(center, radiusMeters, categoryIds)
+await provider.searchPlaces(center, radiusMeters, categoryIds, { keep })   // keep (optional): the user's filter, to apply before any cut per category
 //   -> Place[], best-first within each category (popularity/quality)
 
 // Map view (Google content must be shown on a Google map, per Google's terms).
 // `overview`: the corner box for the small zoomed-out map (see MapView).
 await provider.createMap(containerElement, { overview })   // -> MapView
+
+// Optional: a map is about to be made (createMap follows). Google holds its billed
+// calls from now until the map has shown whether the key works.
+provider.expectMap?.()
 ```
 
 `departure` is a `Date` or `null` (leave now).

@@ -4,9 +4,11 @@
 //
 //   1. Start at the centre of the smallest circle around everyone: the point whose
 //      farthest person is nearest, as the crow flies.
-//   2. Time a ring of points around it from every side, and move to the fairest
-//      one (by the same measure places are ranked by, with the default priority,
-//      so changing the priority later re-sorts without searching again).
+//   2. Time a ring of points around it from every side, and move to the one whose
+//      longest trip is shortest: the same aim by road, and what the summary
+//      reports. It can never pick a point worse for everyone, and it doesn't
+//      depend on the priority, so changing that later re-sorts without searching
+//      again.
 //   3. Try a tighter ring around that point.
 //   4. Search for places around the winner and rank them as for two people, with
 //      the gap between the longest and the shortest trip in place of the
@@ -17,7 +19,7 @@
 
 import { haversine, offsetMeters, metersFrom } from './geo.js';
 import { searchRadii } from './midpoint.js';
-import { rankGroupPlaces, dedupePlaces, travelScore } from './ranking.js';
+import { rankGroupPlaces, dedupePlaces } from './ranking.js';
 import { selectCandidates, MAX_CANDIDATES, MIN_PLACES } from './search.js';
 import { beyondGreenLine } from './green-line.js';
 import { ProviderUnavailableError, isAbortError } from '../providers/errors.js';
@@ -32,6 +34,11 @@ const FIRST_RING = 0.4;
 const MIN_RING_M = 1500;
 /** A straight line underestimates the road; scale it to a typical detour (as search.js does). */
 const ROAD_FACTOR = 1.3;
+/**
+ * A sample the provider timed from a road farther off than this (e.g. one at sea)
+ * moves to that road: the times are the road's, and the middle shouldn't be in the water.
+ */
+const SNAP_MOVE_M = 500;
 
 const isTime = (t) => typeof t === 'number' && Number.isFinite(t) && t >= 0;
 
@@ -72,19 +79,28 @@ export function ringAround(center, radius, count = RING_POINTS, rotation = 0) {
 }
 
 /**
- * Which of the sampled points is fairest for the group: the index of the lowest
- * travelScore (default priority) among the points everyone can reach, or -1.
- * `rows[side][point]` are travel times in seconds.
+ * Which of the sampled points is fairest for the group: among the points everyone
+ * can reach, the index of the one whose longest trip is shortest (on a tie, the
+ * shorter trips on average), or -1. `rows[side][point]` are travel times in seconds.
+ *
+ * The longest trip is what the enclosing circle approximates and what the summary
+ * reports, and a point worse for everyone can never win by it. The measure places
+ * are ranked by rewards a smaller gap, so it could: with one person between the
+ * others, it moved the middle off to the side, where everyone travels further.
+ * The middle doesn't depend on the priority, so changing it still only re-sorts.
  */
 export function fairestPoint(rows, count) {
   let best = -1;
-  let bestScore = Infinity;
+  let bestLongest = Infinity;
+  let bestMean = Infinity;
   for (let j = 0; j < count; j++) {
     const times = rows.map((row) => row[j]);
     if (!times.every(isTime)) continue;
-    const score = travelScore(times);
-    if (score < bestScore) {
-      bestScore = score;
+    const longest = Math.max(...times);
+    const mean = times.reduce((sum, t) => sum + t, 0) / times.length;
+    if (longest < bestLongest || (longest === bestLongest && mean < bestMean)) {
+      bestLongest = longest;
+      bestMean = mean;
       best = j;
     }
   }
@@ -131,11 +147,13 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
    * Travel times (seconds) from each side to `dests`, as rows[side][dest]: one
    * request per mode. Sides in `reuse` (side -> row) keep the row they have. A
    * transit request that fails outright (as opposed to finding no service)
-   * yields nulls and lists its sides in `failed`.
+   * yields nulls and lists its sides in `failed`. `snapped` is where the provider
+   * met the road for each of `dests`, when it says (see providers/README.md).
    */
   async function timesFrom(dests, reuse = {}) {
     const rows = points.map((_, i) => reuse[i] || null);
     const failed = [];
+    let snapped = null;
     const byMode = new Map();
     rows.forEach((row, i) => {
       if (row) return;
@@ -145,15 +163,18 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
     await Promise.all(
       [...byMode].map(async ([mode, sides]) => {
         try {
-          const m = await provider.travelTimes(
-            sides.map((i) => points[i]),
-            dests,
-            mode,
-            opts,
-          );
-          sides.forEach((i, k) => {
-            rows[i] = m[k] || dests.map(() => null);
+          // People starting from the same place are timed once (Google bills each origin).
+          const origins = [];
+          const at = sides.map((i) => {
+            const k = origins.findIndex((o) => o.lat === points[i].lat && o.lng === points[i].lng);
+            return k >= 0 ? k : origins.push(points[i]) - 1;
           });
+          const m = await provider.travelTimes(origins, dests, mode, opts);
+          // A copy each: sample() later pushes onto every side's row.
+          sides.forEach((i, k) => {
+            rows[i] = m[at[k]] ? [...m[at[k]]] : dests.map(() => null);
+          });
+          if (m.snapped) snapped = m.snapped;
         } catch (err) {
           if (mode !== 'transit' || err instanceof ProviderUnavailableError || isAbortError(err)) throw err;
           console.warn('transit routing failed; those sides will drive', err);
@@ -164,7 +185,7 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
         }
       }),
     );
-    return { rows, failed };
+    return { rows, failed, snapped };
   }
 
   /** Rows to reuse: every side's but `changed`. */
@@ -172,11 +193,11 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
 
   /**
    * timesFrom, but a transit side that failed or found no service at all
-   * (Shabbat, night) switches to driving and is timed again. Returns the rows
-   * and the sides that switched.
+   * (Shabbat, night) switches to driving and is timed again. Returns the rows,
+   * the sides that switched and timesFrom's `snapped`.
    */
   async function timesTo(dests) {
-    const { rows, failed } = await timesFrom(dests);
+    const { rows, failed, snapped } = await timesFrom(dests);
     const changed = [];
     rows.forEach((row, i) => {
       if (modes[i] !== 'transit') return;
@@ -186,8 +207,9 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
       modes[i] = 'car';
       changed.push(i);
     });
-    if (!changed.length) return { rows, changed };
-    return { rows: (await timesFrom(dests, reuseExcept(rows, changed))).rows, changed };
+    if (!changed.length) return { rows, changed, snapped };
+    const again = await timesFrom(dests, reuseExcept(rows, changed));
+    return { rows: again.rows, changed, snapped: snapped || again.snapped };
   }
 
   onProgress('balance');
@@ -199,13 +221,20 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
   async function sample(candidates) {
     const fresh = candidates.filter(allowed);
     if (!fresh.length) return;
-    const { rows, changed } = await timesTo(fresh);
+    const { rows, changed, snapped } = await timesTo(fresh);
     // A side that switched to driving: its earlier samples were by transit.
     if (changed.length && samples.length) {
       const redo = await timesFrom(samples, reuseExcept(sampleRows, changed));
       for (const i of changed) sampleRows[i] = redo.rows[i];
     }
-    samples.push(...fresh);
+    // A point timed from a road far off (e.g. at sea) is that road, for the
+    // tighter ring, the middle and the place search alike.
+    samples.push(
+      ...fresh.map((p, j) => {
+        const s = snapped?.[j];
+        return s && s.distance > SNAP_MOVE_M && allowed(s) ? { lat: s.lat, lng: s.lng } : p;
+      }),
+    );
     rows.forEach((row, i) => sampleRows[i].push(...row));
   }
 
@@ -240,14 +269,20 @@ export async function findGroupMiddle(query, provider, { onProgress = () => {} }
   onProgress('places');
   // As for two people: too few places (or none everyone can reach) around the
   // middle widens the search step by step; no place is timed twice.
+  // But someone who reaches none of the points the others reach is cut off from
+  // them (no road between): no place could have everyone's times, so don't pay
+  // for looking.
+  const cutOff = best < 0 && sampleRows.some((row) => !row.some(isTime)) && sampleRows.some((row) => row.some(isTime));
   let ranked = [];
-  let radius;
+  let radius = radii[0];
   const found = [];
   const checked = new Set();
-  for (let step = 0; step < radii.length && !ranked.length; step++) {
+  for (let step = 0; step < radii.length && !ranked.length && !cutOff; step++) {
     radius = radii[step];
     if (step) onProgress('wider');
-    found.push(...(await provider.searchPlaces(midpoint, radius, categories)));
+    // The filter goes along, so a provider can apply it before it keeps the best
+    // few of each category.
+    found.push(...(await provider.searchPlaces(midpoint, radius, categories, { keep })));
     const places = dedupePlaces(found).filter(keep);
     if (places.length < MIN_PLACES && step < radii.length - 1) continue;
     const candidates = selectCandidates(

@@ -26,6 +26,44 @@ function decodePoint(text) {
 
 const DEPARTURE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
+// The departure ("YYYY-MM-DDTHH:MM", in the field and the link) is Israel wall
+// time on any device: the places and timetables are all in Israel, and a link
+// must mean the same moment wherever it is opened.
+export const ISRAEL_TIME_ZONE = 'Asia/Jerusalem';
+const israelClockFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: ISRAEL_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** `date` as Israel wall time, "YYYY-MM-DDTHH:MM". */
+export function toIsraelTime(date) {
+  const p = Object.fromEntries(israelClockFormat.formatToParts(date).map(({ type, value }) => [type, value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** The moment that Israel wall time "YYYY-MM-DDTHH:MM" names (an invalid Date when malformed). */
+export function israelTimeToDate(value) {
+  const m = DEPARTURE_RE.test(value) ? value.split(/\D/).map(Number) : null;
+  if (!m) return new Date(NaN);
+  const wall = Date.UTC(m[0], m[1] - 1, m[2], m[3], m[4]);
+  // Take off Israel's offset at a first guess, then at the result: the second
+  // pass settles it when a clock change falls in between.
+  let t = wall;
+  for (let i = 0; i < 2; i++) t = wall - (Date.parse(`${toIsraelTime(new Date(t))}Z`) - t);
+  return new Date(t);
+}
+
+/** Israel's day of the week (0 = Sunday), hour and minute at `date`. */
+export function israelClock(date) {
+  const [year, month, day, hour, minute] = toIsraelTime(date).split(/\D/).map(Number);
+  return { weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay(), hour, minute };
+}
+
 /**
  * @param {object} state
  * @param {{label: string, lat?: number, lng?: number}|null} state.a
@@ -33,7 +71,7 @@ const DEPARTURE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
  * @param {'car'|'transit'} state.modeA
  * @param {'car'|'transit'} state.modeB
  * @param {string[]} state.categories
- * @param {string|null} state.departure  local "YYYY-MM-DDTHH:MM", null = now
+ * @param {string|null} state.departure  Israel time "YYYY-MM-DDTHH:MM", null = now
  * @param {boolean} [state.greenLine]  only places inside the Green Line
  * @param {boolean} [state.shabbat]  only cafes and restaurants closed on Shabbat
  * @param {'equal'|'balanced'|'gap'} [state.priority]  what matters more (balanced is left out)

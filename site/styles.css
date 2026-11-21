@@ -360,13 +360,19 @@ select {
 
 /* A group's further starting points, after ב: just how many ("+2"). */
 .trip-more {
-  flex: none;
+  margin-inline-start: -4px; /* 6px from ב's badge, as inside a trip end */
   padding: 1px 6px;
   border: 1px solid rgb(255 255 255 / 35%);
   border-radius: 9px;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   line-height: 1.3;
+}
+
+/* A group: the "+2" has its own column, so ב's name doesn't pay for it alone,
+   and on a narrow phone the line gives up its room before the names do. */
+.trip:has(> .trip-more:not([hidden])) {
+  grid-template-columns: minmax(0, auto) minmax(16px, 1fr) minmax(0, auto) auto auto;
 }
 
 .trip-line {

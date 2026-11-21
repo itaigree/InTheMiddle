@@ -27,6 +27,8 @@ const MAX_TABLE_COORDS = 100;
 /** Transitous answers at most 128 destinations per one-to-many request. */
 const MAX_TRANSIT_DESTINATIONS = 100;
 const PLACES_PER_CATEGORY = 15;
+/** Overpass places kept per category, so a filter (e.g. Shabbat) still finds some among them. */
+const CACHED_PER_CATEGORY = 60;
 const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
 /**
  * Photon's places have no opening hours and no notability, so they are kept only
@@ -35,8 +37,8 @@ const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
  */
 const PHOTON_CACHE_TTL_MS = 5 * 60 * 1000;
 const OVERPASS_BACKOFF_MS = PHOTON_CACHE_TTL_MS;
-/** Part of the cache key: bump it when cached places change shape (e.g. a new field). */
-const PLACES_CACHE_VERSION = 2;
+/** Part of the cache key: bump it when cached places change shape (e.g. a new field, or more kept). */
+const PLACES_CACHE_VERSION = 3;
 let overpassFailedAt = -Infinity;
 
 /**
@@ -219,7 +221,14 @@ async function photonSearch(query, { limit, signal }) {
   if (!photonCache.has(url)) {
     const pending = fetchJson(url, { signal, timeoutMs: 10000 });
     photonCache.set(url, pending);
-    pending.catch(() => photonCache.delete(url));
+    // A lookup cancelled while in flight (the user typed on) is forgotten at once,
+    // so asking the same again right away (after a trailing space) sends a new
+    // request instead of getting the cancelled one. One that finished is kept.
+    const forget = () => {
+      if (photonCache.get(url) === pending) photonCache.delete(url);
+    };
+    signal?.addEventListener('abort', forget, { once: true });
+    pending.then(() => signal?.removeEventListener('abort', forget), forget);
   }
   const data = await photonCache.get(url);
   return (data.features || [])
@@ -283,6 +292,9 @@ async function osrmRoutes(a, b, { via = [], alternatives = false } = {}) {
 
 async function osrmTable(origins, destinations) {
   const result = origins.map(() => new Array(destinations.length).fill(null));
+  // Where each destination met the road: OSRM snaps a point to the nearest road
+  // however far it is (a point at sea gets the shore's times), so say where.
+  result.snapped = new Array(destinations.length).fill(null);
   const perChunk = Math.max(1, MAX_TABLE_COORDS - origins.length);
   for (let start = 0; start < destinations.length; start += perChunk) {
     const dests = destinations.slice(start, start + perChunk);
@@ -300,6 +312,11 @@ async function osrmTable(origins, destinations) {
       row.forEach((sec, j) => {
         result[i][start + j] = Number.isFinite(sec) ? sec : null;
       });
+    });
+    (data.destinations || []).forEach((w, j) => {
+      if (Array.isArray(w?.location) && Number.isFinite(w.distance)) {
+        result.snapped[start + j] = { lat: w.location[1], lng: w.location[0], distance: w.distance };
+      }
     });
   }
   return result;
@@ -403,7 +420,7 @@ function notability(tags) {
   return score;
 }
 
-export function parseOverpass(data, center, categoryIds) {
+export function parseOverpass(data, center, categoryIds, perCategory = PLACES_PER_CATEGORY) {
   const wanted = new Set(categoryIds);
   const byCategory = new Map();
   const seen = new Set();
@@ -437,7 +454,7 @@ export function parseOverpass(data, center, categoryIds) {
   const out = [];
   for (const list of byCategory.values()) {
     list.sort((x, y) => x.rank - y.rank);
-    for (const { rank, ...place } of list.slice(0, PLACES_PER_CATEGORY)) out.push(place);
+    for (const { rank, ...place } of list.slice(0, perCategory)) out.push(place);
   }
   return out;
 }
@@ -457,6 +474,17 @@ function cacheSet(key, value, ttl) {
   } catch {
     // Storage full or disabled: just don't cache.
   }
+}
+
+/** Each category's first `max` places that pass `keep`, in order. */
+function capPerCategory(places, keep, max = PLACES_PER_CATEGORY) {
+  const taken = new Map();
+  return places.filter((p) => {
+    if (!keep(p)) return false;
+    const n = taken.get(p.category) || 0;
+    taken.set(p.category, n + 1);
+    return n < max;
+  });
 }
 
 async function overpassPlaces(center, radius, categoryIds) {
@@ -479,7 +507,7 @@ async function overpassPlaces(center, radius, categoryIds) {
     });
     // Timeouts and out-of-memory come back as HTTP 200 with a `remark`.
     if (/error/i.test(json.remark || '')) throw new ProviderRequestError(`Overpass: ${json.remark}`);
-    places = parseOverpass(json, rounded, categoryIds);
+    places = parseOverpass(json, rounded, categoryIds, CACHED_PER_CATEGORY);
   } catch (err) {
     if (isAbortError(err)) throw err;
     if (!resting) {
@@ -611,7 +639,10 @@ export function createOsmProvider() {
       return mode === 'transit' ? transitTimes(origins, destinations, departure) : osrmTable(origins, destinations);
     },
 
-    searchPlaces: (center, radius, categoryIds) => overpassPlaces(center, radius, categoryIds),
+    // The caller's filter runs before each category is cut to PLACES_PER_CATEGORY,
+    // so places it drops don't take the room of ones it keeps.
+    searchPlaces: async (center, radius, categoryIds, { keep = () => true } = {}) =>
+      capPerCategory(await overpassPlaces(center, radius, categoryIds), keep),
 
     async createMap(container, options) {
       const { createLeafletMap } = await import('../ui/map-leaflet.js');
