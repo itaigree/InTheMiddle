@@ -1749,6 +1749,27 @@ const GROUP_LINK =
   '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180' +
   '&p3=%D7%99%D7%A8%D7%95%D7%A9%D7%9C%D7%99%D7%9D&p3ll=31.77840,35.20660&p3m=transit&c=cafe,park';
 
+test('more starting points: sharing the search works without Array.prototype.at (Safari 15.0–15.3, old WebViews)', async () => {
+  const { page, context, server, errors } = await openApp();
+  await context.addInitScript(() => {
+    delete Array.prototype.at;
+  });
+  await page.goto(server.url + GROUP_LINK);
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await page.locator('#share-search').click();
+  await page.waitForFunction(() => window.copied !== null, null, { timeout: 5000 });
+  assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('more starting points: the results show everyone\'s time, everyone on the map, and +1 in the header', async () => {
   const { page, context, errors } = await openApp({ viewport: { width: 390, height: 844 }, query: GROUP_LINK });
   const cards = page.locator('#place-list .place-card');
@@ -1835,27 +1856,6 @@ test('more starting points: sharing the search names everyone', async () => {
   await page.locator('#share-search').click();
   await page.waitForFunction(() => window.copied !== null);
   assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
-  await context.close();
-});
-
-test('more starting points: sharing the search works without Array.prototype.at (Safari 15.0–15.3, old WebViews)', async () => {
-  const { page, context, server, errors } = await openApp();
-  await context.addInitScript(() => {
-    delete Array.prototype.at;
-  });
-  await page.goto(server.url + GROUP_LINK);
-  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
-  await page.evaluate(() => {
-    window.copied = null;
-    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
-    navigator.clipboard.writeText = async (text) => {
-      window.copied = text;
-    };
-  });
-  await page.locator('#share-search').click();
-  await page.waitForFunction(() => window.copied !== null, null, { timeout: 5000 });
-  assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
-  assert.deepEqual(errors, []);
   await context.close();
 });
 
