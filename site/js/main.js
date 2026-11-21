@@ -1123,6 +1123,9 @@ async function drawOnMap(result, provider) {
 }
 
 const isPhone = () => window.matchMedia('(max-width: 959px)').matches;
+// A touch screen, so typing brings up an on-screen keyboard. A narrow desktop
+// window (snapped, or zoomed in) has the phone layout but a hardware keyboard.
+const hasTouchKeyboard = () => window.matchMedia('(pointer: coarse)').matches;
 
 function selectPlace(place, { from }) {
   // A place picked from the list is zoomed in on (with the whole search in the
@@ -1226,8 +1229,9 @@ $('search-form').addEventListener('submit', (e) => {
   for (const key of sideKeys()) sides[key].ac.cancel();
   // Searched from a phone's keyboard: put it away, or it covers the results the page
   // scrolls to. Not when a field is still empty: the user is sent back to type it.
+  // Not without a touch screen either: there focus stays put, as on a wide desktop.
   const field = sideKeys().find((key) => sides[key].input === document.activeElement);
-  if (field && isPhone() && sideKeys().every((key) => sides[key].input.value.trim())) sides[field].input.blur();
+  if (field && isPhone() && hasTouchKeyboard() && sideKeys().every((key) => sides[key].input.value.trim())) sides[field].input.blur();
   runSearch();
 });
 

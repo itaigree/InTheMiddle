@@ -756,6 +756,24 @@ test('phones: searching from the keyboard puts the keyboard away, unless a field
   await desktop.context.close();
 });
 
+test('a narrow desktop window (no touch): searching from the keyboard keeps the focus in the field', async () => {
+  // A window snapped to half the screen, or zoomed to 200%: the phone layout, but a
+  // hardware keyboard and a mouse, so there is no on-screen keyboard to put away.
+  const { page, context, errors } = await openApp({
+    viewport: { width: 640, height: 450 },
+    contextOptions: { hasTouch: false, isMobile: false },
+  });
+  assert.ok(await page.evaluate(() => matchMedia('(max-width: 959px)').matches));
+  await pickSuggestion(page, 'a', 'חיפה');
+  await page.locator('#input-b').fill('תל אביב');
+  await page.locator('#input-b').press('Escape');
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'input-b');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('filter chips: photos stay limited to 3 per search, and chips all fit on desktop', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'חיפה');
