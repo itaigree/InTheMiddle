@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
@@ -47,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     // The page failed to load (no network before the site could work offline).
     private var loadFailed = false
+    private var networkCallbackRegistered = false
 
     // Back online while the offline message shows: try again by itself.
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -105,7 +107,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
-                if (!loadFailed) offline.visibility = View.GONE
+                if (loadFailed || offline.visibility != View.VISIBLE) return
+                offline.visibility = View.GONE
+                // Consent and the banner need the network too: after an offline first
+                // launch they never started.
+                if (!adsStarted.get()) startAds()
             }
         }
         web.webChromeClient = object : WebChromeClient() {
@@ -139,12 +145,18 @@ class MainActivity : AppCompatActivity() {
         })
 
         // The banner is as wide as the screen: rotating, folding or resizing the window
-        // changes that without recreating the activity (configChanges), so size it again.
-        adBox.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
-            if (right - left != oldRight - oldLeft && adsStarted.get()) adBox.post { loadBanner() }
+        // changes that without recreating the activity (configChanges), so size it again
+        // (loadBanner does nothing while the width in dp is the same).
+        adBox.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (adsStarted.get()) adBox.post { loadBanner() }
         }
 
-        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
+        // Only for retrying by itself; some devices refuse it, and the retry button still works.
+        try {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        } catch (_: RuntimeException) {
+        }
 
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(SITE.toString())
         startAds()
@@ -231,8 +243,19 @@ class MainActivity : AppCompatActivity() {
         adView?.resume()
     }
 
+    // A new display size changes the width in dp even when the pixels stay the same.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (adsStarted.get()) adBox.post { loadBanner() }
+    }
+
     override fun onDestroy() {
-        getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback)
+        if (networkCallbackRegistered) {
+            try {
+                getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback)
+            } catch (_: RuntimeException) {
+            }
+        }
         adView?.destroy()
         web.destroy()
         super.onDestroy()
