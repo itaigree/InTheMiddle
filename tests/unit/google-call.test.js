@@ -49,3 +49,20 @@ test('a Google call that fails on the network is still tried once more', async (
   assert.deepEqual(await provider.searchPlaces({ lat: 32, lng: 34.8 }, 3000, ['mall']), []);
   assert.equal(sent, 2);
 });
+
+test('searchPlaces: a place closed all of the coming week is not "open now" by its usual hours', async () => {
+  const provider = createGoogleProvider({ apiKey: 'K' });
+  await provider.ready();
+  const always = { periods: [{ open: { day: 0, hour: 0, minute: 0 } }] };
+  const place = (id, hours) => ({ id, displayName: id, location: { lat: 32, lng: 34.8 }, regularOpeningHours: always, ...hours });
+  searchNearby = async () => ({
+    places: [
+      // Google leaves the days a place is closed out of `periods`: none are left this week.
+      place('week-closed', { currentOpeningHours: { periods: [] } }),
+      place('usual-hours', {}),
+    ],
+  });
+  const found = await provider.searchPlaces({ lat: 32, lng: 34.8 }, 3000, ['mall']);
+  const openNow = Object.fromEntries(found.map((p) => [p.id, p.openNow]));
+  assert.deepEqual(openNow, { 'week-closed': false, 'usual-hours': true });
+});
