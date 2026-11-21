@@ -5,10 +5,16 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -35,8 +41,21 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
     private lateinit var adBox: FrameLayout
+    private lateinit var offline: View
     private var adView: AdView? = null
+    private var bannerWidthDp = 0
     private val adsStarted = AtomicBoolean(false)
+
+    // The page failed to load (no network before the site could work offline).
+    private var loadFailed = false
+    private var networkCallbackRegistered = false
+
+    // Back online while the offline message shows: try again by itself.
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            runOnUiThread { if (!isDestroyed && offline.visibility == View.VISIBLE) retry() }
+        }
+    }
 
     // "My location" on the site waits for Android's permission.
     private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
@@ -47,6 +66,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         web = findViewById(R.id.web)
         adBox = findViewById(R.id.ad)
+        offline = findViewById(R.id.offline)
+        findViewById<View>(R.id.retry).setOnClickListener { retry() }
 
         // Android 15 draws apps under the status and navigation bars: keep clear of them.
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
@@ -72,6 +93,26 @@ class MainActivity : AppCompatActivity() {
                 openOutside(url)
                 return true
             }
+
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                loadFailed = false
+            }
+
+            // Before the site has been saved for offline use (the first launch), no
+            // network leaves WebView's own error page, with no way to try again.
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (!request.isForMainFrame) return
+                loadFailed = true
+                offline.visibility = View.VISIBLE
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (loadFailed || offline.visibility != View.VISIBLE) return
+                offline.visibility = View.GONE
+                // Consent and the banner need the network too: after an offline first
+                // launch they never started.
+                if (!adsStarted.get()) startAds()
+            }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
@@ -93,14 +134,37 @@ class MainActivity : AppCompatActivity() {
                 if (web.canGoBack()) {
                     web.goBack()
                 } else {
+                    // Let the system have this press. Since Android 12 it only sends the
+                    // app to the background, and the same activity comes back later:
+                    // take Back again then, or it would never go back in the site.
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
                 }
             }
         })
 
+        // The banner is as wide as the screen: rotating, folding or resizing the window
+        // changes that without recreating the activity (configChanges), so size it again
+        // (loadBanner does nothing while the width in dp is the same).
+        adBox.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (adsStarted.get()) adBox.post { loadBanner() }
+        }
+
+        // Only for retrying by itself; some devices refuse it, and the retry button still works.
+        try {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        } catch (_: RuntimeException) {
+        }
+
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(SITE.toString())
         startAds()
+    }
+
+    /** Load the page again after it failed (the site's own address if the failed one isn't known). */
+    private fun retry() {
+        if (web.url?.startsWith("https://") == true) web.reload() else web.loadUrl(SITE.toString())
     }
 
     /** Ask for consent where the law requires it (Google's own form), then show the banner. */
@@ -130,6 +194,9 @@ class MainActivity : AppCompatActivity() {
     private fun loadBanner() {
         val density = resources.displayMetrics.density
         val widthDp = ((adBox.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels) / density).toInt()
+        if (adView != null && widthDp == bannerWidthDp) return
+        bannerWidthDp = widthDp
+        adView?.destroy()
         val banner = AdView(this).apply {
             adUnitId = BuildConfig.ADMOB_BANNER_ID
             setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(this@MainActivity, widthDp))
@@ -176,7 +243,19 @@ class MainActivity : AppCompatActivity() {
         adView?.resume()
     }
 
+    // A new display size changes the width in dp even when the pixels stay the same.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (adsStarted.get()) adBox.post { loadBanner() }
+    }
+
     override fun onDestroy() {
+        if (networkCallbackRegistered) {
+            try {
+                getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback)
+            } catch (_: RuntimeException) {
+            }
+        }
         adView?.destroy()
         web.destroy()
         super.onDestroy()

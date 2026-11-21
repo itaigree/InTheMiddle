@@ -18,7 +18,16 @@ test('OSM opening hours: closed on Shabbat or not', () => {
 });
 
 test('OSM opening hours that are not understood are unknown, not guessed', () => {
-  for (const text of [undefined, '', 'Fr 08:00-sunset', 'Jan-Mar Mo-Fr 08:00-17:00', '"by appointment"', 'Mo-Fr']) {
+  for (const text of [
+    undefined,
+    '',
+    'Fr 08:00-sunset',
+    'Jan-Mar Mo-Fr 08:00-17:00',
+    '"by appointment"',
+    'Mo-Fr',
+    'Su-Th 08:00-22:00\nFr 08:00-14:00', // a line break inside a rule
+    'Mo-Fr 08:00-17:00\r\nSa 09:00-13:00',
+  ]) {
     assert.equal(osm(text), null, String(text));
   }
 });

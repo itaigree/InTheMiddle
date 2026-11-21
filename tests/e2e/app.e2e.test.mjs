@@ -345,6 +345,41 @@ test('free mode: public transit through Transitous', async () => {
   await context.close();
 });
 
+test('a search link\'s departure is Israel time on a phone set to another zone', async () => {
+  // A week from now, at 15:00 in Israel.
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(Date.now() + 7 * 86_400_000);
+  const query =
+    '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180' +
+    `&bm=transit&t=${day}T15:00`;
+  const { page, context, osmLog, errors } = await openApp({ query, contextOptions: { timezoneId: 'America/New_York' } });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // Transitous is asked for 15:00 in Israel (not 15:00 in New York, 22:00 in Israel).
+  const israelTime = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' });
+  assert.ok(osmLog.transit.length > 0);
+  for (const q of osmLog.transit) assert.equal(israelTime.format(new Date(new URLSearchParams(q).get('time'))), `${day} 15:00`);
+  assert.match(await optionsSummary(page), / ב-15:00 /);
+  // Shared on, the link keeps the same time.
+  assert.equal((await sharedLink(page)).searchParams.get('t'), `${day}T15:00`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('the departure field is in Israel time on a phone set to another zone: the default, the earliest, today and tomorrow', async () => {
+  const { page, context } = await openApp({ contextOptions: { timezoneId: 'America/New_York' }, clock: true });
+  // Friday 4 December 2026, 02:00 in Israel: still Thursday evening in New York.
+  await page.clock.setFixedTime(new Date('2026-12-04T00:00:00Z'));
+  await openOptions(page);
+  await page.locator('#departure-choice').selectOption('later');
+  // An hour from now, and nothing earlier than now.
+  assert.equal(await page.locator('#departure').inputValue(), '2026-12-04T03:00');
+  assert.equal(await page.locator('#departure').getAttribute('min'), '2026-12-04T02:00');
+  await page.locator('#departure').fill('2026-12-04T15:00');
+  assert.equal(await optionsSummary(page), 'מאוזן · יוצאים היום ב-15:00 · בלי סינון');
+  await page.locator('#departure').fill('2026-12-05T09:00');
+  assert.equal(await optionsSummary(page), 'מאוזן · יוצאים מחר ב-09:00 · בלי סינון');
+  await context.close();
+});
+
 test('free mode: Transitous down → that side drives, with a notice', async () => {
   const { page, context } = await openApp({ osm: { failTransit: true } });
   await pickSuggestion(page, 'a', 'חיפה');
@@ -416,6 +451,16 @@ test('empty form shows validation errors', async () => {
   await page.locator('#submit').click();
   await page.locator('#status[data-kind="error"]').waitFor();
   assert.match(await page.locator('#status').textContent(), /חסרה נקודת יציאה א׳/);
+  await context.close();
+});
+
+test('"בזמן אחר…" moves focus to a departure time field that has a name', async () => {
+  const { page, context } = await openApp();
+  await openOptions(page);
+  await page.locator('#departure-choice').selectOption('later');
+  const field = page.getByRole('textbox', { name: 'תאריך ושעת יציאה' });
+  assert.equal(await field.evaluate((el) => el.id, null, { timeout: 2000 }), 'departure');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'departure');
   await context.close();
 });
 
@@ -493,6 +538,25 @@ test('Google mode: Google data on a Google map, with ratings and photos', async 
   await page.locator('#map .fake-marker:has(.pin-place)').first().dispatchEvent('click');
   assert.equal(await page.locator('#place-list .place-card.is-active').count(), 1);
   await shot(page, 'google-desktop');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Google mode, phones: a photo that fails to load leaves no broken picture or credit, in the list or under the map', async () => {
+  const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: { brokenPhotos: true }, viewport: { width: 390, height: 844 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  await page.locator('#place-list .place-card').first().locator('.place-main').click();
+  await page.locator('#picked').waitFor({ state: 'visible' });
+  // The photo request fails (as when the day's Place Photos quota is used up): the box hides, and its credit goes.
+  await page.waitForFunction(
+    () => !document.querySelector('#place-list .place-card.is-active .place-photo img') && !document.querySelector('#picked .place-photo img'),
+    null,
+    { timeout: 5000 },
+  );
+  assert.equal(await page.locator('#picked .photo-credit').count(), 0);
+  assert.equal(await page.locator('#place-list .place-card.is-active .photo-credit').count(), 0);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -658,6 +722,58 @@ test('Enter ("Next") in field A moves to field B instead of submitting', async (
   await context.close();
 });
 
+test('phones: searching from the keyboard puts the keyboard away, unless a field is still missing', async () => {
+  const { page, context, errors } = await openApp({
+    viewport: { width: 390, height: 844 },
+    contextOptions: { hasTouch: true, isMobile: true },
+  });
+  const focused = () => page.evaluate(() => document.activeElement?.id);
+  await pickSuggestion(page, 'a', 'חיפה');
+  await page.locator('#input-b').fill('תל אביב');
+  await page.locator('#input-b').press('Escape');
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // No field keeps focus, so the phone's keyboard doesn't cover the results scrolled to.
+  assert.notEqual(await focused(), 'input-b');
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000 });
+  // A field is missing: the keyboard stays up for typing it.
+  await page.locator('#input-a').fill('');
+  await page.locator('#input-b').focus();
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#status[data-kind="error"]').waitFor();
+  assert.equal(await focused(), 'input-b');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // On a desktop the keyboard focus stays where it was.
+  const desktop = await openApp();
+  await pickSuggestion(desktop.page, 'a', 'חיפה');
+  await desktop.page.locator('#input-b').fill('תל אביב');
+  await desktop.page.locator('#input-b').press('Escape');
+  await desktop.page.locator('#input-b').press('Enter');
+  await desktop.page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await desktop.page.evaluate(() => document.activeElement?.id), 'input-b');
+  await desktop.context.close();
+});
+
+test('a narrow desktop window (no touch): searching from the keyboard keeps the focus in the field', async () => {
+  // A window snapped to half the screen, or zoomed to 200%: the phone layout, but a
+  // hardware keyboard and a mouse, so there is no on-screen keyboard to put away.
+  const { page, context, errors } = await openApp({
+    viewport: { width: 640, height: 450 },
+    contextOptions: { hasTouch: false, isMobile: false },
+  });
+  assert.ok(await page.evaluate(() => matchMedia('(max-width: 959px)').matches));
+  await pickSuggestion(page, 'a', 'חיפה');
+  await page.locator('#input-b').fill('תל אביב');
+  await page.locator('#input-b').press('Escape');
+  await page.locator('#input-b').press('Enter');
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'input-b');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('filter chips: photos stay limited to 3 per search, and chips all fit on desktop', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: {} });
   await pickSuggestion(page, 'a', 'חיפה');
@@ -694,6 +810,25 @@ test('a Google key rejected when the map loads is caught before any billed place
   await context.close();
 });
 
+test('a group search moving from OpenStreetMap results to Google waits for the map before any billed travel times', async () => {
+  const { page, context, server } = await openApp({ key: 'BAD_KEY', google: { authFail: 'map' } });
+  // Google is blocked for a few seconds, so the link's search shows OpenStreetMap results on a Leaflet map.
+  await page.evaluate(() =>
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(Date.now() + 3000).toISOString() })),
+  );
+  await page.goto(server.url + GROUP_LINK);
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  await page.waitForTimeout(3500); // Google is back
+  // This search starts on Google, whose map then rejects the key.
+  await page.locator('#submit').click();
+  await page.waitForFunction(() => (window.__fakeGoogleCalls || []).some((c) => c.startsWith('map:')), null, { timeout: 20000 });
+  await page.locator('#map.leaflet-container .pin-a').first().waitFor({ timeout: 20000 });
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('matrix') || c.startsWith('searchNearby')).length, 0, calls.join(','));
+  await context.close();
+});
+
 test('submitting right after picking a suggestion uses the pick, not a new text lookup', async () => {
   const { page, context } = await openApp({ key: 'TEST_KEY', google: { detailsDelayMs: 600 } });
   await pickSuggestion(page, 'a', 'חיפה');
@@ -701,6 +836,31 @@ test('submitting right after picking a suggestion uses the pick, not a new text 
   await search(page);
   const calls = await page.evaluate(() => window.__fakeGoogleCalls);
   assert.equal(calls.filter((c) => c.startsWith('searchByText')).length, 0, calls.join(','));
+  await context.close();
+});
+
+test('a point added while a picked suggestion resolves is checked before searching', async () => {
+  const { page, context, errors } = await openApp({ key: 'TEST_KEY', google: { detailsDelayMs: 600 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await page.locator('#add-point').click();
+  const third = page.locator('#extra-endpoints .endpoint-extra input[role="combobox"]').first();
+  await third.fill('באר שבע');
+  await page.locator(`#${await third.getAttribute('aria-controls')} [role="option"]`).first().click();
+  // The search waits for ג's pick to resolve; ד is added meanwhile (here at once, so it surely is).
+  await page.evaluate(() => {
+    document.getElementById('submit').click();
+    document.getElementById('add-point').click();
+  });
+  await page.waitForFunction(() => !document.getElementById('submit').disabled, null, { timeout: 20000 });
+  assert.match(await page.locator('#status').textContent(), /חסרה נקודת יציאה ד׳/);
+  const fourth = page.locator('#extra-endpoints .endpoint-extra input[role="combobox"]').nth(1);
+  assert.equal(await fourth.getAttribute('aria-invalid'), 'true');
+  assert.equal(await page.locator('#place-list .place-card').count(), 0);
+  // The empty point was never looked up.
+  const calls = await page.evaluate(() => window.__fakeGoogleCalls);
+  assert.equal(calls.filter((c) => c.startsWith('searchByText')).length, 0, calls.join(','));
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
@@ -720,6 +880,33 @@ test('"my location" is shared with a neutral label and rounded coordinates', asy
   assert.equal(await page.locator('#place-list .place-card .time-a .time-from').first().textContent(), 'מהמיקום שלי');
   assert.equal(await page.locator('#place-list .time-from', { hasText: 'ששותפה' }).count(), 0);
   assert.equal(await page.locator('#place-list .fairness', { hasText: 'ששותפה' }).count(), 0);
+  await context.close();
+});
+
+test('"my location" leaves the notice about the results on screen, and clears only its own error', async () => {
+  const { page, context, errors } = await openApp({ osm: { failTransit: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'באר שבע');
+  await page.locator('input[name="mode-b"][value="transit"]').check({ force: true });
+  await search(page);
+  const notice = /לא הצלחנו לחשב כרגע זמני תחבורה ציבורית/;
+  assert.match(await page.locator('#status').textContent(), notice);
+  // "My location" for the next search: the notice still explains the results on screen.
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 32.794, longitude: 34.9896 });
+  await page.locator('.locate[data-side="a"]').click();
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
+  assert.equal(await page.locator('#status').isVisible(), true);
+  assert.match(await page.locator('#status').textContent(), notice);
+  // Its own error is still cleared once the location comes through.
+  await context.clearPermissions();
+  await page.locator('.locate[data-side="b"]').click();
+  await page.locator('#status', { hasText: 'לא הצלחנו לקבל את המיקום שלך' }).waitFor();
+  await context.grantPermissions(['geolocation']);
+  await page.locator('.locate[data-side="b"]').click();
+  await page.waitForFunction(() => document.getElementById('input-b').value === 'המיקום שלי');
+  assert.equal(await page.locator('#status').isVisible(), false);
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
@@ -1422,6 +1609,30 @@ test('a failed search while OpenStreetMap results are on screen loads no Google 
   await context.close();
 });
 
+test('back on Google after the free maps: the map boxes keep nothing of Leaflet (no extra tab stop)', async () => {
+  const { page, context } = await openApp({ key: 'TEST_KEY', google: {}, clock: true });
+  const until = await page.evaluate(() => {
+    const t = Date.now() + 60_000;
+    localStorage.setItem('inthemiddle.googleBlocked', JSON.stringify({ reason: 'rate', until: new Date(t).toISOString() }));
+    return t;
+  });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  assert.ok(await page.locator('#map.leaflet-container').count());
+  // A place picked: the corner map is made too.
+  await page.locator('#place-list .place-card').nth(1).locator('.place-main').click();
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  // The block ends; the next search is on Google, in the same two boxes.
+  await jumpPast(page, until);
+  await page.locator('#submit').click();
+  await page.locator('#map .fake-google-map .pin-a').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#map').getAttribute('class'), 'map');
+  assert.equal(await page.locator('#map').getAttribute('tabindex'), null);
+  assert.equal(await page.locator('#overview .overview-map').getAttribute('class'), 'overview-map');
+  await context.close();
+});
+
 test('service worker: a version that goes live while the previous one installs: no copy mixing the two', async () => {
   const { server, context, page } = await swInstall();
   server.setVersion('v2');
@@ -1556,6 +1767,27 @@ const GROUP_LINK =
   '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180' +
   '&p3=%D7%99%D7%A8%D7%95%D7%A9%D7%9C%D7%99%D7%9D&p3ll=31.77840,35.20660&p3m=transit&c=cafe,park';
 
+test('more starting points: sharing the search works without Array.prototype.at (Safari 15.0–15.3, old WebViews)', async () => {
+  const { page, context, server, errors } = await openApp();
+  await context.addInitScript(() => {
+    delete Array.prototype.at;
+  });
+  await page.goto(server.url + GROUP_LINK);
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  await page.evaluate(() => {
+    window.copied = null;
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    navigator.clipboard.writeText = async (text) => {
+      window.copied = text;
+    };
+  });
+  await page.locator('#share-search').click();
+  await page.waitForFunction(() => window.copied !== null, null, { timeout: 5000 });
+  assert.match(await page.evaluate(() => window.copied), /^מקומות באמצע בין חיפה, תל אביב וירושלים\n/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('more starting points: the results show everyone\'s time, everyone on the map, and +1 in the header', async () => {
   const { page, context, errors } = await openApp({ viewport: { width: 390, height: 844 }, query: GROUP_LINK });
   const cards = page.locator('#place-list .place-card');
@@ -1599,6 +1831,88 @@ test('more starting points: the results show everyone\'s time, everyone on the m
   const text = await page.evaluate(() => window.shared.text);
   assert.match(text, /מחיפה · .+ מתל אביב · .+ מירושלים$/);
   await shot(page, 'group-picked-phone');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('more starting points, 320px phone: the "+1" in the header leaves ב\'s place readable', async () => {
+  const { page, context } = await openApp({ viewport: { width: 320, height: 700 }, query: GROUP_LINK });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  const m = await page.evaluate(() => {
+    const box = (el) => el.getBoundingClientRect();
+    const name = (id) => ({ w: document.getElementById(id).clientWidth, sw: document.getElementById(id).scrollWidth });
+    return {
+      a: name('trip-a'),
+      b: name('trip-b'),
+      badgeB: box(document.querySelector('#trip .side-b')),
+      more: box(document.getElementById('trip-more')),
+      edit: box(document.querySelector('#trip .trip-edit')),
+      pageWidth: document.documentElement.scrollWidth,
+    };
+  });
+  // "תל אביב" fits whole, as it does with two people (it was cut to "ת…").
+  assert.ok(m.b.sw <= m.b.w + 1, `ב's name ${m.b.w}px of ${m.b.sw}px`);
+  assert.ok(m.a.sw <= m.a.w + 1, `א's name ${m.a.w}px of ${m.a.sw}px`);
+  // One row: ב's badge, then "+1", then the pencil, right to left.
+  assert.ok(m.more.width > 0);
+  assert.ok(m.more.right <= m.badgeB.left && m.edit.right <= m.more.left, JSON.stringify(m));
+  assert.ok(Math.abs(m.more.top + m.more.height / 2 - (m.badgeB.top + m.badgeB.height / 2)) < 2, JSON.stringify(m));
+  assert.ok(m.pageWidth <= 320);
+  await context.close();
+});
+
+test('more starting points: the header stays one row without :has() (Safari 15.0–15.3, old WebViews)', async () => {
+  const { page, context, errors } = await openApp({ viewport: { width: 320, height: 700 }, query: GROUP_LINK });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // Where each part of the trip sits, from the trip's own corner.
+  const measure = () =>
+    page.evaluate(() => {
+      const trip = document.getElementById('trip');
+      const t = trip.getBoundingClientRect();
+      const box = (sel) => {
+        const b = trip.querySelector(sel).getBoundingClientRect();
+        return { x: Math.round(b.left - t.left), y: Math.round(b.top - t.top), w: Math.round(b.width), h: Math.round(b.height) };
+      };
+      return {
+        height: Math.round(t.height),
+        badgeA: box('.side-a'),
+        line: box('.trip-line'),
+        badgeB: box('.side-b'),
+        more: box('#trip-more'),
+        edit: box('.trip-edit'),
+      };
+    });
+  const withHas = await measure();
+  // These browsers drop every rule whose selector has :has(), so drop them all here.
+  const dropped = await page.evaluate(() => {
+    let n = 0;
+    const strip = (owner) => {
+      for (let i = owner.cssRules.length - 1; i >= 0; i--) {
+        const rule = owner.cssRules[i];
+        if (rule.selectorText?.includes(':has(')) {
+          owner.deleteRule(i);
+          n++;
+        } else if (rule.cssRules) strip(rule);
+      }
+    };
+    for (const sheet of document.styleSheets) {
+      try {
+        strip(sheet);
+      } catch {
+        // a sheet from another origin: not ours
+      }
+    }
+    return n;
+  });
+  assert.ok(dropped > 0, 'no :has() rules found to drop');
+  const without = await measure();
+  // The same header as in a browser with :has(): one row, the pencil last, after "+1".
+  assert.deepEqual(without, withHas);
+  const middle = (b) => b.y + b.h / 2;
+  for (const part of ['line', 'badgeB', 'more', 'edit']) {
+    assert.ok(Math.abs(middle(without[part]) - middle(without.badgeA)) < 2, `${part}: ${JSON.stringify(without)}`);
+  }
+  assert.ok(without.edit.x + without.edit.w <= without.more.x, JSON.stringify(without));
   assert.deepEqual(errors, []);
   await context.close();
 });

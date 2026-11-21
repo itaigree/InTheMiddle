@@ -91,7 +91,9 @@ export function renderSummary(container, result) {
     }
   }
   const order = result.group ? GROUP_ORDER_TEXT : ORDER_TEXT;
-  container.append(result.places.length ? `מצאנו ${formatCount(result.places.length)} מקומות, ${order[result.priority] || order.balanced}` : '');
+  const n = result.places.length;
+  // One place has no order to speak of.
+  container.append(n > 1 ? `מצאנו ${formatCount(n)} מקומות, ${order[result.priority] || order.balanced}` : n ? 'מצאנו מקום אחד.' : '');
 }
 
 /**
@@ -218,7 +220,6 @@ export function renderPlaces(list, template, places, { modeA, modeB, modes, labe
       img.alt = '';
       img.loading = 'lazy';
       img.decoding = 'async';
-      img.addEventListener('error', () => img.remove()); // no picture: the box hides
       photo.append(img);
     }
     node.querySelector('.place-name').textContent = place.name;
@@ -289,9 +290,23 @@ export function renderPlaces(list, template, places, { modeA, modeB, modes, labe
       }
       node.querySelector('.place-actions').before(credit);
     }
+    dropPhotoOnError(node);
 
     node.querySelector('.place-main').addEventListener('click', () => onSelect(place, { from: 'list' }));
     list.append(node);
+  });
+}
+
+/**
+ * A card's photo that fails to load (e.g. the day's photo quota is used up) goes,
+ * with its credit: no picture, the box hides. Also for a copy of a card, as
+ * cloneNode doesn't copy listeners.
+ */
+export function dropPhotoOnError(card) {
+  const img = card.querySelector('.place-photo img');
+  img?.addEventListener('error', () => {
+    img.remove();
+    card.querySelector('.photo-credit')?.remove();
   });
 }
 

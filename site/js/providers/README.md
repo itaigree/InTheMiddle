@@ -43,12 +43,16 @@ await provider.travelTimes(origins, destinations, mode, { departure })
 //   Chunk internally to respect the service's per-request limits.
 
 // Meeting places around a point, for the category ids in core/categories.js.
-await provider.searchPlaces(center, radiusMeters, categoryIds)
+await provider.searchPlaces(center, radiusMeters, categoryIds, { keep })   // keep (optional): the user's filter, to apply before any cut per category
 //   -> Place[], best-first within each category (popularity/quality)
 
 // Map view (Google content must be shown on a Google map, per Google's terms).
 // `overview`: the corner box for the small zoomed-out map (see MapView).
 await provider.createMap(containerElement, { overview })   // -> MapView
+
+// Optional: a map is about to be made (createMap follows). Google holds its billed
+// calls from now until the map has shown whether the key works.
+provider.expectMap?.()
 ```
 
 `departure` is a `Date` or `null` (leave now).

@@ -13,6 +13,7 @@
 import { ProviderUnavailableError, ProviderRequestError } from './errors.js';
 import { timelineFromSteps } from '../core/geo.js';
 import { closedOnShabbat, intervalsFromGoogle } from '../core/shabbat.js';
+import { israelClock } from '../core/state.js';
 
 const LANGUAGE = 'iw'; // Google's code for Hebrew
 const REGION = 'il';
@@ -112,7 +113,7 @@ function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
+      timer = setTimeout(() => reject(Object.assign(new Error(message), { timedOut: true })), ms);
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -191,7 +192,10 @@ async function call(fn) {
     return await attempt();
   } catch (first) {
     const classified = classifyGoogleError(first);
-    if (!(classified instanceof ProviderUnavailableError && classified.reason === 'load-failed')) throw classified;
+    // Not after our own timeout: that request is still running, and Google bills it when it answers.
+    if (first?.timedOut || !(classified instanceof ProviderUnavailableError && classified.reason === 'load-failed')) {
+      throw classified;
+    }
     await new Promise((r) => setTimeout(r, 600));
     try {
       return await attempt();
@@ -206,8 +210,9 @@ async function call(fn) {
 const toLatLng = (p) => ({ lat: typeof p.lat === 'function' ? p.lat() : p.lat, lng: typeof p.lng === 'function' ? p.lng() : p.lng });
 
 /**
- * Is the place open at `date`, from its weekly opening periods? Uses the viewer's
- * clock, which is right for Israeli places viewed in Israel.
+ * Is the place open at `date`, from its weekly opening periods? The periods are
+ * in Israel time, so `date` is read on Israel's clock whatever zone the device is
+ * set to, as the departure time is.
  * @returns {boolean|null} null when unknown
  */
 export function isOpenAt(openingHours, date = new Date()) {
@@ -215,7 +220,8 @@ export function isOpenAt(openingHours, date = new Date()) {
   if (!periods?.length) return null;
   const WEEK = 7 * 1440;
   const minutes = (day, hour, minute) => day * 1440 + hour * 60 + minute;
-  const now = minutes(date.getDay(), date.getHours(), date.getMinutes());
+  const clock = israelClock(date);
+  const now = minutes(clock.weekday, clock.hour, clock.minute);
   return periods.some(({ open, close }) => {
     if (!open) return false;
     if (!close) return true; // open 24/7
@@ -224,6 +230,19 @@ export function isOpenAt(openingHours, date = new Date()) {
     if (end <= start) end += WEEK;
     return (now >= start && now < end) || (now + WEEK >= start && now + WEEK < end);
   });
+}
+
+/**
+ * Is a Places API place open at `date`? This week's hours (holidays included)
+ * come first. Google leaves the days a place is closed out of their periods, so
+ * none at all, from a place that has usual hours, means closed all week.
+ * @returns {boolean|null} null when unknown
+ */
+export function placeOpenNow(place, date = new Date()) {
+  const current = place.currentOpeningHours;
+  if (current?.periods?.length) return isOpenAt(current, date);
+  if (current && place.regularOpeningHours?.periods?.length) return false;
+  return isOpenAt(place.regularOpeningHours, date);
 }
 
 function chunk(list, size) {
@@ -245,6 +264,20 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   let sessionToken = null;
   /** Settles once the map has shown the key works (or rejects if Google rejected it). */
   let mapAuth = null;
+  /** How to settle mapAuth, from the moment a map is asked for until createMap takes it. */
+  let pendingAuth = null;
+
+  /**
+   * A map is on its way: the gate shuts now, before the app's own wait (e.g. for
+   * the old map to go) lets a billed call slip past it. createMap settles it.
+   */
+  function expectMap() {
+    if (pendingAuth) return;
+    mapAuth = new Promise((resolve, reject) => {
+      pendingAuth = { resolve, reject };
+    });
+    mapAuth.catch(() => {});
+  }
 
   /**
    * Google reports a rejected Maps JS key only when a map loads. The app starts
@@ -446,7 +479,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
               typeLabel: p.primaryTypeDisplayName || undefined,
               rating: Number.isFinite(p.rating) ? p.rating : undefined,
               ratingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : undefined,
-              openNow: isOpenAt(p.currentOpeningHours?.periods?.length ? p.currentOpeningHours : p.regularOpeningHours, now),
+              openNow: placeOpenNow(p, now),
               closedOnShabbat: closedOnShabbat(intervalsFromGoogle(p.regularOpeningHours)),
               address: p.shortFormattedAddress || undefined,
               mapsUrl: p.googleMapsURI || undefined,
@@ -462,13 +495,12 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
   }
 
   async function createMap(container, { overview } = {}) {
-    // The gate exists from the moment the map starts loading, so a search that is
-    // already running waits for the verdict instead of slipping past it.
-    let settle;
-    mapAuth = new Promise((resolve, reject) => {
-      settle = { resolve, reject };
-    });
-    mapAuth.catch(() => {});
+    // The gate exists from the moment the map starts loading (or was asked for,
+    // see expectMap), so a search that is already running waits for the verdict
+    // instead of slipping past it.
+    expectMap();
+    const settle = pendingAuth;
+    pendingAuth = null;
     // This map's own failure (error screen): unlike a rejected key, it must not
     // poison maps created later in this page, once Google is back.
     let failMap;
@@ -522,6 +554,7 @@ export function createGoogleProvider({ apiKey, mapId, onUnavailable }) {
     routes,
     travelTimes,
     searchPlaces,
+    expectMap,
     createMap,
   };
 }

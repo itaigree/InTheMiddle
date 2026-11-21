@@ -10,6 +10,7 @@
 //   mapNeverLoads: true      → the map never fires 'tilesloaded'
 //   lateOverlayMs: n         → n ms after the map is created, show Google's error screen
 //   matrixDelayMs: n         → RouteMatrix calls take n ms
+//   brokenPhotos: true       → photo URLs point at Google, which the tests block (a photo that fails)
 (() => {
   const options = window.__fakeGoogleOptions || {};
   const calls = (window.__fakeGoogleCalls = []);
@@ -158,8 +159,10 @@
           photos: [
             {
               getURI: () =>
-                'data:image/svg+xml;utf8,' +
-                encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="hsl(${i * 50},60%,70%)"/></svg>`),
+                options.brokenPhotos
+                  ? `https://places.googleapis.com/v1/places/${id}/photos/x/media`
+                  : 'data:image/svg+xml;utf8,' +
+                    encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="hsl(${i * 50},60%,70%)"/></svg>`),
               authorAttributions: [{ displayName: `צלם ${i + 1}`, uri: 'https://example.com/photographer' }],
             },
           ],

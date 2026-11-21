@@ -57,8 +57,8 @@ function fakeProvider({
         }),
       );
     },
-    async searchPlaces(center, radius, categories) {
-      calls.searchPlaces.push({ center, radius, categories });
+    async searchPlaces(center, radius, categories, { keep } = {}) {
+      calls.searchPlaces.push({ center, radius, categories, keep });
       if (failPlaces) throw new ProviderUnavailableError('quota', { reason: 'quota' });
       const out = [];
       for (const category of categories) {
@@ -275,9 +275,12 @@ test('provider maxCandidates limits the places that get timed', async () => {
 
 test('a place filter drops places before they are timed', async () => {
   const provider = fakeProvider();
-  const result = await findGroupMiddle({ ...baseQuery, placeFilter: (p) => p.category === 'park' }, provider);
+  const placeFilter = (p) => p.category === 'park';
+  const result = await findGroupMiddle({ ...baseQuery, placeFilter }, provider);
   assert.ok(result.places.every((p) => p.category === 'park'));
   assert.equal(provider.calls.travelTimes.at(-1).destinations, 5);
+  // The provider gets it too, to filter before it keeps the best few of each category.
+  assert.ok(provider.calls.searchPlaces.every((c) => c.keep === placeFilter));
 });
 
 test('nowhere everyone can reach: the plain centre, marked unreliable', async () => {

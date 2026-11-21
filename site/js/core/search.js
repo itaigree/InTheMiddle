@@ -4,7 +4,7 @@
 //   id: string, supportsTransit: boolean, maxCandidates?: number
 //   route(a, b, {departure}) -> {path: LatLng[], timeline?: number[], distanceMeters, durationSec} | null   (driving)
 //   travelTimes(origins, destinations, mode, {departure}) -> (seconds|null)[][]  [origin][destination]
-//   searchPlaces(center, radiusMeters, categoryIds) -> Place[]  (best-first within each category)
+//   searchPlaces(center, radiusMeters, categoryIds, {keep}?) -> Place[]  (best-first within each category)
 // See js/providers/README.md for the full contract.
 
 import { SAMPLE_FRACTIONS, findEqualTimeFraction, searchRadii } from './midpoint.js';
@@ -227,7 +227,7 @@ export async function findMiddle(query, provider, { onProgress = () => {} } = {}
     for (let step = 0; step < radii.length && !ranked.length; step++) {
       radius = radii[step];
       if (step) onProgress('wider');
-      found.push(...(await provider.searchPlaces(midpoint, radius, categories)));
+      found.push(...(await provider.searchPlaces(midpoint, radius, categories, { keep })));
       const places = dedupePlaces(found).filter(keep);
       if (places.length < MIN_PLACES && step < radii.length - 1) continue;
       const candidates = selectCandidates(
