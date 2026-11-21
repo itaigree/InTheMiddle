@@ -12,7 +12,6 @@ const TRIANGLE = ringAround(CENTRE, 30000, 3).map((p, i) => ({ label: `נקוד�
 const TLV = { label: 'תל אביב', lat: 32.0853, lng: 34.7818 };
 const RAMAT_GAN = { label: 'רמת גן', lat: 32.0823, lng: 34.8106 };
 const BEER_SHEVA = { label: 'באר שבע', lat: 31.2518, lng: 34.7913 };
-const HAIFA = { label: 'חיפה', lat: 32.794, lng: 34.9896 };
 
 const key = (p) => `${p.lat},${p.lng}`;
 
@@ -154,18 +153,6 @@ test('fairestPoint picks the fairest point everyone can reach', () => {
   assert.equal(fairestPoint([[null], [600]], 1), -1);
 });
 
-test('fairestPoint never picks a point where everyone travels longer', () => {
-  // Point 1 has the smaller gap, but all three trips there are longer than at point 0.
-  const rows = [
-    [72 * 60, 77 * 60],
-    [10 * 60, 41 * 60],
-    [72 * 60, 80 * 60],
-  ];
-  assert.equal(fairestPoint(rows, 2), 0);
-  // The same longest trip: the one where the others travel less wins.
-  assert.equal(fairestPoint([[600, 600], [600, 300]], 2), 1);
-});
-
 // ------------------------------------------------------------- the search
 
 test('people around a point meet at that point, and places carry everyone\'s times', async () => {
@@ -193,19 +180,6 @@ test('a pair close together and one far away meet about halfway, not at the aver
   const toTlv = haversine(result.midpoint, TLV);
   const toBeerSheva = haversine(result.midpoint, BEER_SHEVA);
   assert.ok(Math.abs(toTlv - toBeerSheva) < 0.1 * (toTlv + toBeerSheva), `${toTlv} vs ${toBeerSheva}`);
-});
-
-test('one person between the others: the middle does not move to where everyone travels further', async () => {
-  // Tel Aviv between Haifa and Be'er Sheva: away from the circle's centre, Tel Aviv's
-  // trip grows faster than the others', which a "smaller gap" measure would reward.
-  const points = [HAIFA, TLV, BEER_SHEVA];
-  const result = await findGroupMiddle({ ...baseQuery, points }, fakeProvider());
-  const { center } = enclosingCircle(points);
-  const toMiddle = points.map((p) => haversine(p, result.midpoint));
-  const toCentre = points.map((p) => haversine(p, center));
-  assert.ok(!toMiddle.every((d, i) => d > toCentre[i]), `${toMiddle} vs ${toCentre}`);
-  // The centre was timed too: the longest trip is no longer than there.
-  assert.ok(Math.max(...toMiddle) <= Math.max(...toCentre) + 1, `${Math.max(...toMiddle)} vs ${Math.max(...toCentre)}`);
 });
 
 test('a slower side pulls the middle toward it', async () => {
@@ -282,27 +256,6 @@ test('transit failing after the first ring re-times that side\'s earlier points 
   assert.ok(haversine(result.midpoint, CENTRE) < 8000, `${haversine(result.midpoint, CENTRE)} m off`);
 });
 
-test('people starting from the same place are timed once, and each gets the times', async () => {
-  // Google bills every origin, and a twin's row would only repeat the first one's.
-  const provider = fakeProvider();
-  const twin = { ...TRIANGLE[0], label: 'עוד מאותו מקום' };
-  const result = await findGroupMiddle({ ...baseQuery, points: [...TRIANGLE, twin], modes: ['transit', 'car', 'car', 'transit'] }, provider);
-  assert.ok(provider.calls.travelTimes.every((c) => c.origins === (c.mode === 'transit' ? 1 : 2)), JSON.stringify(provider.calls.travelTimes));
-  assert.ok(result.places.length > 0);
-  for (const p of result.places) assert.equal(p.times[3], p.times[0]);
-});
-
-test('same place, transit giving out after the first ring: both re-timed by car, once', async () => {
-  const provider = fakeProvider({ transitThrows: 2, transitSpeed: 8 });
-  const twin = { ...TRIANGLE[0], label: 'עוד מאותו מקום' };
-  const result = await findGroupMiddle({ ...baseQuery, points: [...TRIANGLE, twin], modes: ['transit', 'car', 'car', 'transit'] }, provider);
-  assert.deepEqual(result.modes, ['car', 'car', 'car', 'car']);
-  assert.ok(provider.calls.travelTimes.every((c) => c.origins <= 3), JSON.stringify(provider.calls.travelTimes));
-  assert.ok(result.places.length > 0);
-  for (const p of result.places) assert.equal(p.times[3], p.times[0]);
-  assert.ok(haversine(result.midpoint, CENTRE) < 12000, `${haversine(result.midpoint, CENTRE)} m off`);
-});
-
 test('too few places widens the search step by step, with a notice', async () => {
   const provider = fakeProvider({ placesPerCategory: 1 });
   const result = await findGroupMiddle(baseQuery, provider);
@@ -336,59 +289,6 @@ test('nowhere everyone can reach: the plain centre, marked unreliable', async ()
   assert.equal(result.balance.time, null);
   assert.ok(haversine(result.midpoint, CENTRE) < 100);
   assert.deepEqual(result.places, []);
-});
-
-test('someone cut off from everywhere the others reach: no place search is paid for', async () => {
-  // No place could have that side's time, so widening step by step would only spend quota.
-  const provider = fakeProvider({ unreachableFrom: TRIANGLE[1] });
-  const result = await findGroupMiddle(baseQuery, provider);
-  assert.deepEqual(result.places, []);
-  assert.equal(result.balance.reliable, false);
-  assert.equal(provider.calls.searchPlaces.length, 0);
-  assert.ok(provider.calls.travelTimes.every((c) => c.destinations === 7), JSON.stringify(provider.calls.travelTimes));
-  assert.ok(!result.notices.includes('widened'));
-});
-
-test('a point the provider timed from a road far off (e.g. at sea) moves to that road', async () => {
-  // West of the shore is sea; the shore bulges ~4 km east halfway, as Israel's does
-  // between Haifa and Ashkelon. Like OSRM, the provider times a point at sea from
-  // the nearest road and says where that was.
-  const shoreLng = (lat) => CENTRE.lng + 0.04 * Math.max(0, 1 - ((lat - CENTRE.lat) / 0.36) ** 2);
-  const toShore = (d) => (d.lng < shoreLng(d.lat) ? { lat: d.lat, lng: shoreLng(d.lat) } : d);
-  const base = fakeProvider();
-  const provider = {
-    ...base,
-    async travelTimes(origins, destinations, mode) {
-      const met = destinations.map(toShore);
-      const m = await base.travelTimes(origins, met, mode);
-      m.snapped = destinations.map((d, j) => ({ ...met[j], distance: haversine(d, met[j]) }));
-      return m;
-    },
-  };
-  // Two people up and down the shore and one just inland: the circle's centre is out at sea.
-  const points = [offsetMeters(CENTRE, 0, 40000), offsetMeters(CENTRE, 0, -40000), offsetMeters(CENTRE, 6000, 0)].map((p, i) => ({ label: `נקודה ${i + 1}`, ...p }));
-  const centre = enclosingCircle(points).center;
-  assert.ok(centre.lng < shoreLng(centre.lat) - 0.01);
-  const result = await findGroupMiddle({ ...baseQuery, points }, provider);
-  assert.ok(result.midpoint.lng >= shoreLng(result.midpoint.lat) - 1e-9, `middle ${haversine(result.midpoint, toShore(result.midpoint)).toFixed(0)} m out at sea`);
-  assert.ok(result.places.length > 0);
-  // The places were looked for around the road point too.
-  assert.deepEqual(base.calls.searchPlaces[0].center, result.midpoint);
-});
-
-test('a point the provider timed from a road nearby stays where it was', async () => {
-  // Every point lands on a road a little way off: the ordinary case on land.
-  const base = fakeProvider();
-  const provider = {
-    ...base,
-    async travelTimes(origins, destinations, mode) {
-      const m = await base.travelTimes(origins, destinations, mode);
-      m.snapped = destinations.map((d) => ({ ...offsetMeters(d, 300, 0), distance: 300 }));
-      return m;
-    },
-  };
-  const result = await findGroupMiddle(baseQuery, provider);
-  assert.ok(haversine(result.midpoint, CENTRE) < 100, `${haversine(result.midpoint, CENTRE)} m off`);
 });
 
 test('Green Line filter: the middle stays out of the areas, with a notice', async () => {

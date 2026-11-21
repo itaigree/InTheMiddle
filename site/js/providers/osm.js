@@ -292,9 +292,6 @@ async function osrmRoutes(a, b, { via = [], alternatives = false } = {}) {
 
 async function osrmTable(origins, destinations) {
   const result = origins.map(() => new Array(destinations.length).fill(null));
-  // Where each destination met the road: OSRM snaps a point to the nearest road
-  // however far it is (a point at sea gets the shore's times), so say where.
-  result.snapped = new Array(destinations.length).fill(null);
   const perChunk = Math.max(1, MAX_TABLE_COORDS - origins.length);
   for (let start = 0; start < destinations.length; start += perChunk) {
     const dests = destinations.slice(start, start + perChunk);
@@ -312,11 +309,6 @@ async function osrmTable(origins, destinations) {
       row.forEach((sec, j) => {
         result[i][start + j] = Number.isFinite(sec) ? sec : null;
       });
-    });
-    (data.destinations || []).forEach((w, j) => {
-      if (Array.isArray(w?.location) && Number.isFinite(w.distance)) {
-        result.snapped[start + j] = { lat: w.location[1], lng: w.location[0], distance: w.distance };
-      }
     });
   }
   return result;
