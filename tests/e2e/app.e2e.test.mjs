@@ -1843,6 +1843,62 @@ test('more starting points, 320px phone: the "+1" in the header leaves ב\'s pla
   await context.close();
 });
 
+test('more starting points: the header stays one row without :has() (Safari 15.0–15.3, old WebViews)', async () => {
+  const { page, context, errors } = await openApp({ viewport: { width: 320, height: 700 }, query: GROUP_LINK });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  // Where each part of the trip sits, from the trip's own corner.
+  const measure = () =>
+    page.evaluate(() => {
+      const trip = document.getElementById('trip');
+      const t = trip.getBoundingClientRect();
+      const box = (sel) => {
+        const b = trip.querySelector(sel).getBoundingClientRect();
+        return { x: Math.round(b.left - t.left), y: Math.round(b.top - t.top), w: Math.round(b.width), h: Math.round(b.height) };
+      };
+      return {
+        height: Math.round(t.height),
+        badgeA: box('.side-a'),
+        line: box('.trip-line'),
+        badgeB: box('.side-b'),
+        more: box('#trip-more'),
+        edit: box('.trip-edit'),
+      };
+    });
+  const withHas = await measure();
+  // These browsers drop every rule whose selector has :has(), so drop them all here.
+  const dropped = await page.evaluate(() => {
+    let n = 0;
+    const strip = (owner) => {
+      for (let i = owner.cssRules.length - 1; i >= 0; i--) {
+        const rule = owner.cssRules[i];
+        if (rule.selectorText?.includes(':has(')) {
+          owner.deleteRule(i);
+          n++;
+        } else if (rule.cssRules) strip(rule);
+      }
+    };
+    for (const sheet of document.styleSheets) {
+      try {
+        strip(sheet);
+      } catch {
+        // a sheet from another origin: not ours
+      }
+    }
+    return n;
+  });
+  assert.ok(dropped > 0, 'no :has() rules found to drop');
+  const without = await measure();
+  // The same header as in a browser with :has(): one row, the pencil last, after "+1".
+  assert.deepEqual(without, withHas);
+  const middle = (b) => b.y + b.h / 2;
+  for (const part of ['line', 'badgeB', 'more', 'edit']) {
+    assert.ok(Math.abs(middle(without[part]) - middle(without.badgeA)) < 2, `${part}: ${JSON.stringify(without)}`);
+  }
+  assert.ok(without.edit.x + without.edit.w <= without.more.x, JSON.stringify(without));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('more starting points: sharing the search names everyone', async () => {
   const { page, context } = await openApp({ query: GROUP_LINK });
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });

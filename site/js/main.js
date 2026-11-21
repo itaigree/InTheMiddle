@@ -1052,6 +1052,7 @@ function showTrip({ a, b, all }) {
   $('trip-b').textContent = b;
   const more = all.length - 2;
   $('trip-more').hidden = more < 1;
+  $('trip').classList.toggle('is-group', more > 0);
   $('trip-more-count').textContent = `+${more}`;
   $('trip-more-text').textContent = more === 1 ? 'ועוד נקודת יציאה אחת' : `ועוד ${more} נקודות יציאה`;
   $('trip').hidden = false;

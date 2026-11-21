@@ -370,8 +370,10 @@ select {
 }
 
 /* A group: the "+2" has its own column, so ב's name doesn't pay for it alone,
-   and on a narrow phone the line gives up its room before the names do. */
-.trip:has(> .trip-more:not([hidden])) {
+   and on a narrow phone the line gives up its room before the names do.
+   A class from showTrip, not :has(): Safari before 15.4 and old WebViews lack it,
+   and without this column the pencil drops to a second row. */
+.trip.is-group {
   grid-template-columns: minmax(0, auto) minmax(16px, 1fr) minmax(0, auto) auto auto;
 }
 
