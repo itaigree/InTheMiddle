@@ -200,6 +200,33 @@ test('Overpass busy: the filter runs before Photon places are cut to 15 too', as
   }
 });
 
+test('The filter only sees the places looked at before each category is full', async () => {
+  const { clock, state, restore } = setup();
+  try {
+    clock.now += LATER;
+    state.overpassUp = true;
+    const at = { lat: 32.44, lng: 34.92 };
+    state.elements = cafesNear(at, 21, 0);
+    const osm = createOsmProvider();
+    // The app's filter notes what it left out, for a notice: a place that could
+    // never be shown (ranked past 15) must not count.
+    const seen = [];
+    const keep = (p) => {
+      seen.push(p.name);
+      return true;
+    };
+    await osm.searchPlaces(at, 1500, ['cafe'], { keep });
+    assert.deepEqual(seen, Array.from({ length: 15 }, (_, i) => `קפה ${i + 1}`));
+    // One left out: the 16th is looked at in its place, and no further.
+    seen.length = 0;
+    const places = await osm.searchPlaces(at, 1500, ['cafe'], { keep: (p) => keep(p) && p.name !== 'קפה 3' });
+    assert.equal(places.length, 15);
+    assert.deepEqual(seen, Array.from({ length: 16 }, (_, i) => `קפה ${i + 1}`));
+  } finally {
+    restore();
+  }
+});
+
 test('Suggestions: asking again right after cancelling the same lookup gets an answer', async () => {
   const realFetch = globalThis.fetch;
   let requests = 0;

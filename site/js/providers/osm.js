@@ -468,14 +468,17 @@ function cacheSet(key, value, ttl) {
   }
 }
 
-/** Each category's first `max` places that pass `keep`, in order. */
+/**
+ * Each category's first `max` places that pass `keep`, in order. `keep` isn't asked
+ * about a place once its category is full: the app's filter notes what it drops.
+ */
 function capPerCategory(places, keep, max = PLACES_PER_CATEGORY) {
   const taken = new Map();
   return places.filter((p) => {
-    if (!keep(p)) return false;
     const n = taken.get(p.category) || 0;
+    if (n >= max || !keep(p)) return false;
     taken.set(p.category, n + 1);
-    return n < max;
+    return true;
   });
 }
 
