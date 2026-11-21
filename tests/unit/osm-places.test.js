@@ -11,8 +11,8 @@ function setup() {
   const realNow = Date.now;
   Date.now = () => clock.now;
   const calls = { overpass: 0, photon: [] };
-  // elements: what Overpass answers when it's up (one café by default).
-  const state = { overpassUp: false, photonFails: new Set(), elements: null };
+  // elements: what Overpass answers when it's up (one café by default); photonCount: places per Photon answer.
+  const state = { overpassUp: false, photonFails: new Set(), elements: null, photonCount: 2 };
   const realFetch = globalThis.fetch;
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   globalThis.fetch = async (url) => {
@@ -28,9 +28,9 @@ function setup() {
     if (tags.some((t) => state.photonFails.has(t))) return json({ message: 'busy' }, 503);
     const [key, value] = tags[0].split(':');
     return json({
-      features: [0, 1].map((k) => ({
+      features: Array.from({ length: state.photonCount }, (_, k) => ({
         geometry: { type: 'Point', coordinates: [34.92 + k * 0.001, 32.44] },
-        properties: { osm_type: 'N', osm_id: 100 + k + 10 * calls.photon.length, osm_key: key, osm_value: value, name: `${value} ${k + 1}` },
+        properties: { osm_type: 'N', osm_id: 100 + k + 1000 * calls.photon.length, osm_key: key, osm_value: value, name: `${value} ${k + 1}` },
       })),
     });
   };
@@ -175,6 +175,26 @@ test('Overpass: a place whose hours have a line break costs no other place', asy
     // Nor is Overpass made to rest: the next search asks it again.
     await osm.searchPlaces(at, 6000, ['cafe']);
     assert.equal(calls.overpass, 2);
+  } finally {
+    restore();
+  }
+});
+
+test('Overpass busy: the filter runs before Photon places are cut to 15 too', async () => {
+  const { calls, state, restore } = setup();
+  try {
+    // Overpass busy or resting. Photon answers 30 cafés, nearest first; the filter
+    // (say, the Green Line) leaves out the 15 nearest.
+    state.photonCount = 30;
+    const at = { lat: 32.44, lng: 34.92 };
+    const beyondNearest15 = (p) => p.lng > at.lng + 14.5 * 0.001;
+    const osm = createOsmProvider();
+    const kept = await osm.searchPlaces(at, 3000, ['cafe'], { keep: beyondNearest15 });
+    assert.deepEqual(kept.map((p) => p.name), Array.from({ length: 15 }, (_, i) => `cafe ${i + 16}`));
+    // No filter: the 15 nearest, as before, from the same answer.
+    const all = await osm.searchPlaces(at, 3000, ['cafe']);
+    assert.deepEqual(all.map((p) => p.name), Array.from({ length: 15 }, (_, i) => `cafe ${i + 1}`));
+    assert.equal(calls.photon.length, 1);
   } finally {
     restore();
   }

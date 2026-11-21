@@ -27,7 +27,7 @@ const MAX_TABLE_COORDS = 100;
 /** Transitous answers at most 128 destinations per one-to-many request. */
 const MAX_TRANSIT_DESTINATIONS = 100;
 const PLACES_PER_CATEGORY = 15;
-/** Overpass places kept per category, so a filter (e.g. Shabbat) still finds some among them. */
+/** Places kept per category (from Overpass or Photon), so a filter (e.g. Shabbat) still finds some among them. */
 const CACHED_PER_CATEGORY = 60;
 const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
 /**
@@ -561,21 +561,22 @@ async function photonPlaces(center, radius, categoryIds) {
     };
   };
   // Each group's places, nearest first; a category with several groups takes them in turns.
+  // All are kept: the caller's filter runs before the cut to PLACES_PER_CATEGORY.
   const byCategory = new Map();
   settled.forEach((r, i) => {
     if (r.status !== 'fulfilled') return;
     const { id } = asks[i];
-    const list = parseOverpass({ elements: r.value.map(asElement) }, center, [id]);
+    const list = parseOverpass({ elements: r.value.map(asElement) }, center, [id], CACHED_PER_CATEGORY);
     byCategory.set(id, [...(byCategory.get(id) || []), list]);
   });
   const seen = new Set();
   const places = [];
   for (const lists of byCategory.values()) {
     let taken = 0;
-    for (let i = 0; taken < PLACES_PER_CATEGORY && lists.some((l) => i < l.length); i++) {
+    for (let i = 0; taken < CACHED_PER_CATEGORY && lists.some((l) => i < l.length); i++) {
       for (const list of lists) {
         const place = list[i];
-        if (!place || seen.has(place.id) || taken >= PLACES_PER_CATEGORY) continue;
+        if (!place || seen.has(place.id) || taken >= CACHED_PER_CATEGORY) continue;
         seen.add(place.id);
         taken++;
         // Photon gives no opening hours: "closed on Shabbat" can't be told for these.
