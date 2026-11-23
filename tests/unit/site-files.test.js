@@ -43,3 +43,13 @@ test('index.html references only files that exist', () => {
   assert.ok(refs.length > 3);
   for (const ref of refs) assert.ok(fs.existsSync(path.join(SITE, ref)), `index.html references missing ${ref}`);
 });
+
+test('no request of the site is keepalive or a beacon (the Android app\'s WebView never sent them)', () => {
+  const offenders = walk(SITE)
+    .filter((f) => f.endsWith('.js') && !f.startsWith('vendor/'))
+    .filter((f) => {
+      const code = fs.readFileSync(path.join(SITE, f), 'utf8').replace(/\/\/.*$/gm, '');
+      return /keepalive\s*:|sendBeacon\s*\(/.test(code);
+    });
+  assert.deepEqual(offenders, []);
+});
