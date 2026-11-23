@@ -129,16 +129,17 @@ test('share service: a short log of reads and stores, and the app\'s own reports
   assert.deepEqual(
     log.map((x) => [x.method, x.status ?? x.kind]),
     [
+      ['POST-ARRIVED', undefined],
       ['POST', 201],
       ['GET', 200],
       ['GET', 404],
       ['REPORT', 'store-failed'],
     ],
   );
-  assert.equal(log[3].ms, 20000);
+  assert.equal(log[4].ms, 20000);
   // Kept two days, and nothing of what was shared.
   const logKeys = [...e.SHARES.data.keys()].filter((k) => k.startsWith('log:'));
-  assert.equal(logKeys.length, 4);
+  assert.equal(logKeys.length, 5);
   for (const k of logKeys) assert.equal(e.SHARES.data.get(k).options.expirationTtl, 2 * 24 * 3600);
   assert.doesNotMatch(JSON.stringify(log), /חיפה|קפה|34\.98/);
 });

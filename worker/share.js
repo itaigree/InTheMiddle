@@ -127,8 +127,22 @@ export default {
       await later(writeLog(env, { at: new Date(started).toISOString(), method: 'REPORT', ...report, ...describe(request) }));
       return respond(204, null, { origin: requestOrigin });
     }
-    const response = await handle(request, env, url);
-    if (url.pathname.startsWith('/s/') && (request.method === 'GET' || request.method === 'POST')) {
+    const logged = url.pathname.startsWith('/s/') && (request.method === 'GET' || request.method === 'POST');
+    // A store is noted as it arrives too, before its body is read: one that
+    // arrives and stalls shows apart from one that never arrives.
+    if (logged && request.method === 'POST') {
+      await later(writeLog(env, { at: new Date(started).toISOString(), method: 'POST-ARRIVED', bytes: Number(request.headers.get('Content-Length')) || null, ...describe(request) }));
+    }
+    let response;
+    let failure = null;
+    try {
+      response = await handle(request, env, url);
+    } catch (err) {
+      failure = `${err?.name}: ${err?.message}`.slice(0, 200);
+      const requestOrigin = request.headers.get('Origin');
+      response = respond(500, { error: 'failed' }, { origin: requestOrigin && allowedOrigins(env).includes(requestOrigin) ? requestOrigin : null });
+    }
+    if (logged) {
       await later(
         writeLog(env, {
           at: new Date(started).toISOString(),
@@ -136,6 +150,7 @@ export default {
           status: response.status,
           ms: Date.now() - started,
           bytes: Number(request.headers.get('Content-Length')) || null,
+          ...(failure && { problem: failure }),
           ...describe(request),
         }),
       );

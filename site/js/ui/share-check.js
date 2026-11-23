@@ -8,12 +8,15 @@ import { makeSnapshot, newSnapshotKey } from '../core/snapshot.js';
 const LAST_SHARE_KEY = 'inthemiddle.lastShare';
 const CHECK_TIMEOUT_MS = 15000;
 
-/** Note what became of a share (merged into what's noted for the same id). */
-export function rememberShareAttempt(id, patch) {
+/**
+ * Note a share (`start`: a new one, which replaces the last) or what became of
+ * it (merged only into the same share: an older one's outcome doesn't overwrite).
+ */
+export function rememberShareAttempt(id, patch, { start = false } = {}) {
   try {
     const last = JSON.parse(localStorage.getItem(LAST_SHARE_KEY) || 'null');
-    const next = last && last.id === id ? { ...last, ...patch } : { id, ...patch };
-    localStorage.setItem(LAST_SHARE_KEY, JSON.stringify(next));
+    if (!start && (!last || last.id !== id)) return;
+    localStorage.setItem(LAST_SHARE_KEY, JSON.stringify(start ? { id, ...patch } : { ...last, ...patch }));
   } catch {
     // Storage off: the check just can't say.
   }
@@ -68,23 +71,33 @@ function testSnapshot() {
 }
 
 /**
- * Run the check into `list` (an <ol>), one line per step as it ends. Returns the
- * whole result as text (to copy, and for the service's log).
+ * Run the check into `list` (an <ol>), one line per step as it ends, while
+ * `isCurrent()` (a newer run replaces it). Returns the result as text: `shown`,
+ * all of it (to copy), and `logged`, without what is personal (the last share's
+ * id, which would open it, and the full browser string), for the service's log.
  */
-export async function runShareCheck({ shareApi, build, list }) {
+export async function runShareCheck({ shareApi, build, list, isCurrent = () => true }) {
   list.replaceChildren();
   const lines = [];
-  const add = (ok, title, detail) => {
-    const line = `${ok === true ? '✓' : ok === false ? '✗' : '·'} ${title}: ${detail}`;
+  const logged = [];
+  const pending = document.createElement('li');
+  pending.textContent = '· בודקים…';
+  list.append(pending);
+  const add = (ok, title, detail, { personal = null } = {}) => {
+    if (!isCurrent()) return;
+    const mark = ok === true ? '✓' : ok === false ? '✗' : '·';
+    const line = `${mark} ${title}: ${detail}`;
     lines.push(line);
+    if (personal !== 'drop') logged.push(personal === null ? line : `${mark} ${title}: ${personal}`);
     const li = document.createElement('li');
     li.textContent = line;
-    list.append(li);
+    pending.before(li);
   };
 
   const ua = navigator.userAgent;
-  add(null, 'גרסה', `${build ? String(build).slice(0, 7) : 'מקומית'}${/InTheMiddleApp\//.test(ua) ? ' · באפליקציה' : ' · בדפדפן'}`);
-  add(null, 'דפדפן', ua.replace(/\s*\(KHTML, like Gecko\)/, '').slice(0, 160));
+  const appVersion = ua.match(/InTheMiddleApp\/(\S+)/)?.[1];
+  add(null, 'גרסה', `${build ? String(build).slice(0, 7) : 'מקומית'}${appVersion ? ` · באפליקציה ${appVersion}` : ' · בדפדפן'}`);
+  add(null, 'דפדפן', ua.replace(/\s*\(KHTML, like Gecko\)/, ''), { personal: 'drop' });
   const connection = navigator.connection;
   add(
     null,
@@ -94,13 +107,11 @@ export async function runShareCheck({ shareApi, build, list }) {
   add(null, 'יכולות', `crypto.subtle ${crypto?.subtle ? 'יש' : 'אין'} · navigator.share ${navigator.share ? 'יש' : 'אין'} · service worker ${navigator.serviceWorker?.controller ? 'פעיל' : 'לא פעיל'}`);
 
   const last = lastShareAttempt();
-  add(
-    last ? last.ok !== false : null,
-    'השיתוף האחרון',
-    last
-      ? `${last.at || ''} · ${last.id || ''} · קישור ${last.link || '?'} · ${last.ok === true ? `נשמר אחרי ${last.ms} ms` : last.ok === false ? `לא נשמר (${last.problem || '?'}) אחרי ${last.ms} ms` : 'עוד לא ידוע אם נשמר'}`
-      : 'אין',
-  );
+  const fate = (l) =>
+    `${l.at || ''} · קישור ${l.link || '?'} · ${l.ok === true ? `נשמר אחרי ${l.ms} ms` : l.ok === false ? `לא נשמר (${l.problem || '?'}) אחרי ${l.ms} ms` : l.reason || 'לא ידוע אם נשמר'}`;
+  add(last ? (last.ok ?? null) : null, 'השיתוף האחרון', last ? `${fate(last)}${last.id ? ` · ${last.id}` : ''}` : 'אין', {
+    personal: last ? fate(last) : null,
+  });
 
   // The site itself: the control (the app does reach it).
   const site = await timed(`config.js?check=${Date.now()}`, { cache: 'no-store' });
@@ -108,7 +119,8 @@ export async function runShareCheck({ shareApi, build, list }) {
 
   if (!shareApi) {
     add(false, 'שירות השיתוף', 'לא מוגדר באתר');
-    return lines.join('\n');
+    pending.remove();
+    return { shown: lines.join('\n'), logged: logged.join('\n') };
   }
   const read = await timed(`${shareApi}/s/AAAAAAAAAAAA`);
   add(read.status === 404, 'שירות השיתוף, קריאה', shown(read));
@@ -131,12 +143,14 @@ export async function runShareCheck({ shareApi, build, list }) {
     add(back.status === 200, 'שירות השיתוף, קריאה של מה שנשמר', shown(back));
   }
 
-  const text = lines.join('\n');
-  // Into the service's log too, when it can be reached.
-  fetch(`${shareApi}/log`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-    body: JSON.stringify({ kind: 'check', details: text.slice(0, 1500), version: build ? String(build).slice(0, 12) : null }),
-  }).catch(() => {});
-  return text;
+  if (isCurrent()) {
+    pending.remove();
+    // Into the service's log too, when it can be reached.
+    fetch(`${shareApi}/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ kind: 'check', details: logged.join('\n').slice(0, 1500), version: build ? String(build).slice(0, 12) : null }),
+    }).catch(() => {});
+  }
+  return { shown: lines.join('\n'), logged: logged.join('\n') };
 }
