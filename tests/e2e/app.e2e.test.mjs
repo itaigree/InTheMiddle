@@ -637,6 +637,10 @@ test('storing the results fails: the link carries the search instead, and the ne
   assert.equal(first.searchParams.get('a'), 'חיפה');
   // The sender is told why the link is the long one.
   await page.locator('#toast', { hasText: 'לא הצלחנו לשמור את התוצאות (שירות השיתוף ענה 500)' }).waitFor();
+  // And the service's log hears about it.
+  await page.waitForFunction(() => true);
+  for (let i = 0; i < 50 && !(shareLog.reports || []).length; i++) await page.waitForTimeout(100);
+  assert.match(shareLog.reports[0], /"kind":"store-failed"/);
   const second = await sharedLink(page);
   assert.equal(second.searchParams.get('a'), 'חיפה');
   assert.equal(shareLog.stored.length, 2);
