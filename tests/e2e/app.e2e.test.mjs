@@ -498,11 +498,12 @@ test('free results travel as they are: a shared place opens them without searchi
   const names = await sender.page.locator('#place-list .place-name').allTextContents();
   const times = await sender.page.locator('#place-list .time-value').allTextContents();
   const url = new URL((await sharedPlace(sender.page, card)).url);
-  // The link: the stored results, the place, and the search to fall back on.
+  // A short link: the stored results (which hold the search) and the place.
   const snapshotId = url.searchParams.get('r');
   assert.match(snapshotId, /^[A-Za-z0-9_-]{12}$/);
+  assert.deepEqual([...url.searchParams.keys()].sort(), ['pl', 'r']);
   assert.equal(url.searchParams.get('pl'), id);
-  assert.equal(url.searchParams.get('a'), 'חיפה');
+  assert.ok(url.href.length < 100, url.href);
   const stored = await storedSnapshot(store, snapshotId);
   assert.equal(stored.points[0].label, 'חיפה');
   assert.ok(stored.places.some((p) => p.id === id));
@@ -510,7 +511,7 @@ test('free results travel as they are: a shared place opens them without searchi
   // Shared again (the whole search this time): the same stored results.
   const searchUrl = await sharedLink(sender.page);
   assert.equal(searchUrl.searchParams.get('r'), snapshotId);
-  assert.equal(searchUrl.searchParams.get('pl'), null);
+  assert.deepEqual([...searchUrl.searchParams.keys()], ['r']);
   assert.equal(sender.shareLog.stored.length, 1);
   assert.deepEqual(sender.errors, []);
   await sender.context.close();
@@ -532,6 +533,9 @@ test('free results travel as they are: a shared place opens them without searchi
   assert.equal(await page.locator('#map .pin-b').count(), 1);
   assert.match(await page.locator('#map .leaflet-popup').textContent(), new RegExp(name));
   assert.equal(await page.locator('#trip-b').textContent(), 'תל אביב-יפו');
+  // Their search is in the form, to search again or change.
+  assert.equal(await page.locator('#input-a').inputValue(), 'חיפה');
+  assert.equal(await page.locator('#input-b').inputValue(), 'תל אביב-יפו');
   await shot(page, 'osm-phone-stored-results');
   // A reload shows them again, still without searching.
   await page.reload();
@@ -559,7 +563,7 @@ test('free results of a group travel as they are too', async () => {
   await search(sender.page);
   const names = await sender.page.locator('#place-list .place-name').allTextContents();
   const url = await sharedLink(sender.page);
-  assert.equal(url.searchParams.get('p3'), 'באר שבע');
+  assert.deepEqual([...url.searchParams.keys()], ['r']);
   await storedSnapshot(store, url.searchParams.get('r'));
   await sender.context.close();
 
@@ -567,6 +571,9 @@ test('free results of a group travel as they are too', async () => {
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
   assert.equal(await page.locator('#trip-more-count').textContent(), '+1');
+  // All three starting points in the form.
+  assert.equal(await page.locator('#extra-endpoints .endpoint-extra').count(), 1);
+  assert.equal(await page.locator('#extra-endpoints .endpoint-extra input[role="combobox"]').inputValue(), 'באר שבע');
   // Everyone's time on each card.
   assert.equal(await page.locator('#place-list .place-card').first().locator('.group-time').count(), 3);
   assert.equal(freeRequests(osmLog), 0);
@@ -580,6 +587,16 @@ test('stored results that are gone: the link searches again, and says so', async
   await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
   assert.match(await page.locator('#status').textContent(), /התוצאות ששותפו כבר לא שמורות/);
   assert.ok(osmLog.overpass.length > 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a short link whose results are gone: it says so, and searches nothing', async () => {
+  const { page, osmLog, errors, context } = await openApp({ share: { store: new Map() }, query: '?r=AAAAAAAAAAAA' });
+  await page.locator('#status', { hasText: 'הקישור הזה כבר לא פעיל' }).waitFor({ timeout: 20000 });
+  assert.equal(freeRequests(osmLog), 0);
+  assert.equal(await page.locator('#input-a').inputValue(), '');
+  assert.equal(new URL(page.url()).search, '');
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -600,16 +617,28 @@ test('Google results are not stored: their link searches again', async () => {
   await context.close();
 });
 
-test('storing the results fails: the sender is told the link will search again', async () => {
-  const { page, context } = await openApp({ share: { failStore: true } });
+test('storing the results fails: the link carries the search instead, and the next share tries again', async () => {
+  const { page, shareLog, context } = await openApp({ share: { failStore: true } });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
   await search(page);
-  const first = (await sharedLink(page)).searchParams.get('r');
-  await page.locator('#toast', { hasText: 'לא הצלחנו לשמור את התוצאות' }).waitFor();
-  // The next share tries again, with a new id.
-  const second = (await sharedLink(page)).searchParams.get('r');
-  assert.ok(second && second !== first);
+  const first = await sharedLink(page);
+  assert.equal(first.searchParams.get('r'), null);
+  assert.equal(first.searchParams.get('a'), 'חיפה');
+  const second = await sharedLink(page);
+  assert.equal(second.searchParams.get('a'), 'חיפה');
+  assert.equal(shareLog.stored.length, 2);
+  await context.close();
+});
+
+test('storing that is slow and then fails: the short link went out, and the sender is told it won\'t open', async () => {
+  const { page, context } = await openApp({ share: { failStore: true, storeDelayMs: 2500 } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  // The share sheet doesn't wait for long: the link is the short one.
+  assert.ok((await sharedLink(page)).searchParams.get('r'));
+  await page.locator('#toast', { hasText: 'הקישור ששיתפת לא ייפתח' }).waitFor({ timeout: 10000 });
   await context.close();
 });
 
