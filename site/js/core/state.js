@@ -9,6 +9,11 @@ export const MODES = ['car', 'transit'];
 export const EXTRA_KEYS = ['p3', 'p4', 'p5'];
 /** What matters more when no place is exactly in the middle (see core/ranking.js). */
 export const PRIORITIES = ['equal', 'balanced', 'gap'];
+/**
+ * A place's id in a link (`pl`): the place a shared place link opens on. Google's
+ * place ids and the app's own OpenStreetMap ones ("osm-node-123") fit it.
+ */
+const PLACE_ID_RE = /^[A-Za-z0-9_-]{1,300}$/;
 
 function encodePoint(p) {
   return `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
@@ -78,6 +83,7 @@ export function israelClock(date) {
  * @param {string|null} [state.provider]  forced provider id, normally null
  * @param {{label: string, lat?: number, lng?: number, mode?: 'car'|'transit'}[]} [state.extra]
  *   more starting points, after א and ב (up to EXTRA_KEYS.length)
+ * @param {string|null} [state.place]  the id of the place the link opens on (a shared place)
  */
 export function encodeState(state) {
   const params = new URLSearchParams();
@@ -98,6 +104,7 @@ export function encodeState(state) {
   if (state.shabbat) params.set('s', '1');
   if (PRIORITIES.includes(state.priority) && state.priority !== 'balanced') params.set('f', state.priority);
   if (state.provider) params.set('p', state.provider);
+  if (state.place && PLACE_ID_RE.test(state.place)) params.set('pl', state.place);
   return params.toString();
 }
 
@@ -116,6 +123,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
     priority: 'balanced',
     provider: null,
     extra: [],
+    place: null,
   };
   const pointAt = (key) => {
     const label = (params.get(key) || '').trim().slice(0, 200);
@@ -150,5 +158,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
   if (PRIORITIES.includes(f)) result.priority = f;
   const p = params.get('p');
   if (p === 'osm' || p === 'google') result.provider = p;
+  const place = params.get('pl');
+  if (place && PLACE_ID_RE.test(place)) result.place = place;
   return result;
 }

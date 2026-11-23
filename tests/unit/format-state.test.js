@@ -38,6 +38,7 @@ test('state round-trips through the query string', () => {
     priority: 'equal',
     provider: null,
     extra: [],
+    place: null,
   };
   const decoded = decodeState(encodeState(state));
   assert.deepEqual(decoded, state);
@@ -91,6 +92,7 @@ test('decodeState drops malformed values', () => {
     priority: 'balanced',
     provider: null,
     extra: [],
+    place: null,
   });
 });
 
@@ -139,6 +141,24 @@ test('decodeState drops coordinates with an empty part instead of reading it as 
   assert.deepEqual(decodeState('a=x&all=,34.8').a, { label: 'x' });
   assert.deepEqual(decodeState('a=x&all=32.1, 34.8').a, { label: 'x', lat: 32.1, lng: 34.8 });
   assert.deepEqual(decodeState('a=x&all=0,0').a, { label: 'x', lat: 0, lng: 0 });
+});
+
+test('a shared place link carries the place it opens on', () => {
+  const search = { a: { label: 'חיפה' }, b: { label: 'תל אביב' }, modeA: 'car', modeB: 'car', categories: ['cafe'] };
+  // Google's place ids and the app's OpenStreetMap ones.
+  for (const id of ['ChIJN1t_tDeuEmsRUsoyG83frY4', 'osm-node-123456', 'osm-way-42']) {
+    const qs = encodeState({ ...search, place: id });
+    assert.equal(new URLSearchParams(qs).get('pl'), id);
+    assert.equal(decodeState(qs).place, id);
+  }
+  // A search link has none.
+  assert.doesNotMatch(encodeState(search), /(^|&)pl=/);
+  assert.equal(decodeState('a=x&b=y').place, null);
+  // Anything that isn't a place id is dropped, on the way in and out.
+  for (const bad of ['', '<script>', 'a b', 'x'.repeat(301), '../x']) {
+    assert.equal(decodeState(`a=x&b=y&pl=${encodeURIComponent(bad)}`).place, null, bad);
+    assert.doesNotMatch(encodeState({ ...search, place: bad }), /(^|&)pl=/);
+  }
 });
 
 test('encodeState omits empty parts', () => {

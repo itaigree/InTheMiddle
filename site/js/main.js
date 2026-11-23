@@ -55,6 +55,8 @@ const NOTICE_TEXT = {
     'בחיפוש של יותר משתי נקודות יציאה, הסינון משמיט מקומות שמעבר לקו הירוק, אבל לא בודק את הדרכים אליהם: הן עשויות לעבור ביהודה ושומרון.',
   'shabbat-busy':
     'שרת המקומות החינמי עמוס, ובינתיים אין לנו שעות פתיחה, אז אי אפשר לדעת אילו בתי קפה ומסעדות סגורים בשבת. כדאי לנסות שוב בעוד כמה דקות.',
+  'shared-place-missing':
+    'המקום ששותף בקישור לא נמצא הפעם (התוצאות משתנות לפי השעה ולפי המפות שזמינות עכשיו), אז הנה כל המקומות שמצאנו.',
 };
 
 /** What each choice of "what matters more" means, under the choices. */
@@ -725,9 +727,9 @@ function setBusy(busy, { background = false } = {}) {
 
 /**
  * Run a search from the form, or re-run `request` (an earlier one) after the
- * provider changed.
+ * provider changed. `pick`: the id of a place to open the results on (a shared place link).
  */
-async function runSearch({ request = null, redo = false, background = false } = {}) {
+async function runSearch({ request = null, redo = false, background = false, pick = null } = {}) {
   if (!request) {
     const problems = validateForm();
     if (problems.length) {
@@ -843,7 +845,7 @@ async function runSearch({ request = null, redo = false, background = false } = 
     // its error screen late): its results would sit on a broken map, so redo it.
     // (A block recorded by another tab doesn't make this tab's results wrong.)
     if (result.provider.id === 'google' && googleFailures !== failuresBefore && !redo) {
-      return await runSearch({ request, redo: true, background });
+      return await runSearch({ request, redo: true, background, pick });
     }
     if (request.departurePast) result.res.notices.unshift('departure-past');
     // Say why there are few places when a filter took some away.
@@ -865,11 +867,12 @@ async function runSearch({ request = null, redo = false, background = false } = 
     shownRequest = request;
     shownNeedsRedo = false;
     shownLink = searchLink(result.query);
-    // A reload (or coming back to this page) shows this search again; the address bar stays as it is.
-    history.replaceState({ search: searchLink(result.query, { own: true }) }, '');
+    // A reload (or coming back to this page) shows this search again, on the shared
+    // place it opened on if any; the address bar stays as it is.
+    history.replaceState({ search: searchLink(result.query, { own: true, place: pick }) }, '');
     // A re-run doesn't scroll away from a field the user is typing in, or to an error it leaves on screen.
     const typing = sideKeys().some((key) => sides[key].input === document.activeElement);
-    await showResult(result.res, result.provider, { scroll: !(background && (typing || quiet())), status: !quiet() });
+    await showResult(result.res, result.provider, { scroll: !(background && (typing || quiet())), status: !quiet(), pick });
   } catch (err) {
     if (seq !== searchSeq) return;
     console.error(err);
@@ -917,8 +920,11 @@ function forLink(loc, { own = false } = {}) {
   return loc;
 }
 
-/** A link to the search (`own`: only for this tab's history, so "my location" stays as it is). */
-function searchLink(query, { own = false } = {}) {
+/**
+ * A link to the search (`own`: only for this tab's history, so "my location" stays
+ * as it is). With `place`, the link opens the search on that place (a shared place).
+ */
+function searchLink(query, { own = false, place = null } = {}) {
   const qs = encodeState({
     a: forLink(query.a, { own }),
     b: forLink(query.b, { own }),
@@ -931,6 +937,7 @@ function searchLink(query, { own = false } = {}) {
     priority: query.priority,
     provider: forcedProvider,
     extra: (query.extra || []).map((p) => ({ ...forLink(p, { own }), mode: p.mode })),
+    place,
   });
   return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
@@ -1072,7 +1079,11 @@ placeResultFilters();
 // The trip in the header is the way back to the search form.
 $('trip').addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
 
-async function showResult(result, provider, { scroll = true, status = true } = {}) {
+/**
+ * Show a search's results. `pick`: the id of a place to open them on, picked as
+ * its sender had it (a shared place link).
+ */
+async function showResult(result, provider, { scroll = true, status = true, pick = null } = {}) {
   lastResult = result;
   shownProvider = provider;
   activeFilter = 'all';
@@ -1087,6 +1098,20 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   if (provider.id !== 'google' && switchBlock && SWITCH_REASON_TEXT[switchBlock.reason]) {
     notices.unshift(SWITCH_REASON_TEXT[switchBlock.reason]);
   }
+  // The place someone shared: the recipient's search may not have it (another time,
+  // or the free maps instead of Google's), so it's looked for among the results.
+  let picked = pick ? result.places.find((p) => p.id === pick) || null : null;
+  const listed = () => displayedPlaces().some((p) => p.id === picked.id);
+  if (picked && !listed()) {
+    // Left out of the whole list (its sender had its kind of places chosen): the
+    // list of its kind, as the sender saw it.
+    activeFilter = picked.category;
+    if (!listed()) {
+      activeFilter = 'all';
+      picked = null;
+    }
+  }
+  if (pick && !picked) notices.push(NOTICE_TEXT['shared-place-missing']);
   if (!status) {
     // Leave what the status says (an error the user is reading).
   } else if (notices.length === 1) showStatus('info', notices[0]);
@@ -1101,11 +1126,19 @@ async function showResult(result, provider, { scroll = true, status = true } = {
   // Show the map box right away (it fills in when the map is ready), so the
   // phone layout has something to scroll to on the first search.
   document.body.classList.add('has-map');
-  if (scroll && window.matchMedia('(max-width: 959px)').matches) {
+  if (picked) {
+    // Picked as from the list: its card marked (under the map on phones) and
+    // scrolled to; the map zooms in on it once it's drawn.
+    selectPlace(picked, { from: 'link', scroll });
+  } else if (scroll && window.matchMedia('(max-width: 959px)').matches) {
     // A notice explains the results, so show it first; otherwise go to the map.
     scrollIntoPlace(notices.length ? $('status') : resultsTop());
   }
   await drawOnMap(result, provider);
+  // Still the place on screen (not another one picked, or another list chosen, meanwhile).
+  if (picked && lastResult === result && $('place-list').querySelector('.place-card.is-active')?.dataset.placeId === picked.id) {
+    onMap((map) => map.highlight(picked.id, { focus: true }));
+  }
 }
 
 async function drawOnMap(result, provider) {
@@ -1127,17 +1160,22 @@ const isPhone = () => window.matchMedia('(max-width: 959px)').matches;
 // window (snapped, or zoomed in) has the phone layout but a hardware keyboard.
 const hasTouchKeyboard = () => window.matchMedia('(pointer: coarse)').matches;
 
-function selectPlace(place, { from }) {
+/**
+ * `from`: 'list', 'map', or 'link' (a shared place, picked for the recipient as
+ * its sender had it). `scroll: false` leaves the page where it is.
+ */
+function selectPlace(place, { from, scroll = true }) {
   // A place picked from the list is zoomed in on (with the whole search in the
   // corner); one picked on the map stays where the user is looking.
-  onMap((map) => map.highlight(place.id, { focus: from === 'list' }));
+  onMap((map) => map.highlight(place.id, { focus: from !== 'map' }));
   const phone = isPhone();
-  setActiveCard($('place-list'), place.id, { scroll: from === 'map' && !phone });
+  // Its card comes into view in the list, unless the user just tapped it there.
+  setActiveCard($('place-list'), place.id, { scroll: scroll && from !== 'list' && !phone });
   if (!phone) return;
   // On phones the map and the list are far apart: the picked place's card comes
   // up under the map, so the map and its links (Waze etc.) are on screen together.
   showPicked(place);
-  if (from === 'list') scrollIntoPlace(resultsTop());
+  if (scroll && from !== 'map') scrollIntoPlace(resultsTop());
 }
 
 /** Where the results begin on a phone: their category chips, or the map when there are none. */
@@ -1202,7 +1240,9 @@ async function sharePlace(place) {
   const outcome = await shareOrCopy({
     title: place.name,
     text: `נפגשים באמצע? מה דעתך על ${place.name}${times}`,
-    url: googleMapsUrl(place),
+    // The app, on this search with this place picked: the recipient sees the place
+    // and the rest of the list, as the sender does (and has Waze and Google Maps there).
+    url: lastQuery ? searchLink(lastQuery, { place: place.id }) : googleMapsUrl(place),
   });
   if (outcome === 'copied') toast('הקישור הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
@@ -1313,9 +1353,9 @@ function init() {
   // to the plain site, so sharing the page from the browser shares the app itself.
   if (linkSearch !== null) history.replaceState({ search: linkSearch }, '', plainAddress());
   if (state.a && state.b && !isFramed()) {
-    // A shared link: show its results right away. (Not inside a frame, where
-    // another site could run billed searches on visitors' behalf.)
-    runSearch();
+    // A shared link: show its results right away, on the place it shared if any.
+    // (Not inside a frame, where another site could run billed searches on visitors' behalf.)
+    runSearch({ pick: state.place });
   } else if (!config.googleMapsApiKey || forcedProvider === 'osm') {
     updateProviderNote({ id: 'osm', attributionHtml: '' });
   }
