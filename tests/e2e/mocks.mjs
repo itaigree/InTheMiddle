@@ -262,20 +262,24 @@ export async function mockShare(target, { store = new Map(), failStore = false, 
     SHARES: {
       get: async (key) => store.get(key) ?? null,
       put: async (key, value) => void store.set(key, value),
+      list: async ({ prefix }) => ({ keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }),
     },
   };
   const log = { stored: [], read: [] };
   await target.route('https://share.test/**', async (route) => {
     const req = route.request();
     const method = req.method();
-    (method === 'POST' ? log.stored : log.read).push(req.url());
-    if (method === 'POST' && storeDelayMs) await new Promise((resolve) => setTimeout(resolve, storeDelayMs));
+    // The app's reports to the service's log aren't stores.
+    const isReport = new URL(req.url()).pathname === '/log';
+    if (isReport) (log.reports ??= []).push(req.postData());
+    else (method === 'POST' ? log.stored : log.read).push(req.url());
+    if (method === 'POST' && !isReport && storeDelayMs) await new Promise((resolve) => setTimeout(resolve, storeDelayMs));
     if (method === 'GET' && readDelayMs) await new Promise((resolve) => setTimeout(resolve, readDelayMs));
     if (method === 'GET' && failRead) {
       await route.abort('connectionrefused');
       return;
     }
-    if (method === 'POST' && failStore) {
+    if (method === 'POST' && !isReport && failStore) {
       await route.fulfill({ status: 500, headers: { 'access-control-allow-origin': origin }, body: '{}' });
       return;
     }

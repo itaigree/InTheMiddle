@@ -1294,6 +1294,21 @@ function reportStore(stored) {
   });
 }
 
+/**
+ * Tell the share service's log about a store or read that failed or was slow
+ * (what went wrong and how long it took, nothing shared). Best effort.
+ */
+function reportShare(details) {
+  try {
+    const report = new Blob([JSON.stringify({ ...details, version: config.build ? String(config.build).slice(0, 12) : null })], {
+      type: 'text/plain',
+    });
+    navigator.sendBeacon?.(`${SHARE_API}/log`, report);
+  } catch {
+    // Only a report.
+  }
+}
+
 /** Why storing failed, in words. */
 function storeProblem(err) {
   if (err?.name === 'AbortError') return 'שירות השיתוף לא ענה בזמן';
@@ -1364,16 +1379,25 @@ function snapshotFor(result, query) {
   );
   // More than the service keeps (unheard of: a usual one is ~10 KB): the link searches again.
   if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES - 100) return null;
-  const stored = { id: null, done: null, problem: null };
+  const stored = { id: null, done: null, problem: null, ms: null };
   stored.done = (async () => {
     const { key, id } = await newSnapshotKey();
     stored.id = id;
-    await storeSnapshot(id, key, body);
+    const started = performance.now();
+    try {
+      await storeSnapshot(id, key, body);
+    } finally {
+      stored.ms = Math.round(performance.now() - started);
+    }
   })().then(
-    () => true,
+    () => {
+      if (stored.ms > SHARE_WAIT_MS) reportShare({ kind: 'store-slow', ms: stored.ms, bytes: body.length });
+      return true;
+    },
     (err) => {
       console.warn('storing the shared results failed', err);
       stored.problem = storeProblem(err);
+      reportShare({ kind: 'store-failed', problem: `${err?.name}: ${err?.message}`, ms: stored.ms, bytes: body.length });
       // The next share tries again.
       if (result.snapshots[key] === stored) delete result.snapshots[key];
       return false;
@@ -1427,6 +1451,7 @@ async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
   for (const key of waiting.keys()) sides[key].input.placeholder = 'טוענים…';
   let opened = null;
   let gone = false;
+  const started = performance.now();
   try {
     const found = await fetchSnapshot(id);
     gone = found === null;
@@ -1444,6 +1469,7 @@ async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
     }
   } catch (err) {
     console.warn('opening the shared results failed', err);
+    reportShare({ kind: 'read-failed', problem: `${err?.name}: ${err?.message}`, ms: Math.round(performance.now() - started) });
   }
   for (const [key, placeholder] of waiting) if (sides[key]) sides[key].input.placeholder = placeholder;
   // The user started a search meanwhile: it's theirs to show.

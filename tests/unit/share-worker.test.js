@@ -19,8 +19,14 @@ function fakeKv() {
       calls.push(`put:${key}`);
       data.set(key, { value, options });
     },
+    async list({ prefix }) {
+      return { keys: [...data.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true };
+    },
   };
 }
+
+/** The store's calls and keys without the log's. */
+const notLog = (xs) => [...xs].filter((x) => !x.includes('log:'));
 
 const env = () => ({ SHARES: fakeKv(), ALLOWED_ORIGINS: `${SITE}, http://localhost:8080`, TTL_DAYS: '30' });
 
@@ -66,7 +72,7 @@ test('share service: a snapshot is stored for 30 days under its key\'s id, and r
   assert.equal(stored.headers.get('Access-Control-Allow-Origin'), SITE);
   assert.equal(e.SHARES.data.get(id).options.expirationTtl, 30 * 24 * 3600);
   // Nothing was read first (KV would keep that "not found" a minute, right where it's read next).
-  assert.deepEqual(e.SHARES.calls, [`put:${id}`]);
+  assert.deepEqual(notLog(e.SHARES.calls), [`put:${id}`]);
 
   const got = await call(e, 'GET', id);
   assert.equal(got.status, 200);
@@ -101,12 +107,40 @@ test('share service: what it refuses', async () => {
   const huge = { ...snapshot(), filler: 'x'.repeat(70 * 1024) };
   assert.equal((await store(e, id, key, huge)).status, 413);
   assert.equal((await call(e, 'DELETE', id)).status, 405);
-  assert.equal(e.SHARES.data.size, 0);
+  assert.equal(notLog(e.SHARES.data.keys()).length, 0);
   // Extras in an accepted snapshot are not stored.
   const withExtras = snapshot();
   withExtras.places[0].photoUrl = 'https://evil.example/x.png';
   assert.equal((await store(e, id, key, withExtras)).status, 201);
   assert.doesNotMatch(e.SHARES.data.get(id).value, /evil/);
+});
+
+test('share service: a short log of reads and stores, and the app\'s own reports, with nothing shared in it', async () => {
+  const e = env();
+  const { key, id } = await newSnapshotKey();
+  await store(e, id, key, snapshot());
+  await call(e, 'GET', id);
+  await call(e, 'GET', 'AAAAAAAAAAAA');
+  const report = (body, origin = SITE) =>
+    worker.fetch(new Request('https://x.workers.dev/log', { method: 'POST', headers: { Origin: origin }, body: JSON.stringify(body) }), e);
+  assert.equal((await report({ kind: 'store-failed', problem: 'TypeError: Failed to fetch', ms: 20000, label: 'חיפה' })).status, 204);
+  assert.equal((await report({ kind: 'x' }, 'https://evil.example')).status, 403);
+  const log = await (await worker.fetch(new Request('https://x.workers.dev/log'), e)).json();
+  assert.deepEqual(
+    log.map((x) => [x.method, x.status ?? x.kind]),
+    [
+      ['POST', 201],
+      ['GET', 200],
+      ['GET', 404],
+      ['REPORT', 'store-failed'],
+    ],
+  );
+  assert.equal(log[3].ms, 20000);
+  // Kept two days, and nothing of what was shared.
+  const logKeys = [...e.SHARES.data.keys()].filter((k) => k.startsWith('log:'));
+  assert.equal(logKeys.length, 4);
+  for (const k of logKeys) assert.equal(e.SHARES.data.get(k).options.expirationTtl, 2 * 24 * 3600);
+  assert.doesNotMatch(JSON.stringify(log), /חיפה|קפה|34\.98/);
 });
 
 test('share service: the browser\'s preflight is answered for the site', async () => {
