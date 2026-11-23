@@ -13,7 +13,12 @@ export const PRIORITIES = ['equal', 'balanced', 'gap'];
  * A place's id in a link (`pl`): the place a shared place link opens on. Google's
  * place ids and the app's own OpenStreetMap ones ("osm-node-123") fit it.
  */
-const PLACE_ID_RE = /^[A-Za-z0-9_-]{1,300}$/;
+export const PLACE_ID_RE = /^[A-Za-z0-9_-]{1,300}$/;
+/**
+ * The id of stored results (`r`, see core/snapshot.js): 12 random URL-safe
+ * characters, drawn by the sender's browser.
+ */
+export const SNAPSHOT_ID_RE = /^[A-Za-z0-9_-]{12}$/;
 
 function encodePoint(p) {
   return `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
@@ -84,6 +89,7 @@ export function israelClock(date) {
  * @param {{label: string, lat?: number, lng?: number, mode?: 'car'|'transit'}[]} [state.extra]
  *   more starting points, after א and ב (up to EXTRA_KEYS.length)
  * @param {string|null} [state.place]  the id of the place the link opens on (a shared place)
+ * @param {string|null} [state.snapshot]  the id of the stored results the link opens (core/snapshot.js)
  */
 export function encodeState(state) {
   const params = new URLSearchParams();
@@ -105,6 +111,7 @@ export function encodeState(state) {
   if (PRIORITIES.includes(state.priority) && state.priority !== 'balanced') params.set('f', state.priority);
   if (state.provider) params.set('p', state.provider);
   if (state.place && PLACE_ID_RE.test(state.place)) params.set('pl', state.place);
+  if (state.snapshot && SNAPSHOT_ID_RE.test(state.snapshot)) params.set('r', state.snapshot);
   return params.toString();
 }
 
@@ -124,6 +131,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
     provider: null,
     extra: [],
     place: null,
+    snapshot: null,
   };
   const pointAt = (key) => {
     const label = (params.get(key) || '').trim().slice(0, 200);
@@ -160,5 +168,7 @@ export function decodeState(search, { knownCategories = null } = {}) {
   if (p === 'osm' || p === 'google') result.provider = p;
   const place = params.get('pl');
   if (place && PLACE_ID_RE.test(place)) result.place = place;
+  const snapshot = params.get('r');
+  if (snapshot && SNAPSHOT_ID_RE.test(snapshot)) result.snapshot = snapshot;
   return result;
 }

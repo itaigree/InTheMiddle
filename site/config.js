@@ -4,4 +4,6 @@
 window.APP_CONFIG = {
   googleMapsApiKey: '',
   googleMapId: '',
+  // The share service (worker/share.js) that keeps free results for shared links.
+  shareApiUrl: '',
 };

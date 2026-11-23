@@ -27,6 +27,10 @@ jobs:
           node-version: 22 # node --test with globs needs Node 21+
           package-manager-cache: false
       - run: npm test
+      - name: The share service builds (worker/, no Cloudflare account needed)
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --yes wrangler@4.152.0 deploy --dry-run --config worker/wrangler.toml --outdir "$RUNNER_TEMP/worker"
 
   deploy:
     needs: test
@@ -50,11 +54,86 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+      - uses: actions/configure-pages@v6
+        id: pages
+
+      # The share service (worker/share.js) keeps free results for shared links.
+      # Set up once with a Cloudflare API token (README, "שיתוף התוצאות"); without
+      # one, shared links search again. A failure here doesn't hold up the site.
+      - name: Deploy the share service to Cloudflare
+        id: share
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # empty when the secret isn't set
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }} # optional: found from the token
+          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+          OWNER: ${{ github.repository_owner }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "::notice title=Share service::CLOUDFLARE_API_TOKEN is not set, so shared links search again (see the README)."
+            exit 0
+          fi
+          CF=https://api.cloudflare.com/client/v4
+          cf() { curl -sS --fail-with-body -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "$@"; }
+
+          account="${CLOUDFLARE_ACCOUNT_ID}"
+          if [ -z "$account" ]; then
+            ids="$(cf "$CF/accounts?per_page=50" | jq -r '.result[].id')"
+            if [ "$(printf '%s\n' "$ids" | grep -c .)" != 1 ]; then
+              echo "::error title=Share service::Couldn't tell which Cloudflare account to use: add its Account ID as the CLOUDFLARE_ACCOUNT_ID variable."
+              exit 1
+            fi
+            account="$ids"
+          fi
+
+          subdomain="$(cf "$CF/accounts/$account/workers/subdomain" | jq -r '.result.subdomain // empty')" || true
+          if [ -z "$subdomain" ]; then
+            echo "::error title=Share service::The Cloudflare account has no workers.dev subdomain yet: open https://dash.cloudflare.com/$account/workers/onboarding once, pick one, and re-run this workflow."
+            exit 1
+          fi
+
+          # The KV namespace that holds the results: found by its title, or made the first time.
+          title=inthemiddle-shares
+          kv=""
+          page=1
+          while :; do
+            list="$(cf "$CF/accounts/$account/storage/kv/namespaces?per_page=100&page=$page")"
+            kv="$(jq -r --arg t "$title" '.result[] | select(.title == $t) | .id' <<<"$list" | head -n 1)"
+            if [ -n "$kv" ] || [ "$(jq '.result | length' <<<"$list")" -lt 100 ]; then break; fi
+            page=$((page + 1))
+          done
+          if [ -z "$kv" ]; then
+            kv="$(cf -X POST "$CF/accounts/$account/storage/kv/namespaces" --data "{\"title\":\"$title\"}" | jq -r '.result.id')"
+            echo "Made the KV namespace $title"
+          fi
+
+          site="${SITE_ORIGIN:-https://${OWNER}.github.io}"
+          site="${site,,}"
+          sed -i "s/__KV_NAMESPACE_ID__/$kv/; s|^ALLOWED_ORIGINS = \"|ALLOWED_ORIGINS = \"$site,|" worker/wrangler.toml
+          CLOUDFLARE_ACCOUNT_ID="$account" npx --yes wrangler@4.152.0 deploy --config worker/wrangler.toml
+
+          # Live before the site points at it: a made-up id answers 404.
+          url="https://inthemiddle-share.${subdomain}.workers.dev"
+          code=""
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$url/s/AAAAAAAAAAAA" || true)"
+            [ "$code" = 404 ] && break
+            sleep 10
+          done
+          if [ "$code" != 404 ]; then
+            echo "::error title=Share service::$url doesn't answer as expected (HTTP $code)."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Share service: $url, for $site"
 
       - name: Write config.js and stamp the service worker
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }} # empty when the secret isn't set
           GOOGLE_MAP_ID: ${{ vars.GOOGLE_MAP_ID }} # empty when the variable isn't set
+          SHARE_API_URL: ${{ steps.share.outputs.url }} # empty without the share service
           BUILD_ID: ${{ github.sha }}
         run: |
           node --input-type=module -e '
@@ -64,6 +143,7 @@ jobs:
             const config = {
               googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
               googleMapId: (process.env.GOOGLE_MAP_ID || "").trim(),
+              shareApiUrl: (process.env.SHARE_API_URL || "").trim(),
               build,
             };
             const configText = "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n";
@@ -79,7 +159,6 @@ jobs:
               : "::warning title=No Google key::GOOGLE_MAPS_API_KEY is not set, deploying the OpenStreetMap-only version");
           '
 
-      - uses: actions/configure-pages@v6
       - name: Check that Pages publishes this workflow's site
         env:
           GH_TOKEN: ${{ github.token }}
