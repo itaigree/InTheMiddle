@@ -631,14 +631,59 @@ test('storing the results fails: the link carries the search instead, and the ne
   await context.close();
 });
 
-test('storing that is slow and then fails: the short link went out, and the sender is told it won\'t open', async () => {
-  const { page, context } = await openApp({ share: { failStore: true, storeDelayMs: 2500 } });
-  await pickSuggestion(page, 'a', 'חיפה');
-  await pickSuggestion(page, 'b', 'תל אביב');
-  await search(page);
-  // The share sheet doesn't wait for long: the link is the short one.
-  assert.ok((await sharedLink(page)).searchParams.get('r'));
-  await page.locator('#toast', { hasText: 'הקישור ששיתפת לא ייפתח' }).waitFor({ timeout: 10000 });
+test('storing that is slow: the link carries the search too, and opens the results once they are stored', async () => {
+  const store = new Map();
+  const sender = await openApp({ share: { store, storeDelayMs: 2500 } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const names = await sender.page.locator('#place-list .place-name').allTextContents();
+  // The share sheet doesn't wait for long: not stored yet, so not the short link.
+  const url = await sharedLink(sender.page);
+  assert.ok(url.searchParams.get('r'));
+  assert.equal(url.searchParams.get('a'), 'חיפה');
+  await storedSnapshot(store, url.searchParams.get('r'));
+  await sender.context.close();
+
+  const { page, osmLog, errors, context } = await openApp({ share: { store }, query: url.search });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
+  assert.equal(freeRequests(osmLog), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('opening stored results: the button and the fields say they are loading, and the names come first', async () => {
+  const store = new Map();
+  const sender = await openApp({ share: { store } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const url = await sharedLink(sender.page);
+  await storedSnapshot(store, url.searchParams.get('r'));
+  await sender.context.close();
+
+  const { page, errors, context } = await openApp({ share: { store, readDelayMs: 1500 }, query: url.search });
+  await page.waitForFunction(() => document.getElementById('submit').textContent === 'טוענים את התוצאות…');
+  assert.equal(await page.locator('#submit').isDisabled(), true);
+  assert.equal(await page.locator('#input-a').getAttribute('placeholder'), 'טוענים…');
+  assert.equal(await page.locator('#input-b').getAttribute('placeholder'), 'טוענים…');
+  // Then the names, and the results.
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'חיפה');
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#input-a').getAttribute('placeholder'), 'למשל: חיפה');
+  assert.equal(await page.locator('#submit').textContent(), 'מצאו לנו מקום באמצע');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('stored results out of reach: it says to check the connection, and the fields are as they were', async () => {
+  const { page, osmLog, errors, context } = await openApp({ share: { failRead: true }, query: '?r=AAAAAAAAAAAA' });
+  await page.locator('#status', { hasText: 'לא הצלחנו לפתוח את התוצאות ששותפו' }).waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('#input-a').getAttribute('placeholder'), 'למשל: חיפה');
+  assert.equal(await page.locator('#submit').textContent(), 'מצאו לנו מקום באמצע');
+  assert.equal(freeRequests(osmLog), 0);
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
