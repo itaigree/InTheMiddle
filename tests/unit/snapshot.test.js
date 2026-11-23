@@ -4,7 +4,9 @@ import {
   makeSnapshot,
   parseSnapshot,
   snapshotToSearch,
-  newSnapshotId,
+  newSnapshotKey,
+  snapshotIdOf,
+  SNAPSHOT_KEY_RE,
   simplify,
   SNAPSHOT_ID_RE,
 } from '../../site/js/core/snapshot.js';
@@ -184,8 +186,15 @@ test('a snapshot from elsewhere is checked: anything malformed is refused, anyth
   for (const value of [null, 'x', 5, []]) assert.equal(parseSnapshot(value), null);
 });
 
-test('snapshot ids are 12 random URL-safe characters', () => {
-  const ids = new Set(Array.from({ length: 200 }, newSnapshotId));
-  assert.equal(ids.size, 200);
-  for (const id of ids) assert.match(id, SNAPSHOT_ID_RE);
+test('a snapshot\'s id comes from its random key: 12 URL-safe characters, the same every time', async () => {
+  const made = await Promise.all(Array.from({ length: 200 }, newSnapshotKey));
+  assert.equal(new Set(made.map((m) => m.key)).size, 200);
+  assert.equal(new Set(made.map((m) => m.id)).size, 200);
+  for (const { key, id } of made) {
+    assert.match(key, SNAPSHOT_KEY_RE);
+    assert.match(id, SNAPSHOT_ID_RE);
+    assert.equal(await snapshotIdOf(key), id);
+  }
+  // SHA-256, base64url, the first 12 characters.
+  assert.equal(await snapshotIdOf('AAAAAAAAAAAAAAAAAAAAAA'), 'ilvbTMFRZBJs');
 });

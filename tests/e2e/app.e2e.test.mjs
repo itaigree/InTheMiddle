@@ -633,7 +633,7 @@ test('storing the results fails: the link carries the search instead, and the ne
 
 test('storing that is slow: the link carries the search too, and opens the results once they are stored', async () => {
   const store = new Map();
-  const sender = await openApp({ share: { store, storeDelayMs: 2500 } });
+  const sender = await openApp({ share: { store, storeDelayMs: 4500 } });
   await pickSuggestion(sender.page, 'a', 'חיפה');
   await pickSuggestion(sender.page, 'b', 'תל אביב');
   await search(sender.page);

@@ -8,7 +8,7 @@ import { findGroupMiddle, MAX_POINTS } from './core/group.js';
 import { pickTop, rerankPlaces } from './core/ranking.js';
 import { formatDistance, formatDuration } from './core/format.js';
 import { getGoogleBlock, setGoogleBlock } from './core/availability.js';
-import { makeSnapshot, parseSnapshot, snapshotToSearch, newSnapshotId, MAX_SNAPSHOT_BYTES } from './core/snapshot.js';
+import { makeSnapshot, parseSnapshot, snapshotToSearch, newSnapshotKey, MAX_SNAPSHOT_BYTES } from './core/snapshot.js';
 import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
@@ -73,10 +73,10 @@ const SNAPSHOT_GONE_TEXT = 'הקישור הזה כבר לא פעיל: תוצאו
 const SNAPSHOT_UNREACHABLE_TEXT = 'לא הצלחנו לפתוח את התוצאות ששותפו. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.';
 /**
  * How long a share waits for its results to be stored before the share sheet
- * opens: the link is short only if they are (or may still be). Short, as a
- * share sheet must open soon after the tap (Safari is strict about it).
+ * opens: the link is short only if they are. Browsers let a share sheet open up
+ * to about 5 seconds after the tap.
  */
-const SHARE_WAIT_MS = 1000;
+const SHARE_WAIT_MS = 2500;
 
 /** "23.11 בשעה 14:30", Israel time. */
 function sharedAtText(date) {
@@ -1279,7 +1279,7 @@ async function shareLink({ place = null } = {}) {
     if (outcome === true) return snapshotLink(stored.id, { place: placeId });
     // Still on the way: a link to them that carries the search too, which runs if
     // they don't make it (or if the recipient can't reach the share service).
-    if (outcome === undefined) return searchLink(lastQuery, { place: placeId, snapshot: stored.id });
+    if (outcome === undefined && stored.id) return searchLink(lastQuery, { place: placeId, snapshot: stored.id });
   }
   return searchLink(lastQuery, { place: placeId });
 }
@@ -1345,9 +1345,13 @@ function snapshotFor(result, query) {
     }),
   );
   // More than the service keeps (unheard of: a usual one is ~10 KB): the link searches again.
-  if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES) return null;
-  const stored = { id: newSnapshotId(), done: null };
-  stored.done = storeSnapshot(stored.id, body).then(
+  if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES - 100) return null;
+  const stored = { id: null, done: null };
+  stored.done = (async () => {
+    const { key, id } = await newSnapshotKey();
+    stored.id = id;
+    await storeSnapshot(id, key, body);
+  })().then(
     () => true,
     (err) => {
       console.warn('storing the shared results failed', err);
@@ -1367,8 +1371,9 @@ function timeoutSignal(ms) {
   return controller.signal;
 }
 
-/** Store a snapshot (`body`, its JSON) under `id`. */
-async function storeSnapshot(id, body) {
+/** Store a snapshot (`snapshot`, its JSON) under `id`, with the `key` that id comes from. */
+async function storeSnapshot(id, key, snapshot) {
+  const body = `{"key":${JSON.stringify(key)},"snapshot":${snapshot}}`;
   // Plain text: a simple request, so no preflight, and it may finish after the
   // page goes to the background (keepalive, which takes up to 64 KB in all).
   const response = await fetch(`${SHARE_API}/s/${id}`, {

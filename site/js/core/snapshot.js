@@ -38,10 +38,26 @@ const ROUTE_TOLERANCE_M = 10;
 /** The route drawn from a sender's own position starts this far from it (their doorstep stays private). */
 const PRIVATE_RADIUS_M = 300;
 
-/** A new snapshot id, from the browser's (or the worker's) secure random numbers. */
-export function newSnapshotId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(9));
-  return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_');
+const base64url = (bytes) => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+
+/** The secret a snapshot is stored with: 22 URL-safe characters (128 random bits). */
+export const SNAPSHOT_KEY_RE = /^[A-Za-z0-9_-]{22}$/;
+
+/**
+ * A snapshot's id: the start of its key's SHA-256. The sender keeps the key and
+ * shares the id, so a link's holder can't store anything under it (that would
+ * take the key), and the service needn't look before it stores: a look leaves a
+ * "not found" cached where the results are about to be read.
+ */
+export async function snapshotIdOf(key) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  return base64url(new Uint8Array(digest)).slice(0, 12);
+}
+
+/** A new key and its id, from the browser's secure random numbers. */
+export async function newSnapshotKey() {
+  const key = base64url(crypto.getRandomValues(new Uint8Array(16)));
+  return { key, id: await snapshotIdOf(key) };
 }
 
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
