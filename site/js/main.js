@@ -1276,12 +1276,30 @@ async function shareLink({ place = null } = {}) {
   if (stored) {
     const outcome = await settledWithin(stored.done, SHARE_WAIT_MS);
     // Stored: the short link.
-    if (outcome === true) return snapshotLink(stored.id, { place: placeId });
+    if (outcome === true) return { url: snapshotLink(stored.id, { place: placeId }), stored };
     // Still on the way: a link to them that carries the search too, which runs if
     // they don't make it (or if the recipient can't reach the share service).
-    if (outcome === undefined && stored.id) return searchLink(lastQuery, { place: placeId, snapshot: stored.id });
+    if (outcome === undefined && stored.id) return { url: searchLink(lastQuery, { place: placeId, snapshot: stored.id }), stored };
   }
-  return searchLink(lastQuery, { place: placeId });
+  return { url: searchLink(lastQuery, { place: placeId }), stored };
+}
+
+/**
+ * Once a share is done: if its results couldn't be stored, say so and why (the
+ * link that went out is the long one, which searches again).
+ */
+function reportStore(stored) {
+  stored?.done.then((ok) => {
+    if (!ok) toast(`לא הצלחנו לשמור את התוצאות (${stored.problem || 'סיבה לא ידועה'}), אז הקישור ארוך ומחפש מחדש.`);
+  });
+}
+
+/** Why storing failed, in words. */
+function storeProblem(err) {
+  if (err?.name === 'AbortError') return 'שירות השיתוף לא ענה בזמן';
+  const status = String(err?.message || '').match(/share service: (\d+)/)?.[1];
+  if (status) return `שירות השיתוף ענה ${status}`;
+  return 'אין חיבור לשירות השיתוף';
 }
 
 /**
@@ -1346,7 +1364,7 @@ function snapshotFor(result, query) {
   );
   // More than the service keeps (unheard of: a usual one is ~10 KB): the link searches again.
   if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES - 100) return null;
-  const stored = { id: null, done: null };
+  const stored = { id: null, done: null, problem: null };
   stored.done = (async () => {
     const { key, id } = await newSnapshotKey();
     stored.id = id;
@@ -1355,6 +1373,7 @@ function snapshotFor(result, query) {
     () => true,
     (err) => {
       console.warn('storing the shared results failed', err);
+      stored.problem = storeProblem(err);
       // The next share tries again.
       if (result.snapshots[key] === stored) delete result.snapshots[key];
       return false;
@@ -1459,7 +1478,7 @@ async function sharePlace(place) {
         .map((name, i) => `${formatDuration(place.times ? place.times[i] : i ? place.timeB : place.timeA)} מ${name}`)
         .join(' · ')}`
     : '';
-  const url = lastQuery ? await shareLink({ place }) : googleMapsUrl(place);
+  const { url, stored } = lastQuery ? await shareLink({ place }) : { url: googleMapsUrl(place), stored: null };
   const outcome = await shareOrCopy({
     title: place.name,
     text: `נפגשים באמצע? מה דעתך על ${place.name}${times}`,
@@ -1469,6 +1488,7 @@ async function sharePlace(place) {
   });
   if (outcome === 'copied') toast('הקישור הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
+  if (outcome !== 'cancelled') reportStore(stored);
 }
 
 $('share-search').addEventListener('click', async () => {
@@ -1478,10 +1498,11 @@ $('share-search').addEventListener('click', async () => {
     : names.length > 2
       ? `מקומות באמצע בין ${joinNames(names)}`
       : `מקומות באמצע הדרך בין ${names[0]} לבין ${names[1]}`;
-  const url = lastQuery ? await shareLink() : `${location.origin}${plainAddress()}`;
+  const { url, stored } = lastQuery ? await shareLink() : { url: `${location.origin}${plainAddress()}`, stored: null };
   const outcome = await shareOrCopy({ title: 'מקום באמצע', text, url });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
+  if (outcome !== 'cancelled') reportStore(stored);
 });
 
 $('search-form').addEventListener('submit', (e) => {
@@ -1572,6 +1593,11 @@ function fillForm(state, { own = false } = {}) {
 }
 
 function init() {
+  // Which deploy this page runs (to tell an old open tab from the current site).
+  if (config.build) {
+    $('app-version').textContent = `· גרסה ${String(config.build).slice(0, 7)}`;
+    $('app-version').hidden = false;
+  }
   // A search link opened in this tab earlier (or the search shown before a reload or
   // a return to this page) lives in history.state: the address bar is the plain site.
   const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
