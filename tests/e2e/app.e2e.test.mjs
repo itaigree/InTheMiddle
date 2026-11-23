@@ -329,6 +329,147 @@ test('phone: a place picked in the list comes up under the map, with its links, 
   await context.close();
 });
 
+const isPhoneViewport = (page) => page.viewportSize().width < 960;
+
+/** What a place's share button hands the share sheet, once the place is picked in the list. */
+async function sharedPlace(page, card) {
+  await page.evaluate(() => {
+    window.shared = null;
+    Object.defineProperty(navigator, 'share', { value: async (data) => (window.shared = data), configurable: true });
+  });
+  await card.locator('.place-main').click();
+  // On phones the picked place's card, with its links, comes up under the map.
+  const picked = page.locator('#picked');
+  await (isPhoneViewport(page) ? picked : card).locator('.share-place').click();
+  await page.waitForFunction(() => window.shared !== null);
+  return page.evaluate(() => window.shared);
+}
+
+test('phone: a shared place opens the app on that place, with the rest of the list, as its sender saw it', async () => {
+  const sender = await openApp({ viewport: { width: 390, height: 844 } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const card = sender.page.locator('#place-list .place-card').nth(4);
+  const name = await card.locator('.place-name').textContent();
+  const id = await card.getAttribute('data-place-id');
+  const names = await sender.page.locator('#place-list .place-name').allTextContents();
+  const shared = await sharedPlace(sender.page, card);
+  assert.match(shared.text, new RegExp(`מה דעתך על ${name}`));
+  // A link to the app itself, on this search, with this place.
+  const url = new URL(shared.url);
+  assert.equal(url.origin, new URL(sender.page.url()).origin);
+  assert.equal(url.pathname, new URL(sender.page.url()).pathname);
+  assert.equal(url.searchParams.get('a'), 'חיפה');
+  assert.equal(url.searchParams.get('b'), 'תל אביב-יפו');
+  assert.equal(url.searchParams.get('pl'), id);
+  // The search's own link stays a link to the search.
+  assert.equal((await sharedLink(sender.page)).searchParams.get('pl'), null);
+  assert.deepEqual(sender.errors, []);
+  await sender.context.close();
+
+  // The recipient: the same list, that place picked, its card under the map.
+  const { page, errors, context } = await openApp({ viewport: { width: 390, height: 844 }, query: url.search });
+  const picked = page.locator('#picked');
+  await picked.waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
+  assert.equal(await page.locator('#place-list .place-card.is-active').getAttribute('data-place-id'), id);
+  // The map zooms in on it, with its name up and the whole search in the corner.
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#map .leaflet-popup'));
+  assert.match(await page.locator('#map .leaflet-popup').textContent(), new RegExp(name));
+  // Scrolled as for a place picked in the list: the map, and the card's links under it, on one screen.
+  await page.waitForFunction(() => {
+    const header = document.querySelector('.app-header').getBoundingClientRect();
+    const chips = document.querySelector('#result-filters').getBoundingClientRect();
+    return Math.abs(header.top) < 1 && Math.abs(chips.top - header.bottom) < 24;
+  });
+  const [mapBottom, linksBottom] = await page.evaluate(() => [
+    document.querySelector('.map-wrap').getBoundingClientRect().bottom,
+    document.querySelector('#picked .waze').getBoundingClientRect().bottom,
+  ]);
+  assert.ok(linksBottom > mapBottom && linksBottom <= 844, `map ends at ${mapBottom}, links at ${linksBottom}`);
+  assert.ok(await within(page.locator('#map .pin-place.is-active'), page.locator('#map')));
+  // The address bar went back to the plain site.
+  assert.equal(new URL(page.url()).search, '');
+  await shot(page, 'osm-phone-shared-place');
+
+  // A reload comes back to the same place.
+  await page.reload();
+  await picked.waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('desktop: a shared place opens with its card in view and the map zoomed in on it', async () => {
+  const sender = await openApp();
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  // The last place in the list, which a 900px window doesn't show at first.
+  const card = sender.page.locator('#place-list .place-card').last();
+  const id = await card.getAttribute('data-place-id');
+  const url = new URL((await sharedPlace(sender.page, card)).url);
+  await sender.context.close();
+
+  const { page, errors, context } = await openApp({ query: url.search });
+  const zooms = tileZooms(page);
+  const active = page.locator('#place-list .place-card.is-active');
+  await active.waitFor({ timeout: 20000 });
+  assert.equal(await active.getAttribute('data-place-id'), id);
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#map .leaflet-popup'));
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#place-list .place-card.is-active').getBoundingClientRect();
+    return box.top >= -1 && box.bottom <= window.innerHeight + 1;
+  });
+  assert.ok(Math.max(...zooms) >= 15, zooms.join(','));
+  assert.ok(await within(page.locator('#map .pin-place.is-active'), page.locator('#map')));
+  // Nothing under the map: that's for phones.
+  assert.equal(await page.locator('#picked').isVisible(), false);
+  await shot(page, 'osm-desktop-shared-place');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Google mode: a shared place carries Google\'s place id, not its coordinates, and opens on it', async () => {
+  const sender = await openApp({ key: 'TEST_KEY', google: {} });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const card = sender.page.locator('#place-list .place-card').nth(2);
+  const id = await card.getAttribute('data-place-id');
+  const url = new URL((await sharedPlace(sender.page, card)).url);
+  assert.equal(url.searchParams.get('pl'), id);
+  assert.equal(url.searchParams.get('all'), null);
+  assert.equal(url.searchParams.get('bll'), null);
+  await sender.context.close();
+
+  const { page, errors, context } = await openApp({ key: 'TEST_KEY', google: {}, query: url.search });
+  const active = page.locator('#place-list .place-card.is-active');
+  await active.waitFor({ timeout: 20000 });
+  assert.equal(await active.getAttribute('data-place-id'), id);
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  assert.ok((await page.evaluate(() => window.__fakeGoogleCalls)).includes('camera:15'));
+  assert.equal(await page.locator('#overview .dot-place.is-active').count(), 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a shared place this search doesn\'t find: the whole list, and a notice that says so', async () => {
+  const query = '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180&pl=ChIJgone';
+  const { page, errors, context } = await openApp({ viewport: { width: 390, height: 844 }, query });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.match(await page.locator('#status').textContent(), /המקום ששותף בקישור לא נמצא הפעם/);
+  assert.equal(await page.locator('#place-list .place-card.is-active').count(), 0);
+  assert.equal(await page.locator('#picked').isVisible(), false);
+  assert.equal(await page.locator('#result-filters .filter-chip[aria-pressed="true"]').getAttribute('data-filter'), 'all');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('free mode: public transit through Transitous', async () => {
   const { page, context, osmLog, errors } = await openApp();
   await pickSuggestion(page, 'a', 'חיפה');
