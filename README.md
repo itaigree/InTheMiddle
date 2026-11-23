@@ -159,11 +159,13 @@
 
 1. נרשמים ל-[Cloudflare](https://dash.cloudflare.com/sign-up) (חינם, בלי כרטיס אשראי).
 2. בתפריט שבצד: **Workers & Pages**. אם מבקשים לבחור שם לכתובת `workers.dev`, בוחרים שם כלשהו.
-3. יוצרים מפתח: הסמל של החשבון בפינה ← **My Profile ← API Tokens ← Create Token** ← בתבנית
-   **Edit Cloudflare Workers** לוחצים **Use template** ← ב-Account Resources בוחרים את החשבון ←
-   **Continue to summary ← Create Token**, ומעתיקים את המפתח (הוא מוצג פעם אחת).
-   (אם אין תבנית כזו: **Create Custom Token** עם ההרשאות Account ← Workers Scripts: Edit, Workers KV Storage: Edit,
-   Account Settings: Read.)
+3. יוצרים מפתח: סמל האדם בפינה העליונה ← **Profile ← API Tokens ← Create Token** ← **Start from scratch**
+   (Custom) ← **Start with an Account policy** ← בוחרים את החשבון ומוסיפים שלוש הרשאות:
+   **Workers Scripts: Edit**, **Workers KV Storage: Edit**, **Account Settings: Read**. בתוקף משאירים
+   No expiration, ובסינון כתובות IP לא שמים כלום (GitHub מריץ את הפריסה מכתובות שמשתנות). יוצרים את המפתח
+   ומעתיקים אותו (הוא מוצג פעם אחת).
+   לא המפתח שמוצע בהגדרות של Worker ("API token for external CI/CD"): הוא מוגבל ל-Worker אחד, והפריסה
+   צריכה גם להעלות את שירות השיתוף וגם ליצור את מקום האחסון.
 4. ב-GitHub: ‏Settings ← Secrets and variables ← Actions ← בלשונית **Secrets** ← New repository secret ←
    שם: `CLOUDFLARE_API_TOKEN`, ערך: המפתח.
 5. מריצים את הפריסה (Actions ← Test and deploy ← Run workflow), או עושים push ל-`main`. הפריסה יוצרת את מקום
