@@ -1882,6 +1882,37 @@ body.has-map .map-placeholder {
   color: var(--muted);
 }
 
+/* A button that reads as a footer link (the version, the share check's actions). */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* "בדיקת שיתוף": its lines, as they come. */
+.share-check {
+  margin: 12px auto 0;
+  max-width: 640px;
+  text-align: start;
+  color: var(--muted);
+}
+
+.share-check h2 {
+  margin: 0 0 6px;
+  font-size: 0.875rem;
+}
+
+.share-check-list {
+  margin: 0;
+  padding-inline-start: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
 /* A page of text (the privacy policy). */
 .doc {
   max-width: 680px;

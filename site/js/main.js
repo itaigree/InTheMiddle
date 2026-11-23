@@ -13,6 +13,7 @@ import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
+import { runShareCheck, rememberShareAttempt } from './ui/share-check.js';
 import { categoryRoundel } from './ui/category-icons.js';
 
 const config = window.APP_CONFIG || {};
@@ -1273,8 +1274,18 @@ function joinNames(names) {
 async function shareLink({ place = null } = {}) {
   const placeId = place?.id ?? null;
   const stored = snapshotFor(lastResult, lastQuery);
+  if (!stored) {
+    const reason = !SHARE_API ? 'אין שירות שיתוף' : lastResult?.providerId !== 'osm' ? 'תוצאות של Google' : 'התוצאות לא נשמרות';
+    rememberShareAttempt(null, { at: new Date().toISOString(), link: 'long', reason }, { start: true });
+  }
   if (stored) {
     const outcome = await settledWithin(stored.done, SHARE_WAIT_MS);
+    const link = outcome === true ? 'short' : outcome === undefined ? 'long, still storing' : 'long, not stored';
+    if (stored.id) {
+      // With its outcome if it's known already (the later note merges into this one).
+      const known = outcome === true ? { ok: true, ms: stored.ms } : outcome === false ? { ok: false, ms: stored.ms, problem: stored.problem } : {};
+      rememberShareAttempt(stored.id, { at: new Date().toISOString(), link, ...known }, { start: true });
+    }
     // Stored: the short link.
     if (outcome === true) return { url: snapshotLink(stored.id, { place: placeId }), stored };
     // Still on the way: a link to them that carries the search too, which runs if
@@ -1289,7 +1300,7 @@ async function shareLink({ place = null } = {}) {
  * link that went out is the long one, which searches again).
  */
 function reportStore(stored) {
-  stored?.done.then((ok) => {
+  stored?.done?.then((ok) => {
     if (!ok) toast(`לא הצלחנו לשמור את התוצאות (${stored.problem || 'סיבה לא ידועה'}), אז הקישור ארוך ומחפש מחדש.`);
   });
 }
@@ -1392,12 +1403,14 @@ function snapshotFor(result, query) {
     }
   })().then(
     () => {
+      rememberShareAttempt(stored.id, { ok: true, ms: stored.ms });
       if (stored.ms > SHARE_WAIT_MS) reportShare({ kind: 'store-slow', ms: stored.ms, bytes: body.length });
       return true;
     },
     (err) => {
       console.warn('storing the shared results failed', err);
       stored.problem = storeProblem(err);
+      if (stored.id) rememberShareAttempt(stored.id, { ok: false, ms: stored.ms, problem: `${err?.name}: ${err?.message}` });
       reportShare({ kind: 'store-failed', problem: `${err?.name}: ${err?.message}`, ms: stored.ms, bytes: body.length });
       // The next share tries again.
       if (result.snapshots[key] === stored) delete result.snapshots[key];
@@ -1487,8 +1500,8 @@ async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
   const { query, result } = opened;
   result.places = rerankPlaces(result.places, { preferOpen: !result.departure, priority: result.priority });
   result.notices.unshift('snapshot');
-  // Shared on from here, they keep their id.
-  result.snapshots = { [result.priority]: id };
+  // Shared on from here, they keep their id (stored already).
+  result.snapshots = { [result.priority]: { id, done: Promise.resolve(true), problem: null, ms: 0 } };
   lastQuery = query;
   shownRequest = null;
   shownNeedsRedo = false;
@@ -1621,9 +1634,33 @@ function fillForm(state, { own = false } = {}) {
 function init() {
   // Which deploy this page runs (to tell an old open tab from the current site).
   if (config.build) {
-    $('app-version').textContent = `· גרסה ${String(config.build).slice(0, 7)}`;
-    $('app-version').hidden = false;
+    $('app-version').textContent = `גרסה ${String(config.build).slice(0, 7)}`;
+    $('app-version-wrap').hidden = false;
   }
+  // It opens "בדיקת שיתוף": what this phone's requests to the share service do.
+  let checkRun = 0;
+  const check = async () => {
+    const run = ++checkRun;
+    $('share-check').hidden = false;
+    $('share-check').scrollIntoView({ block: 'nearest' });
+    $('share-check-again').disabled = true;
+    await runShareCheck({ shareApi: SHARE_API, build: config.build, list: $('share-check-list'), isCurrent: () => run === checkRun });
+    if (run === checkRun) $('share-check-again').disabled = false;
+  };
+  $('app-version').addEventListener('click', check);
+  $('share-check-again').addEventListener('click', check);
+  $('share-check-copy').addEventListener('click', async () => {
+    // What is on screen, as it is now.
+    const text = [...$('share-check-list').children].map((li) => li.textContent).join('\n');
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('התוצאות הועתקו');
+    } catch {
+      const outcome = await shareOrCopy({ title: 'בדיקת שיתוף', text });
+      if (outcome === 'failed') toast('לא הצלחנו להעתיק');
+    }
+  });
   // A search link opened in this tab earlier (or the search shown before a reload or
   // a return to this page) lives in history.state: the address bar is the plain site.
   const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
