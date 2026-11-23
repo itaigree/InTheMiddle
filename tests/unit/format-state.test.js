@@ -39,6 +39,7 @@ test('state round-trips through the query string', () => {
     provider: null,
     extra: [],
     place: null,
+    snapshot: null,
   };
   const decoded = decodeState(encodeState(state));
   assert.deepEqual(decoded, state);
@@ -93,6 +94,7 @@ test('decodeState drops malformed values', () => {
     provider: null,
     extra: [],
     place: null,
+    snapshot: null,
   });
 });
 
@@ -158,6 +160,22 @@ test('a shared place link carries the place it opens on', () => {
   for (const bad of ['', '<script>', 'a b', 'x'.repeat(301), '../x']) {
     assert.equal(decodeState(`a=x&b=y&pl=${encodeURIComponent(bad)}`).place, null, bad);
     assert.doesNotMatch(encodeState({ ...search, place: bad }), /(^|&)pl=/);
+  }
+});
+
+test('a link to stored results carries their id, next to the search it falls back to', () => {
+  const search = { a: { label: 'חיפה' }, b: { label: 'תל אביב' }, modeA: 'car', modeB: 'car', categories: ['cafe'], shabbat: true };
+  const qs = encodeState({ ...search, snapshot: 'Ab3_-xYz0123', place: 'osm-node-1' });
+  const params = new URLSearchParams(qs);
+  assert.equal(params.get('r'), 'Ab3_-xYz0123');
+  assert.equal(params.get('s'), '1'); // the Shabbat filter keeps its key
+  assert.equal(params.get('a'), 'חיפה');
+  const back = decodeState(qs);
+  assert.equal(back.snapshot, 'Ab3_-xYz0123');
+  assert.equal(back.shabbat, true);
+  for (const bad of ['short', 'Ab3_-xYz01234', 'Ab3_-xYz012!']) {
+    assert.equal(decodeState(`a=x&b=y&r=${encodeURIComponent(bad)}`).snapshot, null, bad);
+    assert.doesNotMatch(encodeState({ ...search, snapshot: bad }), /(^|&)r=/);
   }
 });
 

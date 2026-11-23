@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 import { startServer } from './server.mjs';
-import { mockOsm, mockGoogle, blockExternal } from './mocks.mjs';
+import { mockOsm, mockGoogle, mockShare, blockExternal } from './mocks.mjs';
 
 function loadPlaywright() {
   const require = createRequire(import.meta.url);
@@ -30,7 +30,7 @@ process.env.PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK ??= '1';
 
 const { chromium } = loadPlaywright();
 const SHOTS = process.env.E2E_SCREENSHOTS || '';
-const configJs = (key) => `window.APP_CONFIG = ${JSON.stringify({ googleMapsApiKey: key, googleMapId: '' })};`;
+const configJs = (key, shareApiUrl = '') => `window.APP_CONFIG = ${JSON.stringify({ googleMapsApiKey: key, googleMapId: '', shareApiUrl })};`;
 
 let browser;
 const servers = [];
@@ -45,20 +45,25 @@ after(async () => {
   await Promise.all(servers.map((s) => s.close()));
 });
 
-async function openApp({ key = '', google = null, osm = {}, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {}, clock = false } = {}) {
-  const server = await startServer({ overrides: { '/config.js': configJs(key), ...files } });
+/**
+ * `share`: the share service's options (see mockShare), which also turns it on
+ * in the app's config.
+ */
+async function openApp({ key = '', google = null, osm = {}, share = null, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {}, clock = false } = {}) {
+  const server = await startServer({ overrides: { '/config.js': configJs(key, share ? 'https://share.test' : ''), ...files } });
   servers.push(server);
   const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', ...contextOptions });
   // Registered first = lowest priority: anything not mocked below is blocked.
   await blockExternal(context, [server.url, 'data:']);
   const osmLog = await mockOsm(context, osm);
   const googleLog = google ? await mockGoogle(context, google) : null;
+  const shareLog = share ? await mockShare(context, { ...share, origin: new URL(server.url).origin }) : null;
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err));
   if (clock) await page.clock.install(); // time runs as usual, and tests can jump ahead
   await page.goto(server.url + query);
-  return { page, context, osmLog, googleLog, errors, server };
+  return { page, context, osmLog, googleLog, shareLog, errors, server };
 }
 
 /** The search options are folded into one row: open it (as a person would) to reach them. */
@@ -467,6 +472,162 @@ test('a shared place this search doesn\'t find: the whole list, and a notice tha
   assert.equal(await page.locator('#picked').isVisible(), false);
   assert.equal(await page.locator('#result-filters .filter-chip[aria-pressed="true"]').getAttribute('data-filter'), 'all');
   assert.deepEqual(errors, []);
+  await context.close();
+});
+
+/** Wait until the share service holds `id` (it's stored alongside the share). */
+async function storedSnapshot(store, id) {
+  for (let i = 0; i < 100 && !store.has(id); i++) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.ok(store.has(id), `snapshot ${id} was not stored`);
+  return JSON.parse(store.get(id));
+}
+
+/** How many requests went to the free map services. */
+const freeRequests = (osmLog) => osmLog.overpass.length + osmLog.osrmTable.length + osmLog.osrmRoute.length + osmLog.photon.length;
+
+test('free results travel as they are: a shared place opens them without searching, on that place (phone)', async () => {
+  const store = new Map();
+  const phone = { width: 390, height: 844 };
+  const sender = await openApp({ viewport: phone, share: { store } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const card = sender.page.locator('#place-list .place-card').nth(4);
+  const name = await card.locator('.place-name').textContent();
+  const id = await card.getAttribute('data-place-id');
+  const names = await sender.page.locator('#place-list .place-name').allTextContents();
+  const times = await sender.page.locator('#place-list .time-value').allTextContents();
+  const url = new URL((await sharedPlace(sender.page, card)).url);
+  // The link: the stored results, the place, and the search to fall back on.
+  const snapshotId = url.searchParams.get('r');
+  assert.match(snapshotId, /^[A-Za-z0-9_-]{12}$/);
+  assert.equal(url.searchParams.get('pl'), id);
+  assert.equal(url.searchParams.get('a'), 'חיפה');
+  const stored = await storedSnapshot(store, snapshotId);
+  assert.equal(stored.points[0].label, 'חיפה');
+  assert.ok(stored.places.some((p) => p.id === id));
+  assert.ok(stored.route.length >= 2);
+  // Shared again (the whole search this time): the same stored results.
+  const searchUrl = await sharedLink(sender.page);
+  assert.equal(searchUrl.searchParams.get('r'), snapshotId);
+  assert.equal(searchUrl.searchParams.get('pl'), null);
+  assert.equal(sender.shareLog.stored.length, 1);
+  assert.deepEqual(sender.errors, []);
+  await sender.context.close();
+
+  const { page, osmLog, shareLog, errors, context } = await openApp({ viewport: phone, share: { store }, query: url.search });
+  const picked = page.locator('#picked');
+  await picked.waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  // The same list, the same times, and not a single search.
+  assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
+  assert.deepEqual(await page.locator('#place-list .time-value').allTextContents(), times);
+  assert.equal(freeRequests(osmLog), 0);
+  assert.equal(shareLog.read.length, 1);
+  // It says whose results these are, and from when.
+  assert.match(await page.locator('#status').textContent(), /אלה התוצאות ששותפו איתך, כמו שנמצאו ב-\d{1,2}\.\d{1,2} בשעה \d{2}:\d{2}/);
+  // On the map: both sides, the route, and the place zoomed in on.
+  await page.locator('#overview').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#map .pin-a').count(), 1);
+  assert.equal(await page.locator('#map .pin-b').count(), 1);
+  assert.match(await page.locator('#map .leaflet-popup').textContent(), new RegExp(name));
+  assert.equal(await page.locator('#trip-b').textContent(), 'תל אביב-יפו');
+  await shot(page, 'osm-phone-stored-results');
+  // A reload shows them again, still without searching.
+  await page.reload();
+  await picked.waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  assert.equal(freeRequests(osmLog), 0);
+  // A search of one's own runs as usual.
+  await page.locator('#submit').click();
+  await page.waitForFunction(() => !/ששותפו איתך/.test(document.getElementById('status').textContent));
+  await page.locator('#place-list .place-card').first().waitFor();
+  assert.ok(osmLog.overpass.length > 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('free results of a group travel as they are too', async () => {
+  const store = new Map();
+  const sender = await openApp({ share: { store } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await sender.page.locator('#add-point').click();
+  const third = sender.page.locator('#extra-endpoints .endpoint-extra').first().locator('input[role="combobox"]');
+  await third.fill('באר שבע');
+  await sender.page.locator(`#${await third.getAttribute('aria-controls')} [role="option"]`).first().click();
+  await search(sender.page);
+  const names = await sender.page.locator('#place-list .place-name').allTextContents();
+  const url = await sharedLink(sender.page);
+  assert.equal(url.searchParams.get('p3'), 'באר שבע');
+  await storedSnapshot(store, url.searchParams.get('r'));
+  await sender.context.close();
+
+  const { page, osmLog, errors, context } = await openApp({ share: { store }, query: url.search });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
+  assert.equal(await page.locator('#trip-more-count').textContent(), '+1');
+  // Everyone's time on each card.
+  assert.equal(await page.locator('#place-list .place-card').first().locator('.group-time').count(), 3);
+  assert.equal(freeRequests(osmLog), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('stored results that are gone: the link searches again, and says so', async () => {
+  const query = '?a=%D7%97%D7%99%D7%A4%D7%94&all=32.79400,34.98960&b=%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91&bll=32.08530,34.78180&r=AAAAAAAAAAAA';
+  const { page, osmLog, errors, context } = await openApp({ share: { store: new Map() }, query });
+  await page.locator('#place-list .place-card').first().waitFor({ timeout: 20000 });
+  assert.match(await page.locator('#status').textContent(), /התוצאות ששותפו כבר לא שמורות/);
+  assert.ok(osmLog.overpass.length > 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Google results are not stored: their link searches again', async () => {
+  const store = new Map();
+  const { page, shareLog, errors, context } = await openApp({ key: 'TEST_KEY', google: {}, share: { store } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const url = new URL((await sharedPlace(page, page.locator('#place-list .place-card').nth(1))).url);
+  assert.equal(url.searchParams.get('r'), null);
+  assert.ok(url.searchParams.get('pl'));
+  assert.equal((await sharedLink(page)).searchParams.get('r'), null);
+  assert.equal(shareLog.stored.length, 0);
+  assert.equal(store.size, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('storing the results fails: the sender is told the link will search again', async () => {
+  const { page, context } = await openApp({ share: { failStore: true } });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const first = (await sharedLink(page)).searchParams.get('r');
+  await page.locator('#toast', { hasText: 'לא הצלחנו לשמור את התוצאות' }).waitFor();
+  // The next share tries again, with a new id.
+  const second = (await sharedLink(page)).searchParams.get('r');
+  assert.ok(second && second !== first);
+  await context.close();
+});
+
+test('"my location" in stored results: a neutral name, rounded, and no route to the door', async () => {
+  const store = new Map();
+  const { page, context } = await openApp({
+    share: { store },
+    contextOptions: { geolocation: { latitude: 32.794123, longitude: 34.989654 }, permissions: ['geolocation'] },
+  });
+  await page.locator('.locate[data-side="a"]').click();
+  await page.waitForFunction(() => document.getElementById('input-a').value === 'המיקום שלי');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const stored = await storedSnapshot(store, (await sharedLink(page)).searchParams.get('r'));
+  assert.deepEqual(stored.points[0], { label: 'נקודת יציאה ששותפה', lat: 32.794, lng: 34.99, mode: 'car' });
+  const [lat, lng] = stored.route[0];
+  const meters = Math.hypot((lat - 32.794123) * 111000, (lng - 34.989654) * 94000);
+  assert.ok(meters >= 300, `the route starts ${Math.round(meters)} m from the sender`);
   await context.close();
 });
 

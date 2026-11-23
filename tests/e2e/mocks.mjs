@@ -247,3 +247,40 @@ export async function blockExternal(target, allowedOrigins) {
     (route) => route.abort('blockedbyclient'),
   );
 }
+
+/**
+ * The share service (worker/share.js) at https://share.test, run as is over an
+ * in-memory store. Pass the same `store` to a sender's and a recipient's app;
+ * `failStore` makes storing fail. `origin` is the app's (allowed) origin.
+ */
+export async function mockShare(target, { store = new Map(), failStore = false, origin }) {
+  const { default: worker } = await import('../../worker/share.js');
+  const env = {
+    ALLOWED_ORIGINS: origin,
+    TTL_DAYS: '30',
+    SHARES: {
+      get: async (key) => store.get(key) ?? null,
+      put: async (key, value) => void store.set(key, value),
+    },
+  };
+  const log = { stored: [], read: [] };
+  await target.route('https://share.test/**', async (route) => {
+    const req = route.request();
+    const method = req.method();
+    (method === 'POST' ? log.stored : log.read).push(req.url());
+    if (method === 'POST' && failStore) {
+      await route.fulfill({ status: 500, headers: { 'access-control-allow-origin': origin }, body: '{}' });
+      return;
+    }
+    const response = await worker.fetch(
+      new Request(req.url(), {
+        method,
+        headers: { Origin: req.headers().origin || origin, 'Content-Type': req.headers()['content-type'] || 'text/plain' },
+        body: method === 'POST' ? req.postData() : undefined,
+      }),
+      env,
+    );
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+  return log;
+}

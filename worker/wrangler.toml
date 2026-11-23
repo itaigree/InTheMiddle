@@ -1,0 +1,16 @@
+# The share service (share.js). Deployed by .github/workflows/deploy.yml, which
+# fills in the KV namespace id and adds the site's own address to ALLOWED_ORIGINS.
+name = "inthemiddle-share"
+main = "share.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[vars]
+# Pages allowed to store and read snapshots from a browser (comma-separated).
+ALLOWED_ORIGINS = "http://localhost:8080"
+# How long shared results are kept.
+TTL_DAYS = "30"
+
+[[kv_namespaces]]
+binding = "SHARES"
+id = "__KV_NAMESPACE_ID__"
