@@ -741,12 +741,13 @@ function validateForm() {
 
 let searching = false;
 
-function setBusy(busy, { background = false } = {}) {
+/** `label`: what the button says meanwhile. */
+function setBusy(busy, { background = false, label = 'מחפשים…' } = {}) {
   searching = busy;
   const button = $('submit');
   // A re-run the user didn't ask for leaves the button on: a search they start replaces it.
   button.disabled = busy && !background;
-  button.textContent = button.disabled ? 'מחפשים…' : 'מצאו לנו מקום באמצע';
+  button.textContent = button.disabled ? label : 'מצאו לנו מקום באמצע';
 }
 
 /**
@@ -948,9 +949,10 @@ function forLink(loc, { own = false } = {}) {
 
 /**
  * A link to the search (`own`: only for this tab's history, so "my location" stays
- * as it is). With `place`, the link opens the search on that place (a shared place).
+ * as it is). With `place`, the link opens the search on that place (a shared place);
+ * with `snapshot`, it opens those stored results if it can, and searches if not.
  */
-function searchLink(query, { own = false, place = null } = {}) {
+function searchLink(query, { own = false, place = null, snapshot = null } = {}) {
   const qs = encodeState({
     a: forLink(query.a, { own }),
     b: forLink(query.b, { own }),
@@ -964,6 +966,7 @@ function searchLink(query, { own = false, place = null } = {}) {
     provider: forcedProvider,
     extra: (query.extra || []).map((p) => ({ ...forLink(p, { own }), mode: p.mode })),
     place,
+    snapshot,
   });
   return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
@@ -1147,6 +1150,7 @@ async function showResult(result, provider, { scroll = true, status = true, pick
 
   // The list doesn't wait for the map (a slow map script must not hide results).
   $('results').hidden = false;
+  warmShareService();
   renderSummary($('results-summary'), result);
   renderList();
 
@@ -1192,6 +1196,8 @@ const hasTouchKeyboard = () => window.matchMedia('(pointer: coarse)').matches;
  * its sender had it). `scroll: false` leaves the page where it is.
  */
 function selectPlace(place, { from, scroll = true }) {
+  // Its card has a share button.
+  warmShareService();
   // A place picked from the list is zoomed in on (with the whole search in the
   // corner); one picked on the map stays where the user is looking.
   onMap((map) => map.highlight(place.id, { focus: from !== 'map' }));
@@ -1265,21 +1271,45 @@ function joinNames(names) {
  * again; so does the link of results that couldn't be stored.
  */
 async function shareLink({ place = null } = {}) {
+  const placeId = place?.id ?? null;
   const stored = snapshotFor(lastResult, lastQuery);
   if (stored) {
-    // Stored, or still on the way (it takes a moment more): the short link.
     const outcome = await settledWithin(stored.done, SHARE_WAIT_MS);
-    if (outcome !== false) {
-      if (outcome === undefined) stored.sharedEarly = true;
-      return snapshotLink(stored.id, { place: place?.id ?? null });
-    }
+    // Stored: the short link.
+    if (outcome === true) return snapshotLink(stored.id, { place: placeId });
+    // Still on the way: a link to them that carries the search too, which runs if
+    // they don't make it (or if the recipient can't reach the share service).
+    if (outcome === undefined) return searchLink(lastQuery, { place: placeId, snapshot: stored.id });
   }
-  return searchLink(lastQuery, { place: place?.id ?? null });
+  return searchLink(lastQuery, { place: placeId });
+}
+
+/**
+ * Open a connection to the share service ahead of a share (free results on
+ * screen, a place picked), so storing is quick enough for the short link.
+ * Nothing is sent; a browser drops an unused connection after a few seconds.
+ */
+function warmShareService() {
+  if (!SHARE_API || lastResult?.providerId !== 'osm') return;
+  document.getElementById('share-preconnect')?.remove();
+  const link = document.createElement('link');
+  link.id = 'share-preconnect';
+  link.rel = 'preconnect';
+  link.href = SHARE_API;
+  link.crossOrigin = 'anonymous';
+  document.head.append(link);
 }
 
 /** `promise`'s value if it settles within `ms`, else undefined. */
 function settledWithin(promise, ms) {
   return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(undefined), ms))]);
+}
+
+/** A search as fillForm takes it (a decoded link). */
+function formState(query) {
+  return decodeState(encodeState({ ...query, departure: query.departure ? toIsraelTime(query.departure) : null }), {
+    knownCategories: CATEGORY_IDS,
+  });
 }
 
 /** A short link to stored results (core/snapshot.js), opening on `place` if given. */
@@ -1316,15 +1346,13 @@ function snapshotFor(result, query) {
   );
   // More than the service keeps (unheard of: a usual one is ~10 KB): the link searches again.
   if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES) return null;
-  const stored = { id: newSnapshotId(), done: null, sharedEarly: false };
+  const stored = { id: newSnapshotId(), done: null };
   stored.done = storeSnapshot(stored.id, body).then(
     () => true,
     (err) => {
       console.warn('storing the shared results failed', err);
       // The next share tries again.
       if (result.snapshots[key] === stored) delete result.snapshots[key];
-      // Its short link went out before this was known: it won't open.
-      if (stored.sharedEarly) toast('לא הצלחנו לשמור את התוצאות, אז הקישור ששיתפת לא ייפתח. כדאי לשתף שוב.');
       return false;
     },
   );
@@ -1368,8 +1396,11 @@ async function fetchSnapshot(id) {
  */
 async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
   const seq = ++searchSeq;
-  setBusy(true);
+  setBusy(true, { label: 'טוענים את התוצאות…' });
   showStatus('progress', 'פותחים את התוצאות ששותפו…');
+  // A short link has no names of its own: until they come, the fields say so.
+  const waiting = new Map(sideKeys().filter((key) => !sides[key].input.value).map((key) => [key, sides[key].input.placeholder]));
+  for (const key of waiting.keys()) sides[key].input.placeholder = 'טוענים…';
   let opened = null;
   let gone = false;
   try {
@@ -1377,16 +1408,20 @@ async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
     gone = found === null;
     const snapshot = found && parseSnapshot(found);
     if (snapshot) {
+      const shown = snapshotToSearch(snapshot);
+      // Their search, in the form, as soon as it's here (the map takes a moment more).
+      if (seq === searchSeq) fillForm(formState(shown.query));
       if (!snapshotProvider) {
         const { createOsmProvider } = await import('./providers/osm.js');
         snapshotProvider = createOsmProvider();
         await snapshotProvider.ready?.();
       }
-      opened = snapshotToSearch(snapshot);
+      opened = shown;
     }
   } catch (err) {
     console.warn('opening the shared results failed', err);
   }
+  for (const [key, placeholder] of waiting) if (sides[key]) sides[key].input.placeholder = placeholder;
   // The user started a search meanwhile: it's theirs to show.
   if (seq !== searchSeq) return;
   setBusy(false);
@@ -1400,16 +1435,6 @@ async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
     return;
   }
   const { query, result } = opened;
-  // Their search, in the form: to search it again, or change it.
-  fillForm(
-    decodeState(
-      encodeState({
-        ...query,
-        departure: query.departure ? toIsraelTime(query.departure) : null,
-      }),
-      { knownCategories: CATEGORY_IDS },
-    ),
-  );
   result.places = rerankPlaces(result.places, { preferOpen: !result.departure, priority: result.priority });
   result.notices.unshift('snapshot');
   // Shared on from here, they keep their id.
