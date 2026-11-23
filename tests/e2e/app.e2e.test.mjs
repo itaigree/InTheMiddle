@@ -591,6 +591,16 @@ test('stored results that are gone: the link searches again, and says so', async
   await context.close();
 });
 
+test('the footer says which version the page runs', async () => {
+  const { page, context } = await openApp({ files: { '/config.js': `${configJs('')}\nwindow.APP_CONFIG.build = 'abcdef123456';` } });
+  assert.equal(await page.locator('#app-version').textContent(), '· גרסה abcdef1');
+  await context.close();
+  // Without a build (a local copy), nothing.
+  const local = await openApp();
+  assert.equal(await local.page.locator('#app-version').isVisible(), false);
+  await local.context.close();
+});
+
 test('a short link whose results are gone: it says so, and searches nothing', async () => {
   const { page, osmLog, errors, context } = await openApp({ share: { store: new Map() }, query: '?r=AAAAAAAAAAAA' });
   await page.locator('#status', { hasText: 'הקישור הזה כבר לא פעיל' }).waitFor({ timeout: 20000 });
@@ -625,6 +635,8 @@ test('storing the results fails: the link carries the search instead, and the ne
   const first = await sharedLink(page);
   assert.equal(first.searchParams.get('r'), null);
   assert.equal(first.searchParams.get('a'), 'חיפה');
+  // The sender is told why the link is the long one.
+  await page.locator('#toast', { hasText: 'לא הצלחנו לשמור את התוצאות (שירות השיתוף ענה 500)' }).waitFor();
   const second = await sharedLink(page);
   assert.equal(second.searchParams.get('a'), 'חיפה');
   assert.equal(shareLog.stored.length, 2);
