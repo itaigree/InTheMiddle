@@ -68,6 +68,16 @@ const NOTICE_TEXT = {
   'snapshot-missing': 'התוצאות ששותפו כבר לא שמורות, או שלא הצלחנו לפתוח אותן, אז חיפשנו מחדש.',
 };
 
+/** A short link whose stored results are gone (kept 30 days), or out of reach. */
+const SNAPSHOT_GONE_TEXT = 'הקישור הזה כבר לא פעיל: תוצאות ששותפו נשמרות 30 יום. אפשר לבקש קישור חדש, או לחפש כאן.';
+const SNAPSHOT_UNREACHABLE_TEXT = 'לא הצלחנו לפתוח את התוצאות ששותפו. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.';
+/**
+ * How long a share waits for its results to be stored before the share sheet
+ * opens: the link is short only if they are (or may still be). Short, as a
+ * share sheet must open soon after the tap (Safari is strict about it).
+ */
+const SHARE_WAIT_MS = 1000;
+
 /** "23.11 בשעה 14:30", Israel time. */
 function sharedAtText(date) {
   const [, month, day, time] = toIsraelTime(date).match(/^\d{4}-(\d{2})-(\d{2})T(\d{2}:\d{2})$/);
@@ -938,10 +948,9 @@ function forLink(loc, { own = false } = {}) {
 
 /**
  * A link to the search (`own`: only for this tab's history, so "my location" stays
- * as it is). With `place`, the link opens the search on that place (a shared place);
- * with `snapshot`, it opens those stored results instead of searching (if they're still kept).
+ * as it is). With `place`, the link opens the search on that place (a shared place).
  */
-function searchLink(query, { own = false, place = null, snapshot = null } = {}) {
+function searchLink(query, { own = false, place = null } = {}) {
   const qs = encodeState({
     a: forLink(query.a, { own }),
     b: forLink(query.b, { own }),
@@ -955,7 +964,6 @@ function searchLink(query, { own = false, place = null, snapshot = null } = {}) 
     provider: forcedProvider,
     extra: (query.extra || []).map((p) => ({ ...forLink(p, { own }), mode: p.mode })),
     place,
-    snapshot,
   });
   return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
@@ -1251,20 +1259,40 @@ function joinNames(names) {
 
 /**
  * The link to share for the results on screen (`place`: opening on that place).
- * Free (OpenStreetMap) results travel as they are: stored with the share service
- * under a new id, so the link shows them without searching. The link still
- * carries the search, which runs if they can't be had (expired, or not stored).
- * Google's terms don't allow storing its results, so their link searches again.
+ * Free (OpenStreetMap) results travel as they are: stored with the share service,
+ * and the link is a short one to them (they hold the search too). Google's terms
+ * don't allow storing its results, so their link carries the search, which runs
+ * again; so does the link of results that couldn't be stored.
  */
-function shareLink({ place = null } = {}) {
-  return searchLink(lastQuery, { place: place?.id ?? null, snapshot: snapshotFor(lastResult, lastQuery) });
+async function shareLink({ place = null } = {}) {
+  const stored = snapshotFor(lastResult, lastQuery);
+  if (stored) {
+    // Stored, or still on the way (it takes a moment more): the short link.
+    const outcome = await settledWithin(stored.done, SHARE_WAIT_MS);
+    if (outcome !== false) {
+      if (outcome === undefined) stored.sharedEarly = true;
+      return snapshotLink(stored.id, { place: place?.id ?? null });
+    }
+  }
+  return searchLink(lastQuery, { place: place?.id ?? null });
+}
+
+/** `promise`'s value if it settles within `ms`, else undefined. */
+function settledWithin(promise, ms) {
+  return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(undefined), ms))]);
+}
+
+/** A short link to stored results (core/snapshot.js), opening on `place` if given. */
+function snapshotLink(id, { place = null, own = false } = {}) {
+  const qs = encodeState({ snapshot: id, place, provider: forcedProvider });
+  return own ? `?${qs}` : `${location.origin}${location.pathname}?${qs}`;
 }
 
 /**
- * The id of `result` stored with the share service, storing it now if need be:
- * the id is drawn here, so the link can be shared at once (while the tap still
- * allows it), and the results are stored meanwhile. One per result and order.
- * Null for results that aren't stored (Google's), or with no service.
+ * `result` stored with the share service, storing it now if need be: {id, done},
+ * `done` resolving to whether it was stored. One per result and order (the
+ * priority re-sorts it). Null for results that aren't stored (Google's), or
+ * with no service.
  */
 function snapshotFor(result, query) {
   if (!SHARE_API || !result || !query || result.providerId !== 'osm') return null;
@@ -1288,14 +1316,20 @@ function snapshotFor(result, query) {
   );
   // More than the service keeps (unheard of: a usual one is ~10 KB): the link searches again.
   if (new TextEncoder().encode(body).length > MAX_SNAPSHOT_BYTES) return null;
-  const id = newSnapshotId();
-  result.snapshots[key] = id;
-  storeSnapshot(id, body).catch((err) => {
-    console.warn('storing the shared results failed', err);
-    if (result.snapshots[key] === id) delete result.snapshots[key];
-    toast('לא הצלחנו לשמור את התוצאות, אז מי שיפתח את הקישור יחפש מחדש.');
-  });
-  return id;
+  const stored = { id: newSnapshotId(), done: null, sharedEarly: false };
+  stored.done = storeSnapshot(stored.id, body).then(
+    () => true,
+    (err) => {
+      console.warn('storing the shared results failed', err);
+      // The next share tries again.
+      if (result.snapshots[key] === stored) delete result.snapshots[key];
+      // Its short link went out before this was known: it won't open.
+      if (stored.sharedEarly) toast('לא הצלחנו לשמור את התוצאות, אז הקישור ששיתפת לא ייפתח. כדאי לשתף שוב.');
+      return false;
+    },
+  );
+  result.snapshots[key] = stored;
+  return stored;
 }
 
 /** A timeout for fetch, without AbortSignal.timeout (missing in Safari 15 and old WebViews). */
@@ -1319,23 +1353,29 @@ async function storeSnapshot(id, body) {
   if (response.status !== 201) throw new Error(`share service: ${response.status}`);
 }
 
+/** The stored results under `id`, or null if there are none (expired); throws if out of reach. */
 async function fetchSnapshot(id) {
   const response = await fetch(`${SHARE_API}/s/${id}`, { signal: timeoutSignal(12000) });
+  if (response.status === 404) return null;
   if (!response.ok) throw new Error(`share service: ${response.status}`);
   return response.json();
 }
 
 /**
- * A link to stored results was opened: show them as they were, without searching.
- * If they're gone (or out of reach), run the search the link also carries.
+ * A link to stored results was opened: show them as they were, without searching,
+ * and put their search in the form. If they're gone (or out of reach), an older
+ * link that also carries the search runs it; a short one says so.
  */
-async function openSnapshot(id, { pick = null } = {}) {
+async function openSnapshot(id, { pick = null, canSearch = false } = {}) {
   const seq = ++searchSeq;
   setBusy(true);
   showStatus('progress', 'פותחים את התוצאות ששותפו…');
   let opened = null;
+  let gone = false;
   try {
-    const snapshot = parseSnapshot(await fetchSnapshot(id));
+    const found = await fetchSnapshot(id);
+    gone = found === null;
+    const snapshot = found && parseSnapshot(found);
     if (snapshot) {
       if (!snapshotProvider) {
         const { createOsmProvider } = await import('./providers/osm.js');
@@ -1351,10 +1391,25 @@ async function openSnapshot(id, { pick = null } = {}) {
   if (seq !== searchSeq) return;
   setBusy(false);
   if (!opened) {
-    runSearch({ pick, notice: 'snapshot-missing' });
+    if (canSearch) {
+      runSearch({ pick, notice: 'snapshot-missing' });
+    } else {
+      showStatus('error', gone ? SNAPSHOT_GONE_TEXT : SNAPSHOT_UNREACHABLE_TEXT);
+      if (!config.googleMapsApiKey || forcedProvider === 'osm') updateProviderNote({ id: 'osm', attributionHtml: '' });
+    }
     return;
   }
   const { query, result } = opened;
+  // Their search, in the form: to search it again, or change it.
+  fillForm(
+    decodeState(
+      encodeState({
+        ...query,
+        departure: query.departure ? toIsraelTime(query.departure) : null,
+      }),
+      { knownCategories: CATEGORY_IDS },
+    ),
+  );
   result.places = rerankPlaces(result.places, { preferOpen: !result.departure, priority: result.priority });
   result.notices.unshift('snapshot');
   // Shared on from here, they keep their id.
@@ -1363,7 +1418,7 @@ async function openSnapshot(id, { pick = null } = {}) {
   shownRequest = null;
   shownNeedsRedo = false;
   // A reload shows them again.
-  history.replaceState({ search: searchLink(query, { own: true, place: pick, snapshot: id }) }, '');
+  history.replaceState({ search: snapshotLink(id, { own: true, place: pick }) }, '');
   await showResult(result, snapshotProvider, { pick });
 }
 
@@ -1374,12 +1429,13 @@ async function sharePlace(place) {
         .map((name, i) => `${formatDuration(place.times ? place.times[i] : i ? place.timeB : place.timeA)} מ${name}`)
         .join(' · ')}`
     : '';
+  const url = lastQuery ? await shareLink({ place }) : googleMapsUrl(place);
   const outcome = await shareOrCopy({
     title: place.name,
     text: `נפגשים באמצע? מה דעתך על ${place.name}${times}`,
     // The app, on this search with this place picked: the recipient sees the place
     // and the rest of the list, as the sender does (and has Waze and Google Maps there).
-    url: lastQuery ? shareLink({ place }) : googleMapsUrl(place),
+    url,
   });
   if (outcome === 'copied') toast('הקישור הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
@@ -1392,11 +1448,8 @@ $('share-search').addEventListener('click', async () => {
     : names.length > 2
       ? `מקומות באמצע בין ${joinNames(names)}`
       : `מקומות באמצע הדרך בין ${names[0]} לבין ${names[1]}`;
-  const outcome = await shareOrCopy({
-    title: 'מקום באמצע',
-    text,
-    url: lastQuery ? shareLink() : `${location.origin}${plainAddress()}`,
-  });
+  const url = lastQuery ? await shareLink() : `${location.origin}${plainAddress()}`;
+  const outcome = await shareOrCopy({ title: 'מקום באמצע', text, url });
   if (outcome === 'copied') toast('הקישור לחיפוש הועתק');
   else if (outcome === 'failed') toast('לא הצלחנו לשתף');
 });
@@ -1448,18 +1501,18 @@ function saveFilters() {
 // Only a change the user makes is remembered, not filters a shared link brought.
 for (const id of ['only-green-line', 'only-shabbat-closed']) $(id).addEventListener('change', saveFilters);
 
-function init() {
-  // A search link opened in this tab earlier (or the search shown before a reload or
-  // a return to this page) lives in history.state: the address bar is the plain site.
-  const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
-  const state = decodeState(linkSearch ?? history.state?.search ?? '', { knownCategories: CATEGORY_IDS });
+/**
+ * Put a search into the form (decoded from a link, this tab's history, or
+ * stored results). `own`: this tab's own search, where "my location" is the device's.
+ */
+function fillForm(state, { own = false } = {}) {
   renderCategoryChips(state.categories || DEFAULT_CATEGORY_IDS);
   const restore = (key, loc) => {
     let source = 'link';
     if (loc.label === MY_LOCATION_LABEL) {
       // This tab's own search (from history): the device's position, shared only rounded.
       // From a link (older links carried the sender's "my location" label): someone else's.
-      if (linkSearch === null) source = 'device';
+      if (own) source = 'device';
       else loc = { ...loc, label: SHARED_LOCATION_LABEL };
     }
     sides[key].input.value = loc.label;
@@ -1486,15 +1539,25 @@ function init() {
     departureInput.value = state.departure;
   }
   updateOptionsSummary();
+}
+
+function init() {
+  // A search link opened in this tab earlier (or the search shown before a reload or
+  // a return to this page) lives in history.state: the address bar is the plain site.
+  const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;
+  const state = decodeState(linkSearch ?? history.state?.search ?? '', { knownCategories: CATEGORY_IDS });
+  fillForm(state, { own: linkSearch === null });
   // A search link was opened: its search runs below, and the address bar goes back
   // to the plain site, so sharing the page from the browser shares the app itself.
   if (linkSearch !== null) history.replaceState({ search: linkSearch }, '', plainAddress());
-  if (state.a && state.b && !isFramed()) {
-    // A shared link: show its results right away, on the place it shared if any:
-    // the stored ones if it has them, else by searching. (Not inside a frame,
-    // where another site could run billed searches on visitors' behalf.)
-    if (state.snapshot && SHARE_API) openSnapshot(state.snapshot, { pick: state.place });
-    else runSearch({ pick: state.place });
+  // A shared link: show its results right away, on the place it shared if any. (Not
+  // inside a frame, where another site could run billed searches on visitors' behalf.)
+  const canSearch = Boolean(state.a && state.b);
+  if (state.snapshot && SHARE_API && !isFramed()) {
+    // Stored results (a short link has only them; an older link has its search too).
+    openSnapshot(state.snapshot, { pick: state.place, canSearch });
+  } else if (canSearch && !isFramed()) {
+    runSearch({ pick: state.place });
   } else if (!config.googleMapsApiKey || forcedProvider === 'osm') {
     updateProviderNote({ id: 'osm', attributionHtml: '' });
   }

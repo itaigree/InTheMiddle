@@ -251,9 +251,9 @@ export async function blockExternal(target, allowedOrigins) {
 /**
  * The share service (worker/share.js) at https://share.test, run as is over an
  * in-memory store. Pass the same `store` to a sender's and a recipient's app;
- * `failStore` makes storing fail. `origin` is the app's (allowed) origin.
+ * `failStore` makes storing fail, after `storeDelayMs`. `origin` is the app's (allowed) origin.
  */
-export async function mockShare(target, { store = new Map(), failStore = false, origin }) {
+export async function mockShare(target, { store = new Map(), failStore = false, storeDelayMs = 0, origin }) {
   const { default: worker } = await import('../../worker/share.js');
   const env = {
     ALLOWED_ORIGINS: origin,
@@ -268,6 +268,7 @@ export async function mockShare(target, { store = new Map(), failStore = false, 
     const req = route.request();
     const method = req.method();
     (method === 'POST' ? log.stored : log.read).push(req.url());
+    if (method === 'POST' && storeDelayMs) await new Promise((resolve) => setTimeout(resolve, storeDelayMs));
     if (method === 'POST' && failStore) {
       await route.fulfill({ status: 500, headers: { 'access-control-allow-origin': origin }, body: '{}' });
       return;
