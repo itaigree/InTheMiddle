@@ -1299,14 +1299,15 @@ function reportStore(stored) {
  * (what went wrong and how long it took, nothing shared). Best effort.
  */
 function reportShare(details) {
-  try {
-    const report = new Blob([JSON.stringify({ ...details, version: config.build ? String(config.build).slice(0, 12) : null })], {
-      type: 'text/plain',
-    });
-    navigator.sendBeacon?.(`${SHARE_API}/log`, report);
-  } catch {
+  // A plain request, not sendBeacon (keepalive, which the Android app's WebView didn't send).
+  fetch(`${SHARE_API}/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+    body: JSON.stringify({ ...details, version: config.build ? String(config.build).slice(0, 12) : null }),
+    signal: timeoutSignal(20000),
+  }).catch(() => {
     // Only a report.
-  }
+  });
 }
 
 /** Why storing failed, in words. */
@@ -1417,13 +1418,12 @@ function timeoutSignal(ms) {
 /** Store a snapshot (`snapshot`, its JSON) under `id`, with the `key` that id comes from. */
 async function storeSnapshot(id, key, snapshot) {
   const body = `{"key":${JSON.stringify(key)},"snapshot":${snapshot}}`;
-  // Plain text: a simple request, so no preflight, and it may finish after the
-  // page goes to the background (keepalive, which takes up to 64 KB in all).
+  // Plain text: a simple request, so no preflight. Not keepalive: in the Android
+  // app (a WebView) such requests never went out, and a share waits for this one.
   const response = await fetch(`${SHARE_API}/s/${id}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body,
-    keepalive: new TextEncoder().encode(body).length < 60000,
     signal: timeoutSignal(20000),
   });
   if (response.status !== 201) throw new Error(`share service: ${response.status}`);
