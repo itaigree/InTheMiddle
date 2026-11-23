@@ -593,12 +593,53 @@ test('stored results that are gone: the link searches again, and says so', async
 
 test('the footer says which version the page runs', async () => {
   const { page, context } = await openApp({ files: { '/config.js': `${configJs('')}\nwindow.APP_CONFIG.build = 'abcdef123456';` } });
-  assert.equal(await page.locator('#app-version').textContent(), '· גרסה abcdef1');
+  assert.equal(await page.locator('#app-version').textContent(), 'גרסה abcdef1');
+  assert.equal(await page.locator('#app-version-wrap').isVisible(), true);
   await context.close();
   // Without a build (a local copy), nothing.
   const local = await openApp();
-  assert.equal(await local.page.locator('#app-version').isVisible(), false);
+  assert.equal(await local.page.locator('#app-version-wrap').isVisible(), false);
   await local.context.close();
+});
+
+test('the version opens a share check: each request to the share service and its answer, and the last share', async () => {
+  const withBuild = (shareApiUrl) => `${configJs('', shareApiUrl)}\nwindow.APP_CONFIG.build = 'abcdef123456';`;
+  const store = new Map();
+  const { page, shareLog, errors, context } = await openApp({
+    viewport: { width: 390, height: 844 },
+    share: { store },
+    files: { '/config.js': withBuild('https://share.test') },
+  });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const id = (await sharedLink(page)).searchParams.get('r');
+  await page.locator('#app-version').click();
+  const lines = page.locator('#share-check-list li');
+  await lines.filter({ hasText: 'קריאה של מה שנשמר' }).waitFor({ timeout: 20000 });
+  const text = (await lines.allTextContents()).join('\n');
+  assert.match(text, /גרסה: abcdef1 · בדפדפן/);
+  assert.match(text, new RegExp(`✓ השיתוף האחרון: .*${id} · קישור short · נשמר אחרי \\d+ ms`));
+  assert.match(text, /✓ האתר עצמו: 200/);
+  assert.match(text, /✓ שירות השיתוף, קריאה: 404/);
+  assert.match(text, /✓ שירות השיתוף, שמירה: 201/);
+  assert.match(text, /✓ שירות השיתוף, קריאה של מה שנשמר: 200/);
+  await page.locator('#share-check').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? path.join(SHOTS, 'share-check.png') : undefined });
+  // The whole of it goes to the service's log too.
+  for (let i = 0; i < 50 && !(shareLog.reports || []).some((r) => r.includes('"check"')); i++) await page.waitForTimeout(100);
+  assert.ok(shareLog.reports.some((r) => r.includes('"kind":"check"')));
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // A share service out of reach: said plainly, step by step.
+  const cut = await openApp({ share: { failRead: true, failStore: true }, files: { '/config.js': withBuild('https://share.test') } });
+  await cut.page.locator('#app-version').click();
+  await cut.page.locator('#share-check-list li', { hasText: 'שמירה' }).waitFor({ timeout: 40000 });
+  const cutText = (await cut.page.locator('#share-check-list li').allTextContents()).join('\n');
+  assert.match(cutText, /✗ שירות השיתוף, קריאה: TypeError/);
+  assert.match(cutText, /✗ שירות השיתוף, שמירה: 500/);
+  await cut.context.close();
 });
 
 test('a short link whose results are gone: it says so, and searches nothing', async () => {

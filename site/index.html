@@ -226,8 +226,16 @@
       <p>
         <a href="https://github.com/itaigree/InTheMiddle" target="_blank" rel="noopener">קוד פתוח ב-GitHub · הצעות ודיווח על בעיות</a>
         · <a href="privacy.html">מדיניות פרטיות</a>
-        <span id="app-version" hidden></span>
+        <span id="app-version-wrap" hidden>· <button type="button" id="app-version" class="link-button"></button></span>
       </p>
+      <section id="share-check" class="share-check" hidden aria-labelledby="share-check-title">
+        <h2 id="share-check-title">בדיקת שיתוף</h2>
+        <ol id="share-check-list" class="share-check-list" aria-live="polite"></ol>
+        <p>
+          <button type="button" id="share-check-copy" class="link-button">העתקת התוצאות</button>
+          · <button type="button" id="share-check-again" class="link-button">שוב</button>
+        </p>
+      </section>
     </footer>
 
     <!-- One more starting point; main.js fills in its ids, names and letter. -->

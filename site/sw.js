@@ -42,6 +42,7 @@ const SHELL = [
   'js/ui/map-google.js',
   'js/ui/map-leaflet.js',
   'js/ui/results.js',
+  'js/ui/share-check.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
   'vendor/plex-hebrew/ibm-plex-sans-hebrew-hebrew-400.woff2',

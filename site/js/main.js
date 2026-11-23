@@ -13,6 +13,7 @@ import { ProviderUnavailableError } from './providers/errors.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
+import { runShareCheck, rememberShareAttempt } from './ui/share-check.js';
 import { categoryRoundel } from './ui/category-icons.js';
 
 const config = window.APP_CONFIG || {};
@@ -1275,6 +1276,8 @@ async function shareLink({ place = null } = {}) {
   const stored = snapshotFor(lastResult, lastQuery);
   if (stored) {
     const outcome = await settledWithin(stored.done, SHARE_WAIT_MS);
+    const link = outcome === true ? 'short' : outcome === undefined ? 'long, still storing' : 'long, not stored';
+    if (stored.id) rememberShareAttempt(stored.id, { at: new Date().toISOString(), link });
     // Stored: the short link.
     if (outcome === true) return { url: snapshotLink(stored.id, { place: placeId }), stored };
     // Still on the way: a link to them that carries the search too, which runs if
@@ -1392,12 +1395,14 @@ function snapshotFor(result, query) {
     }
   })().then(
     () => {
+      rememberShareAttempt(stored.id, { ok: true, ms: stored.ms });
       if (stored.ms > SHARE_WAIT_MS) reportShare({ kind: 'store-slow', ms: stored.ms, bytes: body.length });
       return true;
     },
     (err) => {
       console.warn('storing the shared results failed', err);
       stored.problem = storeProblem(err);
+      if (stored.id) rememberShareAttempt(stored.id, { ok: false, ms: stored.ms, problem: `${err?.name}: ${err?.message}` });
       reportShare({ kind: 'store-failed', problem: `${err?.name}: ${err?.message}`, ms: stored.ms, bytes: body.length });
       // The next share tries again.
       if (result.snapshots[key] === stored) delete result.snapshots[key];
@@ -1621,9 +1626,22 @@ function fillForm(state, { own = false } = {}) {
 function init() {
   // Which deploy this page runs (to tell an old open tab from the current site).
   if (config.build) {
-    $('app-version').textContent = `· גרסה ${String(config.build).slice(0, 7)}`;
-    $('app-version').hidden = false;
+    $('app-version').textContent = `גרסה ${String(config.build).slice(0, 7)}`;
+    $('app-version-wrap').hidden = false;
   }
+  // It opens "בדיקת שיתוף": what this phone's requests to the share service do.
+  let checkText = '';
+  const check = async () => {
+    $('share-check').hidden = false;
+    checkText = await runShareCheck({ shareApi: SHARE_API, build: config.build, list: $('share-check-list') });
+  };
+  $('app-version').addEventListener('click', check);
+  $('share-check-again').addEventListener('click', check);
+  $('share-check-copy').addEventListener('click', async () => {
+    const outcome = await shareOrCopy({ title: 'בדיקת שיתוף', text: checkText });
+    if (outcome === 'copied') toast('התוצאות הועתקו');
+    else if (outcome === 'failed') toast('לא הצלחנו להעתיק');
+  });
   // A search link opened in this tab earlier (or the search shown before a reload or
   // a return to this page) lives in history.state: the address bar is the plain site.
   const linkSearch = location.search !== new URL(plainAddress(), location.href).search ? location.search : null;

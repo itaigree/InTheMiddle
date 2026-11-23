@@ -40,7 +40,7 @@ function respond(status, body, { origin = null, extra = {} } = {}) {
 }
 
 const LOG_DAYS = 2;
-const MAX_REPORT_BYTES = 2048;
+const MAX_REPORT_BYTES = 4096;
 
 /** A few technical facts about a request, for the log (no address, nothing shared). */
 function describe(request) {
@@ -104,6 +104,7 @@ function reportOf(text) {
     ms: Number.isFinite(body.ms) ? Math.round(body.ms) : null,
     bytes: Number.isFinite(body.bytes) ? Math.round(body.bytes) : null,
     version: short(body.version, 20),
+    details: short(body.details, 1500),
   };
 }
 
