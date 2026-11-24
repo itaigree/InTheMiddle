@@ -293,8 +293,9 @@ test('a search link with a priority opens with it chosen', async () => {
   await context.close();
 });
 
-test('phone: a place picked in the list comes up under the map, with its links, both on screen', async () => {
-  const { page, errors, context } = await openApp({ viewport: { width: 390, height: 844 } });
+test('phone: a place picked in the list comes up under the map, with all its links, both on screen', async () => {
+  // A small phone: the map, at its usual height, would push the card's last links off the screen.
+  const { page, errors, context } = await openApp({ viewport: { width: 360, height: 740 } });
   await pickSuggestion(page, 'a', 'חיפה');
   await pickSuggestion(page, 'b', 'תל אביב');
   await search(page);
@@ -307,17 +308,21 @@ test('phone: a place picked in the list comes up under the map, with its links, 
   assert.equal(await picked.locator('.place-name').textContent(), name);
   assert.match(await picked.locator('.waze').getAttribute('href'), /navigate=yes/);
   // Once the page has scrolled: the pinned header, the result chips right under it,
-  // then the map, and the card's links under the map, all on one screen.
+  // then the map (shorter, to make room), and all the card's links under it
+  // (Waze, then Google Maps and share), all on one screen.
   await page.waitForFunction(() => {
     const header = document.querySelector('.app-header').getBoundingClientRect();
     const chips = document.querySelector('#result-filters').getBoundingClientRect();
     return Math.abs(header.top) < 1 && Math.abs(chips.top - header.bottom) < 24;
   });
-  const [mapBottom, linksBottom] = await page.evaluate(() => [
+  const [mapTop, mapBottom, wazeBottom, linksBottom] = await page.evaluate(() => [
+    document.querySelector('.map-wrap').getBoundingClientRect().top,
     document.querySelector('.map-wrap').getBoundingClientRect().bottom,
     document.querySelector('#picked .waze').getBoundingClientRect().bottom,
+    Math.max(...[...document.querySelectorAll('#picked .place-actions .action')].map((a) => a.getBoundingClientRect().bottom)),
   ]);
-  assert.ok(linksBottom > mapBottom && linksBottom <= 844, `map ends at ${mapBottom}, links at ${linksBottom}`);
+  assert.ok(wazeBottom > mapBottom && linksBottom <= 740, `map ends at ${mapBottom}, links at ${linksBottom}`);
+  assert.ok(mapBottom - mapTop >= 200, `the map is ${mapBottom - mapTop}px tall`);
   // Sharing from it works like from the list.
   await page.evaluate(() => {
     window.copied = null;
@@ -332,9 +337,10 @@ test('phone: a place picked in the list comes up under the map, with its links, 
   await page.locator('#map .leaflet-marker-icon:has(.pin-place:not(.is-active))').first().dispatchEvent('click');
   assert.notEqual(await picked.locator('.place-name').textContent(), name);
   await shot(page, 'osm-phone-picked');
-  // A new filter of the list clears it.
+  // A new filter of the list clears it, and the map is back to its usual height.
   await page.locator('#result-filters .filter-chip', { hasText: 'פארקים' }).click();
   assert.equal(await picked.isVisible(), false);
+  assert.equal(await page.locator('.map-wrap').evaluate((el) => el.style.height), '');
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -1203,15 +1203,15 @@ function selectPlace(place, { from, scroll = true }) {
   warmShareService();
   // A place picked from the list is zoomed in on (with the whole search in the
   // corner); one picked on the map stays where the user is looking.
-  onMap((map) => map.highlight(place.id, { focus: from !== 'map' }));
   const phone = isPhone();
   // Its card comes into view in the list, unless the user just tapped it there.
   setActiveCard($('place-list'), place.id, { scroll: scroll && from !== 'list' && !phone });
-  if (!phone) return;
   // On phones the map and the list are far apart: the picked place's card comes
   // up under the map, so the map and its links (Waze etc.) are on screen together.
-  showPicked(place);
-  if (scroll && from !== 'map') scrollIntoPlace(resultsTop());
+  // Before the map zooms in: the map may get shorter to make room for the card.
+  if (phone) showPicked(place);
+  onMap((map) => map.highlight(place.id, { focus: from !== 'map' }));
+  if (phone && scroll && from !== 'map') scrollIntoPlace(resultsTop());
 }
 
 /** Where the results begin on a phone: their category chips, or the map when there are none. */
@@ -1245,6 +1245,7 @@ function showPicked(place) {
   if (!card) {
     box.hidden = true;
     box.firstElementChild.replaceChildren();
+    fitPickedMap();
     return;
   }
   const copy = card.cloneNode(true);
@@ -1253,7 +1254,50 @@ function showPicked(place) {
   copy.querySelector('.share-place')?.addEventListener('click', () => sharePlace(place));
   box.firstElementChild.replaceChildren(copy);
   box.hidden = false;
+  fitPickedMap();
 }
+
+// The shortest the map gets to make room for the picked card.
+const PICKED_MAP_MIN = 200;
+// Room left under the card, at the bottom of the screen.
+const PICKED_BOTTOM_GAP = 8;
+
+/**
+ * Phones, with a place picked: the result chips, the map and the picked card with
+ * all its links (Waze, Google Maps, share) on one screen, without scrolling. When
+ * they don't fit, the map gets shorter, down to PICKED_MAP_MIN. The card's height
+ * depends on the place (an address, a photo) and on the phone's text size, so it's
+ * measured, and again whenever it changes (a photo that loads, a turned phone).
+ */
+function fitPickedMap() {
+  const wrap = document.querySelector('.map-wrap');
+  const box = $('picked');
+  const before = wrap.style.height;
+  wrap.style.removeProperty('height');
+  wrap.style.removeProperty('min-height');
+  const top = resultsTop();
+  if (isPhone() && !box.hidden && top) {
+    // Where the chips land when scrolled to (under the pinned header), down to the card's end.
+    const margin = parseFloat(getComputedStyle(top).scrollMarginTop) || 0;
+    const end = margin + box.getBoundingClientRect().bottom - top.getBoundingClientRect().top + PICKED_BOTTOM_GAP;
+    const over = end - window.innerHeight;
+    if (over > 0) {
+      wrap.style.height = `${Math.max(PICKED_MAP_MIN, Math.round(wrap.offsetHeight - over))}px`;
+      wrap.style.minHeight = '0';
+    }
+  }
+  if (wrap.style.height !== before) onMap((map) => map.resize());
+}
+
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => fitPickedMap()).observe($('picked'));
+// A turned phone or a resized window, but not the browser's address bar coming
+// and going as the page scrolls (the map would jump under the finger).
+let fittedWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (window.innerWidth === fittedWidth) return;
+  fittedWidth = window.innerWidth;
+  fitPickedMap();
+});
 
 /** The starting points of the search on screen, as a shared text names them. */
 function sharedLabels() {
