@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# appdash - keeps this project's row in the Notion dashboard honest.
+# appdash - keeps this project's row on the dashboard honest.
 #
 #   init    records the commit the session started from   (SessionStart hook)
 #   check   if new commits landed since then, asks Claude
-#           to update Notion before finishing              (Stop hook)
+#           to update the dashboard before finishing              (Stop hook)
 #
 # The judgement of what is worth reporting lives in CLAUDE.md. This script only
 # notices that commits happened and nothing was said about them - the safety net
@@ -44,5 +44,5 @@ fi
 printf '%s' "$head" > "$marker" 2>/dev/null
 
 cat <<'JSON'
-{"decision":"block","reason":"appdash: this session pushed new commits and the project's row in the Notion dashboard has not been updated. Update it now as CLAUDE.md describes under 'appdash - the Notion project dashboard', then finish. If the commits genuinely leave the project where it already stood, say so in one line and finish without updating."}
+{"decision":"block","reason":"appdash: this session pushed new commits and the project's row on the dashboard has not been updated. Update it now as CLAUDE.md describes under 'appdash - the project dashboard', then finish. If the commits genuinely leave the project where it already stood, say so in one line and finish without updating."}
 JSON
