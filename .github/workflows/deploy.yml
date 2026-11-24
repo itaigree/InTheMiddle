@@ -134,6 +134,9 @@ jobs:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }} # empty when the secret isn't set
           GOOGLE_MAP_ID: ${{ vars.GOOGLE_MAP_ID }} # empty when the variable isn't set
           SHARE_API_URL: ${{ steps.share.outputs.url }} # empty without the share service
+          # Google Firestore for shared results (README, "שיתוף התוצאות"); when set, used instead of the share service.
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
           BUILD_ID: ${{ github.sha }}
         run: |
           node --input-type=module -e '
@@ -144,6 +147,9 @@ jobs:
               googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
               googleMapId: (process.env.GOOGLE_MAP_ID || "").trim(),
               shareApiUrl: (process.env.SHARE_API_URL || "").trim(),
+              firestore: (process.env.FIREBASE_PROJECT_ID || "").trim() && (process.env.FIREBASE_API_KEY || "").trim()
+                ? { projectId: process.env.FIREBASE_PROJECT_ID.trim(), apiKey: process.env.FIREBASE_API_KEY.trim() }
+                : null,
               build,
             };
             const configText = "window.APP_CONFIG = " + JSON.stringify(config, null, 2) + ";\n";
@@ -157,6 +163,11 @@ jobs:
             console.log(config.googleMapsApiKey
               ? "Google Maps key: set"
               : "::warning title=No Google key::GOOGLE_MAPS_API_KEY is not set, deploying the OpenStreetMap-only version");
+            console.log(config.firestore
+              ? "Shared results: Google Firestore, project " + config.firestore.projectId
+              : config.shareApiUrl
+                ? "Shared results: the Cloudflare share service (FIREBASE_PROJECT_ID / FIREBASE_API_KEY not set)"
+                : "Shared results: not stored (shared links search again)");
           '
 
       - name: Check that Pages publishes this workflow's site

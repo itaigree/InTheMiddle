@@ -30,6 +30,22 @@ function lastShareAttempt() {
   }
 }
 
+/** A call to the share store with a time limit, timed: {value, ms} or {error, ms}. */
+async function timedCall(call) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
+  const started = performance.now();
+  try {
+    const value = await call(controller.signal);
+    return { value, ms: Math.round(performance.now() - started) };
+  } catch (err) {
+    const ms = Math.round(performance.now() - started);
+    return { error: err?.name === 'AbortError' ? `no answer in ${CHECK_TIMEOUT_MS / 1000} s` : `${err?.name}: ${err?.message}`, ms };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** A request with a time limit, timed: {ok, status, ms, error}. */
 async function timed(url, options = {}) {
   const controller = new AbortController();
@@ -76,7 +92,7 @@ function testSnapshot() {
  * all of it (to copy), and `logged`, without what is personal (the last share's
  * id, which would open it, and the full browser string), for the service's log.
  */
-export async function runShareCheck({ shareApi, build, list, isCurrent = () => true }) {
+export async function runShareCheck({ store, build, list, isCurrent = () => true }) {
   list.replaceChildren();
   const lines = [];
   const logged = [];
@@ -117,36 +133,30 @@ export async function runShareCheck({ shareApi, build, list, isCurrent = () => t
   const site = await timed(`config.js?check=${Date.now()}`, { cache: 'no-store' });
   add(site.status === 200, 'האתר עצמו', shown(site));
 
-  if (!shareApi) {
+  if (!store) {
     add(false, 'שירות השיתוף', 'לא מוגדר באתר');
     pending.remove();
     return { shown: lines.join('\n'), logged: logged.join('\n') };
   }
-  const read = await timed(`${shareApi}/s/AAAAAAAAAAAA`);
-  add(read.status === 404, 'שירות השיתוף, קריאה', shown(read));
+  add(null, 'שירות השיתוף', store.kind === 'firestore' ? 'Google Firestore' : `Cloudflare (${store.origin.replace(/^https:\/\//, '')})`);
+  const timing = (r, what) => (r.error ? `${r.error} · ${r.ms} ms` : `${what} · ${r.ms} ms`);
+  const read = await timedCall((signal) => store.load('AAAAAAAAAAAA', { signal }));
+  add(!read.error && read.value === null, 'שירות השיתוף, קריאה', timing(read, read.value === null ? 'עונה' : 'תשובה לא צפויה'));
 
   let storedId = null;
-  try {
-    const { key, id } = await newSnapshotKey();
-    const store = await timed(`${shareApi}/s/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body: JSON.stringify({ key, snapshot: testSnapshot() }),
-    });
-    add(store.status === 201, 'שירות השיתוף, שמירה', shown(store));
-    if (store.status === 201) storedId = id;
-  } catch (err) {
-    add(false, 'שירות השיתוף, שמירה', `${err?.name}: ${err?.message}`);
-  }
+  const { key, id } = await newSnapshotKey();
+  const save = await timedCall((signal) => store.save(id, JSON.stringify(testSnapshot()), { key, signal }));
+  add(!save.error, 'שירות השיתוף, שמירה', timing(save, 'נשמר'));
+  if (!save.error) storedId = id;
   if (storedId) {
-    const back = await timed(`${shareApi}/s/${storedId}`);
-    add(back.status === 200, 'שירות השיתוף, קריאה של מה שנשמר', shown(back));
+    const back = await timedCall((signal) => store.load(storedId, { signal }));
+    add(!back.error && back.value !== null, 'שירות השיתוף, קריאה של מה שנשמר', timing(back, back.value ? 'נקרא' : 'לא נמצא'));
   }
 
   if (isCurrent()) {
     pending.remove();
-    // Into the service's log too, when it can be reached.
-    fetch(`${shareApi}/log`, {
+    // Into the service's log too, where there is one (the Cloudflare service).
+    if (store.logUrl) fetch(store.logUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: JSON.stringify({ kind: 'check', details: logged.join('\n').slice(0, 1500), version: build ? String(build).slice(0, 12) : null }),

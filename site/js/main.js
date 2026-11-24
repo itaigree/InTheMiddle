@@ -14,15 +14,17 @@ import { attachAutocomplete } from './ui/autocomplete.js';
 import { renderSummary, renderFilters, renderPlaces, setActiveCard, dropPhotoOnError, MAX_PHOTOS } from './ui/results.js';
 import { shareOrCopy, googleMapsUrl } from './ui/links.js';
 import { runShareCheck, rememberShareAttempt } from './ui/share-check.js';
+import { createShareStore } from './providers/share-store.js';
 import { categoryRoundel } from './ui/category-icons.js';
 
 const config = window.APP_CONFIG || {};
 const $ = (id) => document.getElementById(id);
 /**
- * The share service (worker/share.js) that keeps free results for a shared link
- * to show as they are. Without it, every shared link searches again.
+ * Where free results are kept for a shared link to show as they are
+ * (providers/share-store.js): Google Firestore, or the Cloudflare share service.
+ * Without one, every shared link searches again.
  */
-const SHARE_API = (config.shareApiUrl || '').replace(/\/+$/, '');
+const shareStore = createShareStore(config);
 
 const RESULTS_LIMIT = 20;
 const MY_LOCATION_LABEL = 'המיקום שלי';
@@ -1275,7 +1277,7 @@ async function shareLink({ place = null } = {}) {
   const placeId = place?.id ?? null;
   const stored = snapshotFor(lastResult, lastQuery);
   if (!stored) {
-    const reason = !SHARE_API ? 'אין שירות שיתוף' : lastResult?.providerId !== 'osm' ? 'תוצאות של Google' : 'התוצאות לא נשמרות';
+    const reason = !shareStore ? 'אין שירות שיתוף' : lastResult?.providerId !== 'osm' ? 'תוצאות של Google' : 'התוצאות לא נשמרות';
     rememberShareAttempt(null, { at: new Date().toISOString(), link: 'long', reason }, { start: true });
   }
   if (stored) {
@@ -1310,8 +1312,10 @@ function reportStore(stored) {
  * (what went wrong and how long it took, nothing shared). Best effort.
  */
 function reportShare(details) {
+  // Only the Cloudflare service keeps a log.
+  if (!shareStore?.logUrl) return;
   // A plain request, not sendBeacon (keepalive, which the Android app's WebView didn't send).
-  fetch(`${SHARE_API}/log`, {
+  fetch(shareStore.logUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body: JSON.stringify({ ...details, version: config.build ? String(config.build).slice(0, 12) : null }),
@@ -1335,12 +1339,12 @@ function storeProblem(err) {
  * Nothing is sent; a browser drops an unused connection after a few seconds.
  */
 function warmShareService() {
-  if (!SHARE_API || lastResult?.providerId !== 'osm') return;
+  if (!shareStore || lastResult?.providerId !== 'osm') return;
   document.getElementById('share-preconnect')?.remove();
   const link = document.createElement('link');
   link.id = 'share-preconnect';
   link.rel = 'preconnect';
-  link.href = SHARE_API;
+  link.href = shareStore.origin;
   link.crossOrigin = 'anonymous';
   document.head.append(link);
 }
@@ -1370,7 +1374,7 @@ function snapshotLink(id, { place = null, own = false } = {}) {
  * with no service.
  */
 function snapshotFor(result, query) {
-  if (!SHARE_API || !result || !query || result.providerId !== 'osm') return null;
+  if (!shareStore || !result || !query || result.providerId !== 'osm') return null;
   result.snapshots ??= {};
   const key = result.priority;
   if (result.snapshots[key]) return result.snapshots[key];
@@ -1428,26 +1432,18 @@ function timeoutSignal(ms) {
   return controller.signal;
 }
 
-/** Store a snapshot (`snapshot`, its JSON) under `id`, with the `key` that id comes from. */
-async function storeSnapshot(id, key, snapshot) {
-  const body = `{"key":${JSON.stringify(key)},"snapshot":${snapshot}}`;
-  // Plain text: a simple request, so no preflight. Not keepalive: in the Android
-  // app (a WebView) such requests never went out, and a share waits for this one.
-  const response = await fetch(`${SHARE_API}/s/${id}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-    body,
-    signal: timeoutSignal(20000),
-  });
-  if (response.status !== 201) throw new Error(`share service: ${response.status}`);
+/**
+ * Store a snapshot (`snapshot`, its JSON) under `id`, with the `key` that id
+ * comes from. A plain request (no keepalive): in the Android app (a WebView)
+ * those never went out, and a share waits for this one anyway.
+ */
+function storeSnapshot(id, key, snapshot) {
+  return shareStore.save(id, snapshot, { key, signal: timeoutSignal(20000) });
 }
 
 /** The stored results under `id`, or null if there are none (expired); throws if out of reach. */
-async function fetchSnapshot(id) {
-  const response = await fetch(`${SHARE_API}/s/${id}`, { signal: timeoutSignal(12000) });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`share service: ${response.status}`);
-  return response.json();
+function fetchSnapshot(id) {
+  return shareStore.load(id, { signal: timeoutSignal(12000) });
 }
 
 /**
@@ -1644,7 +1640,7 @@ function init() {
     $('share-check').hidden = false;
     $('share-check').scrollIntoView({ block: 'nearest' });
     $('share-check-again').disabled = true;
-    await runShareCheck({ shareApi: SHARE_API, build: config.build, list: $('share-check-list'), isCurrent: () => run === checkRun });
+    await runShareCheck({ store: shareStore, build: config.build, list: $('share-check-list'), isCurrent: () => run === checkRun });
     if (run === checkRun) $('share-check-again').disabled = false;
   };
   $('app-version').addEventListener('click', check);
@@ -1672,7 +1668,7 @@ function init() {
   // A shared link: show its results right away, on the place it shared if any. (Not
   // inside a frame, where another site could run billed searches on visitors' behalf.)
   const canSearch = Boolean(state.a && state.b);
-  if (state.snapshot && SHARE_API && !isFramed()) {
+  if (state.snapshot && shareStore && !isFramed()) {
     // Stored results (a short link has only them; an older link has its search too).
     openSnapshot(state.snapshot, { pick: state.place, canSearch });
   } else if (canSearch && !isFramed()) {
