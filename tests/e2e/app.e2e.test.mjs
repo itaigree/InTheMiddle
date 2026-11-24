@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 import { startServer } from './server.mjs';
-import { mockOsm, mockGoogle, mockShare, blockExternal } from './mocks.mjs';
+import { mockOsm, mockGoogle, mockShare, mockFirestore, blockExternal } from './mocks.mjs';
 
 function loadPlaywright() {
   const require = createRequire(import.meta.url);
@@ -30,7 +30,9 @@ process.env.PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK ??= '1';
 
 const { chromium } = loadPlaywright();
 const SHOTS = process.env.E2E_SCREENSHOTS || '';
-const configJs = (key, shareApiUrl = '') => `window.APP_CONFIG = ${JSON.stringify({ googleMapsApiKey: key, googleMapId: '', shareApiUrl })};`;
+const configJs = (key, shareApiUrl = '', firestore = null) =>
+  `window.APP_CONFIG = ${JSON.stringify({ googleMapsApiKey: key, googleMapId: '', shareApiUrl, firestore })};`;
+const FIRESTORE_CONFIG = { projectId: 'demo-inthemiddle', apiKey: 'test-key' };
 
 let browser;
 const servers = [];
@@ -49,8 +51,10 @@ after(async () => {
  * `share`: the share service's options (see mockShare), which also turns it on
  * in the app's config.
  */
-async function openApp({ key = '', google = null, osm = {}, share = null, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {}, clock = false } = {}) {
-  const server = await startServer({ overrides: { '/config.js': configJs(key, share ? 'https://share.test' : ''), ...files } });
+async function openApp({ key = '', google = null, osm = {}, share = null, firestore = null, viewport = { width: 1280, height: 900 }, query = '', contextOptions = {}, files = {}, clock = false } = {}) {
+  const server = await startServer({
+    overrides: { '/config.js': configJs(key, share ? 'https://share.test' : '', firestore ? FIRESTORE_CONFIG : null), ...files },
+  });
   servers.push(server);
   const context = await browser.newContext({ viewport, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', ...contextOptions });
   // Registered first = lowest priority: anything not mocked below is blocked.
@@ -58,12 +62,13 @@ async function openApp({ key = '', google = null, osm = {}, share = null, viewpo
   const osmLog = await mockOsm(context, osm);
   const googleLog = google ? await mockGoogle(context, google) : null;
   const shareLog = share ? await mockShare(context, { ...share, origin: new URL(server.url).origin }) : null;
+  const firestoreLog = firestore ? await mockFirestore(context, { ...firestore, origin: new URL(server.url).origin }) : null;
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err));
   if (clock) await page.clock.install(); // time runs as usual, and tests can jump ahead
   await page.goto(server.url + query);
-  return { page, context, osmLog, googleLog, shareLog, errors, server };
+  return { page, context, osmLog, googleLog, shareLog, firestoreLog, errors, server };
 }
 
 /** The search options are folded into one row: open it (as a person would) to reach them. */
@@ -625,9 +630,10 @@ test('the version opens a share check: each request to the share service and its
   assert.match(text, /גרסה: abcdef1 · בדפדפן/);
   assert.match(text, new RegExp(`✓ השיתוף האחרון: .* · קישור short · נשמר אחרי \\d+ ms · ${id}`));
   assert.match(text, /✓ האתר עצמו: 200/);
-  assert.match(text, /✓ שירות השיתוף, קריאה: 404/);
-  assert.match(text, /✓ שירות השיתוף, שמירה: 201/);
-  assert.match(text, /✓ שירות השיתוף, קריאה של מה שנשמר: 200/);
+  assert.match(text, /שירות השיתוף: Cloudflare \(share\.test\)/);
+  assert.match(text, /✓ שירות השיתוף, קריאה: עונה/);
+  assert.match(text, /✓ שירות השיתוף, שמירה: נשמר/);
+  assert.match(text, /✓ שירות השיתוף, קריאה של מה שנשמר: נקרא/);
   await page.locator('#share-check').scrollIntoViewIfNeeded();
   await page.screenshot({ path: SHOTS ? path.join(SHOTS, 'share-check.png') : undefined });
   // The whole of it goes to the service's log too.
@@ -645,7 +651,7 @@ test('the version opens a share check: each request to the share service and its
   });
   await page.locator('#share-check-copy').click();
   await page.waitForFunction(() => window.copied);
-  assert.match(await page.evaluate(() => window.copied), /שמירה: 201/);
+  assert.match(await page.evaluate(() => window.copied), /שמירה: נשמר/);
   assert.deepEqual(errors, []);
   await context.close();
 
@@ -655,8 +661,68 @@ test('the version opens a share check: each request to the share service and its
   await cut.page.locator('#share-check-list li', { hasText: 'שמירה' }).waitFor({ timeout: 40000 });
   const cutText = (await cut.page.locator('#share-check-list li').allTextContents()).join('\n');
   assert.match(cutText, /✗ שירות השיתוף, קריאה: TypeError/);
-  assert.match(cutText, /✗ שירות השיתוף, שמירה: 500/);
+  assert.match(cutText, /✗ שירות השיתוף, שמירה: Error: share service: 500/);
   await cut.context.close();
+});
+
+test('Google Firestore keeps shared results: a short link, opened without a search', async () => {
+  const store = new Map();
+  const phone = { width: 390, height: 844 };
+  const sender = await openApp({ viewport: phone, firestore: { store } });
+  await pickSuggestion(sender.page, 'a', 'חיפה');
+  await pickSuggestion(sender.page, 'b', 'תל אביב');
+  await search(sender.page);
+  const card = sender.page.locator('#place-list .place-card').nth(3);
+  const name = await card.locator('.place-name').textContent();
+  const names = await sender.page.locator('#place-list .place-name').allTextContents();
+  const url = new URL((await sharedPlace(sender.page, card)).url);
+  const id = url.searchParams.get('r');
+  assert.deepEqual([...url.searchParams.keys()].sort(), ['pl', 'r']);
+  // Stored in Firestore as the rules want it: {v, data, expireAt}.
+  assert.deepEqual(sender.firestoreLog.created, [id]);
+  const doc = store.get(id);
+  assert.equal(doc.fields.v.integerValue, '1');
+  assert.equal(JSON.parse(doc.fields.data.stringValue).points[0].label, 'חיפה');
+  assert.deepEqual(sender.firestoreLog.refused, []);
+  assert.deepEqual(sender.errors, []);
+  await sender.context.close();
+
+  const { page, osmLog, firestoreLog, errors, context } = await openApp({ viewport: phone, firestore: { store }, query: url.search });
+  const picked = page.locator('#picked');
+  await picked.waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal(await picked.locator('.place-name').textContent(), name);
+  assert.deepEqual(await page.locator('#place-list .place-name').allTextContents(), names);
+  assert.equal(freeRequests(osmLog), 0);
+  assert.deepEqual(firestoreLog.read, [id]);
+  assert.equal(await page.locator('#input-a').inputValue(), 'חיפה');
+  // Shared on: the same short link.
+  assert.equal((await sharedLink(page)).searchParams.get('r'), id);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('Google Firestore: a share past its time reads as gone, and the share check goes through Firestore', async () => {
+  const past = new Map([
+    ['Ab3_-xYz0123', { fields: { v: { integerValue: '1' }, data: { stringValue: '{}' }, expireAt: { timestampValue: new Date(Date.now() - 1000).toISOString() } } }],
+  ]);
+  const gone = await openApp({ firestore: { store: past }, query: '?r=Ab3_-xYz0123' });
+  await gone.page.locator('#status', { hasText: 'הקישור הזה כבר לא פעיל' }).waitFor({ timeout: 20000 });
+  await gone.context.close();
+
+  const { page, firestoreLog, errors, context } = await openApp({
+    firestore: { store: new Map() },
+    files: { '/config.js': `${configJs('', '', FIRESTORE_CONFIG)}\nwindow.APP_CONFIG.build = 'abcdef123456';` },
+  });
+  await page.locator('#app-version').click();
+  await page.locator('#share-check-list li', { hasText: 'קריאה של מה שנשמר' }).waitFor({ timeout: 20000 });
+  const text = (await page.locator('#share-check-list li').allTextContents()).join('\n');
+  assert.match(text, /שירות השיתוף: Google Firestore/);
+  assert.match(text, /✓ שירות השיתוף, קריאה: עונה/);
+  assert.match(text, /✓ שירות השיתוף, שמירה: נשמר/);
+  assert.match(text, /✓ שירות השיתוף, קריאה של מה שנשמר: נקרא/);
+  assert.equal(firestoreLog.created.length, 1);
+  assert.deepEqual(errors, []);
+  await context.close();
 });
 
 test('a short link whose results are gone: it says so, and searches nothing', async () => {

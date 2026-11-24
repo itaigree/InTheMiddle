@@ -36,6 +36,7 @@ const SHELL = [
   'js/providers/errors.js',
   'js/providers/google.js',
   'js/providers/osm.js',
+  'js/providers/share-store.js',
   'js/ui/autocomplete.js',
   'js/ui/category-icons.js',
   'js/ui/links.js',

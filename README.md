@@ -154,7 +154,42 @@
 **בדיקה:** פותחים את האתר ומחפשים. בתחתית העמוד כתוב "Google Maps". אם כתוב OpenStreetMap,
 אפשר לפתוח את הקונסול בדפדפן (F12) ולחפש שגיאות כמו `RefererNotAllowedMapError` או `ApiNotActivatedMapError`.
 
-### 4. שיתוף התוצאות (Cloudflare, לא חובה)
+### 4. שיתוף התוצאות (Google Firestore, לא חובה)
+
+בלי זה הכול עובד, אבל כל קישור ששותף ארוך ומחפש מחדש אצל מי שפותח אותו. עם זה, תוצאות של המפות החינמיות
+נשמרות ב-Google Cloud Firestore (באזור תל אביב) ל-30 יום, והקישור קצר ומציג אותן כמו שהן. האתר כותב וקורא
+ישירות מ-Firestore (`site/js/providers/share-store.js`), עם מפתח ה-web הציבורי של הפרויקט. מה שמגן על הנתונים
+הם כללי הגישה שבקובץ `firestore.rules`: אפשר ליצור שיתוף פעם אחת ולקרוא שיתוף לפי הקוד שלו, ותו לא.
+הכתובת `firestore.googleapis.com` נמצאת בכל שרת DNS. ל-`*.workers.dev` של Cloudflare, למשל, שרת ה-DNS של פלאפון
+עונה שהשם לא קיים, ולכן זו הדרך המומלצת. התוכנית החינמית (Spark) מספיקה, בלי כרטיס אשראי.
+
+1. ב-Chrome בטלפון: ⋮ ← "אתר למחשב" (הקונסול לא בנוי לטלפון). נכנסים ל-[Firebase](https://console.firebase.google.com)
+   ← **Create a project** ← שם `InTheMiddle` ← בלי Gemini ובלי Google Analytics ← **Create project**.
+2. בתפריט שבצד: **Databases & Storage ← Firestore** (בגרסאות קודמות: **Build ← Firestore Database**) ← **Create database** ←
+   מהדורה **Standard** (לא Enterprise), מזהה `(default)` ←
+   מיקום **`me-west1 (Tel Aviv)`** (אי אפשר לשנות אחר כך) ← **production mode** ← **Create**.
+3. בלשונית **Rules** מוחקים הכול, מדביקים את התוכן של `firestore.rules` מה-repo, ולוחצים **Publish**.
+4. גלגל השיניים ⚙ ← **Project settings**: מעתיקים את ה-**Project ID**. למטה, ב-"Your apps", לוחצים על **`</>`** ←
+   כינוי `InTheMiddle` ← **Register app**, ומעתיקים מהקוד שמופיע את הערך של **`apiKey`** (מתחיל ב-`AIza`).
+5. ב-GitHub: ‏Settings ← Secrets and variables ← Actions ← בלשונית **Variables**: `FIREBASE_PROJECT_ID` עם ה-Project ID,
+   ו-`FIREBASE_API_KEY` עם ה-apiKey (הוא ציבורי מעצם הגדרתו; מה שמגן הם כללי הגישה).
+6. מריצים את הפריסה (Actions ← Test and deploy ← Run workflow), או עושים push ל-`main`.
+
+**בדיקה:** בהרצה ב-Actions, השלב "Write config.js" כותב `Shared results: Google Firestore, project …`. באתר,
+בתחתית הדף, לוחצים על "גרסה …": ב"בדיקת שיתוף" כתוב `שירות השיתוף: Google Firestore`, וכל השורות עם ✓.
+
+**מחיקה אחרי 30 יום:** כל שיתוף נשמר עם `expireAt`, והאפליקציה לא מציגה שיתוף שהזמן שלו עבר. מדיניות TTL של Firestore
+על השדה הזה (Google Cloud console ← Firestore ← Databases ← `(default)` ← Time-to-live ← Create policy, collection
+group `shares`, שדה `expireAt`) מוחקת אותם בפועל, בדרך כלל עד 24 שעות אחרי הזמן. היא דורשת חיבור חשבון חיוב (תוכנית Blaze):
+מחיקות TTL לא נכללות בחינם, ועולות כ-0.01$ ל-100,000, כלומר חלק קטן מסנט בחודש לאפליקציה הזו. כללי הגישה נבדקו
+באמולטור של Firestore. חשוב לכתוב את בדיקת הזמן כשתי השוואות נפרדות, כמו בקובץ: השוואה משורשרת נטענת בלי שגיאה
+ודוחה כל שמירה.
+
+#### שירות השיתוף הקודם ב-Cloudflare
+
+לפני Firestore התוצאות נשמרו בשירות ב-Cloudflare Workers (`worker/share.js`). הוא עדיין עולה עם הפריסה כש-`CLOUDFLARE_API_TOKEN`
+מוגדר, ומשמש רק כשמשתני Firebase לא מוגדרים. אחרי ש-Firestore עובד אפשר למחוק את הסוד ואת השירות.
+
 
 בלי זה הכול עובד, אבל כל קישור ששותף ארוך ומחפש מחדש אצל מי שפותח אותו. עם זה, תוצאות של המפות החינמיות
 נשמרות בשירות קטן ב-Cloudflare Workers (`worker/share.js`) ל-30 יום, והקישור קצר ומציג אותן כמו שהן. החשבון החינמי מספיק:
@@ -211,7 +246,8 @@ site/
   js/providers/osm.js         OpenStreetMap ושירותים פתוחים
   js/ui/                      השלמה אוטומטית, מפות, כרטיסי תוצאות
   data/green-line.json        יהודה ושומרון ועזה, לסינון הקו הירוק (נבנה ב-tools/build-green-line.mjs)
-worker/                       שירות השיתוף ב-Cloudflare: שומר תוצאות חינמיות לקישורים (משתמש ב-js/core/snapshot.js)
+firestore.rules               כללי הגישה של Firestore לשיתופים (מדביקים בקונסול של Firebase)
+worker/                       שירות השיתוף הקודם ב-Cloudflare (משתמש ב-js/core/snapshot.js)
 tests/unit/                   בדיקות יחידה (node --test)
 .github/workflows/deploy.yml  בדיקות ופריסה ל-GitHub Pages
 ```

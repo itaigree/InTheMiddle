@@ -295,3 +295,62 @@ export async function mockShare(target, { store = new Map(), failStore = false, 
   });
   return log;
 }
+
+/**
+ * Google Firestore's REST API for shared results, over an in-memory `store`
+ * (id -> document), answering as the security rules in the README do: get by
+ * id, create once with exactly {v: 1, data: string ≤ 65536, expireAt within 31
+ * days}, nothing else (no list, update or delete). `origin`: the app's.
+ */
+export async function mockFirestore(target, { store = new Map(), origin }) {
+  const log = { created: [], read: [], refused: [] };
+  const cors = { 'access-control-allow-origin': origin, vary: 'Origin' };
+  const answer = (route, status, body) =>
+    route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  await target.route('https://firestore.googleapis.com/**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    if (req.method() === 'OPTIONS') {
+      await route.fulfill({ status: 200, headers: { ...cors, 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type' } });
+      return;
+    }
+    const m = url.pathname.match(/^\/v1\/projects\/[^/]+\/databases\/\(default\)\/documents\/shares(?:\/([^/]+))?$/);
+    if (!m || !url.searchParams.get('key')) return answer(route, 404, { error: { code: 404, status: 'NOT_FOUND' } });
+    const id = m[1] ? decodeURIComponent(m[1]) : null;
+    if (req.method() === 'GET') {
+      if (!id) return answer(route, 403, { error: { code: 403, status: 'PERMISSION_DENIED' } }); // no list
+      log.read.push(id);
+      return store.has(id) ? answer(route, 200, store.get(id)) : answer(route, 404, { error: { code: 404, status: 'NOT_FOUND' } });
+    }
+    if (req.method() === 'POST' && !id) {
+      const docId = url.searchParams.get('documentId') || '';
+      let fields = null;
+      try {
+        fields = JSON.parse(req.postData() || '{}').fields;
+      } catch {
+        // refused below
+      }
+      const keys = Object.keys(fields || {}).sort().join();
+      const expireAt = Date.parse(fields?.expireAt?.timestampValue);
+      const ok =
+        /^[A-Za-z0-9_-]{12}$/.test(docId) &&
+        keys === 'data,expireAt,v' &&
+        fields.v?.integerValue === '1' &&
+        typeof fields.data?.stringValue === 'string' &&
+        fields.data.stringValue.length <= 65536 &&
+        expireAt > Date.now() &&
+        expireAt < Date.now() + 31 * 24 * 3600 * 1000;
+      if (!ok) {
+        log.refused.push(docId);
+        return answer(route, 403, { error: { code: 403, status: 'PERMISSION_DENIED' } });
+      }
+      if (store.has(docId)) return answer(route, 409, { error: { code: 409, status: 'ALREADY_EXISTS' } });
+      const doc = { name: `${url.pathname.slice(4)}/${docId}`, fields };
+      store.set(docId, doc);
+      log.created.push(docId);
+      return answer(route, 200, doc);
+    }
+    return answer(route, 403, { error: { code: 403, status: 'PERMISSION_DENIED' } }); // no update or delete
+  });
+  return log;
+}
