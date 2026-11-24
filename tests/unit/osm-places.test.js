@@ -65,7 +65,7 @@ test('Overpass busy: Photon answers, is kept 5 minutes, and Overpass rests as lo
     const at = { lat: 32.44, lng: 34.92 };
     let places = await osm.searchPlaces(at, 3000, ['cafe']);
     assert.deepEqual(places.map((p) => p.name), ['cafe 1', 'cafe 2']);
-    assert.ok(places.every((p) => p.hoursUnknown && p.closedOnShabbat === null));
+    assert.ok(places.every((p) => p.hoursUnknown && p.closedOnShabbat === null && p.openNow === null));
     assert.equal(calls.overpass, 1);
 
     state.overpassUp = true;
@@ -79,6 +79,7 @@ test('Overpass busy: Photon answers, is kept 5 minutes, and Overpass rests as lo
     places = await osm.searchPlaces(at, 3000, ['cafe']); // later: Overpass again, with hours
     assert.equal(calls.overpass, 2);
     assert.deepEqual(places.map((p) => [p.name, p.closedOnShabbat]), [['קפה מ-Overpass', true]]);
+    assert.equal(places[0].openNow, true); // Wednesday afternoon
   } finally {
     restore();
   }
@@ -119,6 +120,22 @@ function cafesNear(at, open, closed) {
 }
 
 const keepsShabbat = (p) => p.closedOnShabbat === true; // the "closed on Shabbat" filter, for cafés
+
+test('Overpass: places come from the cache open or closed as of the search, not as of the first one', async () => {
+  const { clock, calls, state, restore } = setup();
+  try {
+    clock.now = Date.parse('2026-10-21T18:30:00Z'); // a Wednesday, 21:30 in Israel
+    state.overpassUp = true;
+    const at = { lat: 32.47, lng: 34.95 };
+    const osm = createOsmProvider();
+    assert.equal((await osm.searchPlaces(at, 1500, ['cafe']))[0].openNow, true);
+    clock.now += 60 * MIN; // 22:30: closed (Su-Th 08:00-22:00)
+    assert.equal((await osm.searchPlaces(at, 1500, ['cafe']))[0].openNow, false);
+    assert.equal(calls.overpass, 1); // the second from the cache
+  } finally {
+    restore();
+  }
+});
 
 test('Overpass: the filter runs before each category is cut to 15', async () => {
   const { clock, calls, state, restore } = setup();
@@ -248,17 +265,17 @@ test('Places cache: expired places and those of another version are dropped when
     state.overpassUp = true;
     const now = clock.now;
     const entry = (t, ttl) => JSON.stringify({ t, ttl, v: [{ id: 'osm-node-9', name: 'ישן', lat: 32, lng: 35, category: 'cafe' }] });
-    const v3 = 'inthemiddle.overpass.v3:';
-    sessionStorage.setItem('inthemiddle.overpass.v2:old query', entry(now - MIN));
-    sessionStorage.setItem(`${v3}expired`, entry(now - 7 * 60 * MIN, 6 * 60 * MIN));
-    sessionStorage.setItem(`${v3}expired photon`, entry(now - 6 * MIN, 5 * MIN));
-    sessionStorage.setItem(`${v3}fresh`, entry(now - MIN, 6 * 60 * MIN));
-    sessionStorage.setItem(`${v3}unreadable`, '{');
+    const current = 'inthemiddle.overpass.v4:';
+    sessionStorage.setItem('inthemiddle.overpass.v3:old query', entry(now - MIN));
+    sessionStorage.setItem(`${current}expired`, entry(now - 7 * 60 * MIN, 6 * 60 * MIN));
+    sessionStorage.setItem(`${current}expired photon`, entry(now - 6 * MIN, 5 * MIN));
+    sessionStorage.setItem(`${current}fresh`, entry(now - MIN, 6 * 60 * MIN));
+    sessionStorage.setItem(`${current}unreadable`, '{');
     sessionStorage.setItem('inthemiddle.filters', '{"greenLine":true}');
     const osm = createOsmProvider();
     await osm.searchPlaces({ lat: 32.44, lng: 34.92 }, 3000, ['cafe']);
     const keys = [...storage.store.keys()];
-    assert.deepEqual(keys.filter((k) => !k.startsWith(`${v3}[out:json]`)), [`${v3}fresh`, 'inthemiddle.filters']);
+    assert.deepEqual(keys.filter((k) => !k.startsWith(`${current}[out:json]`)), [`${current}fresh`, 'inthemiddle.filters']);
     assert.equal(keys.length, 3); // and the search just made
   } finally {
     restore();

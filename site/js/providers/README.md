@@ -69,6 +69,7 @@ provider.expectMap?.()
   rating?: number,        // 1..5
   ratingCount?: number,
   openNow?: boolean|null, // null/undefined = unknown
+  hours?: string,         // OSM opening_hours, when understood: openNow is worked out from it when shown (cached and shared places too)
   address?: string,
   photoUrl?: string,
   mapsUrl?: string,       // link to the place on Google Maps, if known

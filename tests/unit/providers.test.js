@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOverpass, buildOverpassQuery } from '../../site/js/providers/osm.js';
+import { parseOverpass, buildOverpassQuery, withOpenNow } from '../../site/js/providers/osm.js';
 import { isOpenAt, placeOpenNow, classifyGoogleError } from '../../site/js/providers/google.js';
 import { ProviderUnavailableError, ProviderRequestError } from '../../site/js/providers/errors.js';
 
@@ -41,12 +41,22 @@ test('parseOverpass: categories, Hebrew names, centers, ranking and filtering', 
   assert.equal(byId['osm-way-4'].address, 'נתניה');
   assert.equal(byId['osm-relation-5'].category, 'nature');
   assert.equal(byId['osm-relation-5'].typeLabel, 'גן לאומי');
-  assert.equal(byId['osm-node-3'].openNow, true);
-  assert.equal(byId['osm-node-2'].openNow, null);
+  // The hours are kept, and whether it's open is worked out when it's shown.
+  assert.equal(byId['osm-node-3'].hours, '24/7');
+  assert.equal(byId['osm-node-2'].hours, undefined);
+  assert.equal(withOpenNow(byId['osm-node-3'], new Date()).openNow, true);
+  assert.equal(withOpenNow(byId['osm-node-2'], new Date()).openNow, null);
   // Within cafés: the notable one (Wikidata etc.) beats a closer plain one, which beats a farther one.
   const cafes = places.filter((p) => p.category === 'cafe').map((p) => p.id);
   assert.deepEqual(cafes, ['osm-node-3', 'osm-node-2', 'osm-node-1']);
   assert.ok(places.every((p) => !('rank' in p)));
+});
+
+test('parseOverpass keeps only hours it understands', () => {
+  const cafe = (id, hours) => ({ type: 'node', id, lat: 32.4, lon: 34.9, tags: { amenity: 'cafe', name: `קפה ${id}`, opening_hours: hours } });
+  const places = parseOverpass({ elements: [cafe(1, ' Su-Th 08:00-22:00 '), cafe(2, 'Jan-Mar 08:00-17:00'), cafe(3, '')] }, CENTER, ['cafe']);
+  const hours = Object.fromEntries(places.map((p) => [p.id, p.hours]));
+  assert.deepEqual(hours, { 'osm-node-1': 'Su-Th 08:00-22:00', 'osm-node-2': undefined, 'osm-node-3': undefined });
 });
 
 test('parseOverpass caps each category', () => {

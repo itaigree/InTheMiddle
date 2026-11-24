@@ -126,6 +126,25 @@ test('a group snapshot: everyone\'s times, no route', () => {
   assert.deepEqual(q.extra, [{ label: 'באר שבע', lat: 31.25, lng: 34.79, source: 'link', mode: 'transit' }]);
 });
 
+test('a place\'s hours go with it, and whether it\'s open is as of when the link is opened', () => {
+  const result = pairResult();
+  const hours = 'Su-Th 08:00-22:00; Fr 08:00-14:00';
+  result.places[0] = { ...result.places[0], hours, openNow: true };
+  const snap = makeSnapshot({ at: 1, points, result, query });
+  assert.equal(snap.places[0].hours, hours);
+  assert.equal(snap.places[0].openNow, null); // not the sender's moment
+  assert.equal(snap.places[1].openNow, true); // no hours (an older kind of place): as it was
+  const back = parseSnapshot(JSON.parse(JSON.stringify(snap)));
+  assert.deepEqual(back, snap);
+  const wednesdayMorning = new Date('2026-11-25T08:00:00Z'); // 10:00 in Israel
+  const fridayEvening = new Date('2026-11-27T18:00:00Z'); // 20:00
+  assert.equal(snapshotToSearch(back, wednesdayMorning).result.places[0].openNow, true);
+  const later = snapshotToSearch(back, fridayEvening).result;
+  assert.equal(later.places[0].openNow, false);
+  assert.equal(later.places[0].hours, hours);
+  assert.equal(later.places[1].openNow, true);
+});
+
 test('the route from a sender\'s own position starts away from it', () => {
   const snap = makeSnapshot({ at: 1, points, privatePoints: [haifa], result: pairResult({ route: straightRoute(2000) }), query });
   const first = { lat: snap.route[0][0], lng: snap.route[0][1] };
@@ -176,6 +195,9 @@ test('a snapshot from elsewhere is checked: anything malformed is refused, anyth
     (s) => (s.places[0].times = [1, -5]),
     (s) => (s.places[0].name = 'x'.repeat(201)),
     (s) => (s.places[0].openNow = 'yes'),
+    (s) => (s.places[0].hours = 5),
+    (s) => (s.places[0].hours = ' '),
+    (s) => (s.places[0].hours = 'x'.repeat(256)),
     (s) => (s.places = Array.from({ length: 101 }, (_, i) => ({ ...s.places[0], id: `osm-node-${i}` }))),
   ];
   for (const breakIt of broken) {

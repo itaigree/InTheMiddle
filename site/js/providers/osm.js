@@ -9,7 +9,7 @@
 
 import { ProviderRequestError, isAbortError } from './errors.js';
 import { haversine, bearing } from '../core/geo.js';
-import { closedOnShabbat, intervalsFromOsm } from '../core/shabbat.js';
+import { closedOnShabbat, intervalsFromOsm, openFromOsm, parseOsmHours } from '../core/shabbat.js';
 
 const PHOTON_URL = 'https://photon.komoot.io/api/';
 const PHOTON_REVERSE_URL = 'https://photon.komoot.io/reverse';
@@ -38,7 +38,7 @@ const OVERPASS_CACHE_TTL_MS = 6 * 3600 * 1000;
 const PHOTON_CACHE_TTL_MS = 5 * 60 * 1000;
 const OVERPASS_BACKOFF_MS = PHOTON_CACHE_TTL_MS;
 /** Part of the cache key: bump it when cached places change shape (e.g. a new field, or more kept). */
-const PLACES_CACHE_VERSION = 3;
+const PLACES_CACHE_VERSION = 4;
 let overpassFailedAt = -Infinity;
 
 /**
@@ -434,7 +434,8 @@ export function parseOverpass(data, center, categoryIds, perCategory = PLACES_PE
       lng,
       category,
       typeLabel: typeLabelOf(tags),
-      openNow: tags.opening_hours === '24/7' ? true : null,
+      // The hours, not whether it's open: places are cached for hours, and shared.
+      ...(parseOsmHours(tags.opening_hours) && { hours: tags.opening_hours.trim() }),
       closedOnShabbat: closedOnShabbat(intervalsFromOsm(tags.opening_hours)),
       address: addressOf(tags),
       source: 'osm',
@@ -449,6 +450,11 @@ export function parseOverpass(data, center, categoryIds, perCategory = PLACES_PE
     for (const { rank, ...place } of list.slice(0, perCategory)) out.push(place);
   }
   return out;
+}
+
+/** A place with `openNow` worked out from its OpenStreetMap hours at `date` (null when unknown). */
+export function withOpenNow(place, date) {
+  return { ...place, openNow: place.hours ? openFromOsm(place.hours, date) : null };
 }
 
 const CACHE_PREFIX = 'inthemiddle.overpass.';
@@ -689,8 +695,11 @@ export function createOsmProvider() {
 
     // The caller's filter runs before each category is cut to PLACES_PER_CATEGORY,
     // so places it drops don't take the room of ones it keeps.
-    searchPlaces: async (center, radius, categoryIds, { keep = () => true } = {}) =>
-      capPerCategory(await overpassPlaces(center, radius, categoryIds), keep),
+    async searchPlaces(center, radius, categoryIds, { keep = () => true } = {}) {
+      const places = await overpassPlaces(center, radius, categoryIds);
+      const now = new Date(Date.now());
+      return capPerCategory(places.map((p) => withOpenNow(p, now)), keep);
+    },
 
     async createMap(container, options) {
       const { createLeafletMap } = await import('../ui/map-leaflet.js');

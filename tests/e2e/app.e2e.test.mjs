@@ -66,7 +66,8 @@ async function openApp({ key = '', google = null, osm = {}, share = null, firest
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err));
-  if (clock) await page.clock.install(); // time runs as usual, and tests can jump ahead
+  // Time runs as usual (from `clock`, when it's a Date), and tests can jump ahead.
+  if (clock) await page.clock.install(clock instanceof Date ? { time: clock } : undefined);
   await page.goto(server.url + query);
   return { page, context, osmLog, googleLog, shareLog, firestoreLog, errors, server };
 }
@@ -2037,6 +2038,27 @@ test('closed on Shabbat: only cafes whose hours show it, other kinds of places u
   assert.equal((await sharedLink(page)).searchParams.get('s'), '1');
   // Few cafes and restaurants left: a notice says why.
   assert.match(await page.locator('#status').textContent(), /סגורים בשבת/);
+  await context.close();
+});
+
+test('free mode: a café with OpenStreetMap hours says whether it is open now', async () => {
+  // Wednesday 25 November 2026, 07:30 in Israel. Cafe 1 opens at 07:00, cafes 2 and 3 at 08:00, cafes 4–5 have no hours.
+  const { page, context, errors } = await openApp({ clock: new Date('2026-11-25T05:30:00Z') });
+  await pickSuggestion(page, 'a', 'חיפה');
+  await pickSuggestion(page, 'b', 'תל אביב');
+  await search(page);
+  const openState = async (name) => {
+    const card = page.locator('#place-list .place-card', { has: page.locator('.place-name', { hasText: new RegExp(`^${name}$`) }) });
+    if (await card.locator('.open').count()) return 'open';
+    if (await card.locator('.closed').count()) return 'closed';
+    return null;
+  };
+  assert.deepEqual(
+    await Promise.all(['קפה 1', 'קפה 2', 'קפה 3', 'קפה 4', 'קפה 5'].map(openState)),
+    ['open', 'closed', 'closed', null, null],
+  );
+  assert.equal(await page.locator('#place-list .place-card .open', { hasText: 'פתוח עכשיו' }).count(), 1);
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
