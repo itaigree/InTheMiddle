@@ -1,7 +1,10 @@
 // "Closed on Shabbat", from a place's weekly opening hours: a hint that it may be
-// kosher (closed on Shabbat doesn't mean kosher, but it often goes with it).
+// kosher (closed on Shabbat doesn't mean kosher, but it often goes with it). Also
+// whether an OpenStreetMap place is open at a given moment, from the same hours.
 //
 // Hours are weekly intervals in minutes from Sunday 00:00, [start, end).
+
+import { israelClock } from './state.js';
 
 const DAY = 1440;
 const WEEK = 7 * DAY;
@@ -73,14 +76,16 @@ function parseTimes(text) {
 }
 
 /**
- * OpenStreetMap opening_hours → intervals, for the common forms only
- * ("Su-Th 08:00-22:00; Fr 08:00-14:00; Sa off", "24/7"). Anything else (months,
- * holidays only, comments…) is unknown (null) rather than guessed.
+ * OpenStreetMap opening_hours → [start, end, openEnd] weekly intervals, for the
+ * common forms only ("Su-Th 08:00-22:00; Fr 08:00-14:00; Sa off", "24/7").
+ * Anything else (months, holidays only, comments…) is unknown (null) rather than
+ * guessed. Public-holiday rules are left out. openEnd ("14:00+"): open until at
+ * least `end`, maybe later.
  */
-export function intervalsFromOsm(text) {
+export function parseOsmHours(text) {
   if (typeof text !== 'string' || !text.trim()) return null;
   const value = text.trim();
-  if (value === '24/7') return [[0, WEEK]];
+  if (value === '24/7') return [[0, WEEK, false]];
   if (value.includes('||')) return null; // fallback rules
   const perDay = new Map(); // day → [[start, end, openEnd] in minutes from that day's 00:00]
   // Rules are separated by ";" or by ", " before a new day selector ("Mo-Fr 08:00-17:00, PH off").
@@ -120,11 +125,36 @@ export function intervalsFromOsm(text) {
   if (![...perDay.values()].some((ranges) => ranges.length)) return null;
   const out = [];
   for (const [d, ranges] of perDay) {
-    for (const [s, e, openEnd] of ranges) {
-      // An open end ("14:00+") within half a day before or during Shabbat may run into it: unknown.
-      if (openEnd && d * DAY + e > SHABBAT[0] - 12 * 60 && d * DAY + e < SHABBAT[1]) return null;
-      out.push([d * DAY + s, d * DAY + e]);
-    }
+    for (const [s, e, openEnd] of ranges) out.push([d * DAY + s, d * DAY + e, openEnd]);
   }
   return out;
+}
+
+/** OpenStreetMap opening_hours → [start, end] intervals for closedOnShabbat, or null (see parseOsmHours). */
+export function intervalsFromOsm(text) {
+  const ranges = parseOsmHours(text);
+  if (!ranges) return null;
+  // An open end ("14:00+") within half a day before or during Shabbat may run into it: unknown.
+  if (ranges.some(([, e, openEnd]) => openEnd && e > SHABBAT[0] - 12 * 60 && e < SHABBAT[1])) return null;
+  return ranges.map(([s, e]) => [s, e]);
+}
+
+/** After an open end ("14:00+"), how long the place may still be open: unknown, not closed. */
+const OPEN_END_SPAN = 12 * 60;
+
+/**
+ * Is a place with these OpenStreetMap opening_hours open at `date`? Read on
+ * Israel's clock whatever zone the device is set to.
+ * @returns {boolean|null} null when the hours aren't understood, or past an open end
+ */
+export function openFromOsm(text, date = new Date()) {
+  const ranges = parseOsmHours(text);
+  if (!ranges) return null;
+  const clock = israelClock(date);
+  const now = clock.weekday * DAY + clock.hour * 60 + clock.minute;
+  // Intervals may run past the end of the week (Saturday night into Sunday).
+  const within = (start, end) => (now >= start && now < end) || (now + WEEK >= start && now + WEEK < end);
+  if (ranges.some(([s, e]) => within(s, e))) return true;
+  if (ranges.some(([, e, openEnd]) => openEnd && within(e, e + OPEN_END_SPAN))) return null;
+  return false;
 }

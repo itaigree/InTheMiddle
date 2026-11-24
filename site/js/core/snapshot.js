@@ -10,6 +10,7 @@
 import { CATEGORY_IDS } from './categories.js';
 import { MODES, PRIORITIES, PLACE_ID_RE, SNAPSHOT_ID_RE } from './state.js';
 import { haversine, metersFrom } from './geo.js';
+import { openFromOsm } from './shabbat.js';
 
 export const SNAPSHOT_VERSION = 1;
 /** A snapshot's id: 12 random URL-safe characters (72 bits), made by the sender's browser. */
@@ -32,6 +33,8 @@ export const SNAPSHOT_NOTICES = [
 ];
 
 const MAX_PLACES = 100;
+/** OpenStreetMap's longest tag value. */
+const MAX_HOURS_LENGTH = 255;
 const MAX_ROUTE_POINTS = 4000;
 /** How far the drawn route may stray from the real one (it's simplified to keep the snapshot small). */
 const ROUTE_TOLERANCE_M = 10;
@@ -99,7 +102,10 @@ export function makeSnapshot({ at, points, privatePoints = [], result, query }) 
       category: p.category,
       ...(p.typeLabel && { typeLabel: p.typeLabel }),
       ...(p.address && { address: p.address }),
-      openNow: typeof p.openNow === 'boolean' ? p.openNow : null,
+      // Whether it's open depends on when the link is opened, so the hours go instead
+      // (an app from before `hours` then shows nothing, rather than the sender's moment).
+      ...(p.hours && { hours: p.hours }),
+      openNow: p.hours ? null : typeof p.openNow === 'boolean' ? p.openNow : null,
       closedOnShabbat: typeof p.closedOnShabbat === 'boolean' ? p.closedOnShabbat : null,
       times: (p.times || [p.timeA, p.timeB]).map((t) => Math.round(t)),
     })),
@@ -200,6 +206,7 @@ export function parseSnapshot(value) {
     if (!isText(p.name, 200) || !isLatLng(p) || !CATEGORY_IDS.includes(p.category)) return null;
     if (p.typeLabel !== undefined && !isText(p.typeLabel, 100)) return null;
     if (p.address !== undefined && !isText(p.address, 300)) return null;
+    if (p.hours !== undefined && !isText(p.hours, MAX_HOURS_LENGTH)) return null;
     if (!isTriState(p.openNow) || !isTriState(p.closedOnShabbat)) return null;
     if (!Array.isArray(p.times) || p.times.length !== n || !p.times.every(isSeconds)) return null;
     ids.add(p.id);
@@ -211,6 +218,7 @@ export function parseSnapshot(value) {
       category: p.category,
       ...(p.typeLabel !== undefined && { typeLabel: p.typeLabel }),
       ...(p.address !== undefined && { address: p.address }),
+      ...(p.hours !== undefined && { hours: p.hours }),
       openNow: p.openNow ?? null,
       closedOnShabbat: p.closedOnShabbat ?? null,
       times: [...p.times],
@@ -237,10 +245,12 @@ export function parseSnapshot(value) {
 /**
  * A checked snapshot as the app's own search and result (as core/search.js and
  * core/group.js make them), to show without searching. The places keep their
- * order; the caller scores them (core/ranking.js) for the list.
+ * order; the caller scores them (core/ranking.js) for the list. A place with
+ * hours is open or closed as of `now`, when the link is opened.
  */
-export function snapshotToSearch(s) {
+export function snapshotToSearch(s, now = new Date()) {
   const departure = s.departure ? new Date(s.departure) : null;
+  const openNowOf = (p) => (p.hours ? { ...p, openNow: openFromOsm(p.hours, now) } : p);
   const points = s.points.map(({ label, lat, lng }) => ({ label, lat, lng, source: 'link' }));
   const modes = s.points.map((p) => p.mode);
   const [a, b, ...extra] = points;
@@ -275,7 +285,7 @@ export function snapshotToSearch(s) {
         points: points.map(({ lat, lng }) => ({ lat, lng })),
         modes,
         route: null,
-        places: s.places.map(({ times, ...p }) => ({ ...p, times, diff: Math.max(...times) - Math.min(...times) })),
+        places: s.places.map(({ times, ...p }) => ({ ...openNowOf(p), times, diff: Math.max(...times) - Math.min(...times) })),
       }
     : {
         ...common,
@@ -284,7 +294,7 @@ export function snapshotToSearch(s) {
         modeA: modes[0],
         modeB: modes[1],
         route: s.route ? s.route.map(([lat, lng]) => ({ lat, lng })) : null,
-        places: s.places.map(({ times: [timeA, timeB], ...p }) => ({ ...p, timeA, timeB, diff: Math.abs(timeA - timeB) })),
+        places: s.places.map(({ times: [timeA, timeB], ...p }) => ({ ...openNowOf(p), timeA, timeB, diff: Math.abs(timeA - timeB) })),
       };
   return { query, result };
 }

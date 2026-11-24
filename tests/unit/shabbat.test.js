@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closedOnShabbat, intervalsFromGoogle, intervalsFromOsm } from '../../site/js/core/shabbat.js';
+import { closedOnShabbat, intervalsFromGoogle, intervalsFromOsm, openFromOsm } from '../../site/js/core/shabbat.js';
 
 const osm = (text) => closedOnShabbat(intervalsFromOsm(text));
 
@@ -57,4 +57,29 @@ test('Google opening hours with missing times are unknown', () => {
   const g = (periods) => closedOnShabbat(intervalsFromGoogle({ periods }));
   assert.equal(g([{ open: { day: 5, hour: 8, minute: 0 }, close: { day: 6, minute: 0 } }]), null); // close.hour missing
   assert.equal(g([{ close: { day: 5, hour: 14, minute: 0 } }]), null); // no usable period
+});
+
+test('OSM opening hours: open at a moment, on Israel\'s clock', () => {
+  // November: Israel is UTC+2.
+  const at = (iso) => new Date(iso);
+  const usual = 'Su-Th 08:00-22:00; Fr 08:00-14:00';
+  assert.equal(openFromOsm(usual, at('2026-11-25T08:00:00Z')), true); // Wednesday 10:00
+  assert.equal(openFromOsm(usual, at('2026-11-25T19:59:00Z')), true); // Wednesday 21:59
+  assert.equal(openFromOsm(usual, at('2026-11-25T20:00:00Z')), false); // Wednesday 22:00
+  assert.equal(openFromOsm(usual, at('2026-11-27T13:00:00Z')), false); // Friday 15:00
+  assert.equal(openFromOsm(usual, at('2026-11-28T10:00:00Z')), false); // Saturday: not listed
+  // Saturday night past midnight, into the next week.
+  assert.equal(openFromOsm('Su-Th 08:00-23:00; Fr-Sa 09:00-01:00', at('2026-11-28T22:30:00Z')), true); // Sunday 00:30
+  assert.equal(openFromOsm('24/7', at('2026-11-28T03:00:00Z')), true);
+  assert.equal(openFromOsm('Mo-Su 08:00-22:00; PH off', at('2026-11-25T08:00:00Z')), true); // holidays aren't known
+});
+
+test('OSM opening hours: past an open end, or not understood, is unknown', () => {
+  const at = (iso) => new Date(iso);
+  assert.equal(openFromOsm('Mo-Su 10:00-14:00+', at('2026-11-25T14:00:00Z')), null); // 16:00, may still be open
+  assert.equal(openFromOsm('Mo-Su 10:00-14:00+', at('2026-11-25T10:00:00Z')), true); // 12:00
+  assert.equal(openFromOsm('Mo-Su 10:00-14:00+', at('2026-11-25T06:00:00Z')), false); // 08:00, before it opens
+  for (const text of [undefined, '', 'Jan-Mar Mo-Fr 08:00-17:00', 'off', 'Mo-Fr 08:00-17:00 || "by appointment"']) {
+    assert.equal(openFromOsm(text, at('2026-11-25T08:00:00Z')), null, String(text));
+  }
 });
